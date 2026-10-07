@@ -1,65 +1,37 @@
-# Building and publishing a release
+# Release process
 
-`version.json` is the authoritative application version. Release installers are distributed as assets on the [GitHub Releases](https://github.com/Christian-0777/nlsi_telemetry/releases) page; generated installers and build output are not committed to the source repository.
+`version.json` is the authoritative version. The current source release is v0.2.0. The installer is a GitHub Release asset; local builds do not publish or upload anything.
 
-## Build the release
+## Build and verify
 
-1. Update the `version` value in `version.json` using `X.Y.Z` semantic versioning. The installer builder reads this value and uses it for the output folder and installer filename.
-2. Run the Python tests:
+Requirements and test coverage are described in [Development](DEVELOPMENT.md). From the repository root, run:
 
-   ```bat
-   py -3 -m unittest discover -s test -v
-   ```
+```bat
+build-release.bat
+```
 
-3. Build the native telemetry DLL using the official SCS Telemetry SDK 1.15 and the installed Visual Studio C++ x64 tools:
+The script uses `C:\SCS\scs_sdk_1_15` by default. To select another extracted SDK, pass its path:
 
-   ```bat
-   build.bat "C:\SCS\scs_sdk_1_15"
-   ```
+```bat
+build-release.bat "D:\path\to\scs_sdk_1_15"
+```
 
-   The DLL is generated at `build\nlsi_telemetry.dll`. The SDK is only needed to build; do not copy its files into the release package or commit them.
+For a clean generated build:
 
-4. Build the installer:
+```bat
+build-release.bat clean
+```
 
-   ```bat
-   build-installer.bat "C:\SCS\scs_sdk_1_15"
-   ```
+The process validates `include\scssdk_telemetry.h`, builds `build\nlsi_telemetry.dll` using `build.bat`, verifies the DLL, runs the Python tests, then calls the existing `build-installer.bat` and `installer\build_installer.py` package flow. The installer builder also repeats tests and the DLL build before staging files and compiling with Inno Setup 6.
 
-   This command runs the tests and native build as part of the full packaging flow, prepares installer staging, and compiles the setup with Inno Setup 6.
+For v0.2.0, verify that these outputs exist:
 
-5. Verify the versioned output folder `build\vVERSION\`. It should contain:
+- `build\v0.2.0\NLSI-Telemetry-Setup-v0.2.0.exe`
+- `build\v0.2.0\build-info.json`
+- `build\nlsi_telemetry.dll`
 
-   - `NLSI-Telemetry-Setup-vVERSION.exe`
-   - `build-info.json`
-   - the generated `NLSI-Telemetry-vVERSION.iss`
+Inspect the generated Inno script and setup package before distribution. Generated `build\` outputs and `installer\staging\` are ignored by Git and should not be committed.
 
-   Replace `VERSION` with the value from `version.json` (for example, `0.1.0`). Check the installer exists and has a nonzero size. Do not add the generated `build\` or `installer\staging\` files to the source commit.
+## Publish
 
-## Create the GitHub release
-
-After reviewing the source changes and confirming the installer:
-
-1. Create a Git commit for the release source:
-
-   ```bat
-   git add -A
-   git commit -m "Prepare NLSI Telemetry v0.1.0 release"
-   ```
-
-   Substitute the current version in the commit message. Generated output, local telemetry data, secrets, and local build dependencies are excluded by `.gitignore`.
-
-2. Create an annotated version tag:
-
-   ```bat
-   git tag -a v0.1.0 -m "NLSI Telemetry v0.1.0"
-   ```
-
-   Substitute the current version for `0.1.0`. Push the release commit and tag to the GitHub repository before creating the release.
-
-3. On GitHub, create a Release from the matching `vVERSION` tag and attach the installer from `build\vVERSION\`. Use this asset filename:
-
-   ```text
-   NLSI-Telemetry-Setup-vVERSION.exe
-   ```
-
-No GitHub Release is created automatically by the local build process.
+After the source release has been reviewed and published to the repository, create a GitHub Release for the matching version tag and attach `NLSI-Telemetry-Setup-v0.2.0.exe`. No upload or GitHub Release creation occurs in the local build command.

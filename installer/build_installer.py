@@ -57,7 +57,7 @@ def prepare_staging(version: str, sdk_root: Path) -> Path:
         stage_root / "data",
         stage_root / "logs",
         stage_root / "runtime",
-        stage_root / "Desktop",
+        stage_root / "tools",
     ]
     for directory in dirs:
         directory.mkdir(parents=True, exist_ok=True)
@@ -69,7 +69,10 @@ def prepare_staging(version: str, sdk_root: Path) -> Path:
     shutil.copy2(ROOT / "build" / "nlsi_telemetry.dll", stage_root / "bin" / "nlsi_telemetry.dll")
 
     launcher_source = ROOT / "installer" / "NLSI-Telemetry-Launcher.bat"
-    shutil.copy2(launcher_source, stage_root / "Desktop" / "NLSI Telemetry.bat")
+    shutil.copy2(launcher_source, stage_root / "NLSI-Telemetry.bat")
+
+    install_helper_source = ROOT / "installer" / "InstallGamePlugins.ps1"
+    shutil.copy2(install_helper_source, stage_root / "tools" / "InstallGamePlugins.ps1")
 
     # Keep the package layout explicit for a first professional installer.
     return stage_root
