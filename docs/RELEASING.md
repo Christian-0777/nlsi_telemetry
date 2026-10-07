@@ -1,6 +1,6 @@
 # Release process
 
-`version.json` is the authoritative version. The current source release is v0.2.0. The installer is a GitHub Release asset; local builds do not publish or upload anything.
+`version.json` is the authoritative NLSI application version. For v0.3.2 the SCS telemetry API value remains independent (the plugin currently reports `1.01`). The installer is a release asset; local builds do not publish or upload anything.
 
 ## Build and verify
 
@@ -16,22 +16,22 @@ The script uses `C:\SCS\scs_sdk_1_15` by default. To select another extracted SD
 build-release.bat "D:\path\to\scs_sdk_1_15"
 ```
 
-For a clean generated build:
+For a clean build of only the current version:
 
 ```bat
 build-release.bat clean
 ```
 
-The process validates `include\scssdk_telemetry.h`, builds `build\nlsi_telemetry.dll` using `build.bat`, verifies the DLL, runs the Python tests, then calls the existing `build-installer.bat` and `installer\build_installer.py` package flow. The installer builder also repeats tests and the DLL build before staging files and compiling with Inno Setup 6.
+The release script reads `version.json`, creates `build\v<VERSION>\`, calls `build.bat` to compile `src\nlsi_telemetry.cpp` and `src\nlsi_telemetry.def` into that directory, runs the tests, and then invokes the installer builder. The installer stages the matching versioned DLL, `agent.py`, `gui_app.py`, `.env.example`, and `img\logo.ico`; it does not take a DLL from the shared build root.
 
-For v0.2.0, verify that these outputs exist:
+For v0.3.2, verify these outputs:
 
-- `build\v0.2.0\NLSI-Telemetry-Setup-v0.2.0.exe`
-- `build\v0.2.0\build-info.json`
-- `build\nlsi_telemetry.dll`
+- `build\v0.3.2\nlsi_telemetry.dll`
+- `build\v0.3.2\NLSI-Telemetry-Setup-v0.3.2.exe`
+- `build\v0.3.2\build-info.json`
 
-Inspect the generated Inno script and setup package before distribution. Generated `build\` outputs and `installer\staging\` are ignored by Git and should not be committed.
+The package contains the seven-tab Tkinter UI and icon. Generated `build\` outputs and `installer\staging\` are ignored by Git and should not be committed.
 
 ## Publish
 
-After the source release has been reviewed and published to the repository, create a GitHub Release for the matching version tag and attach `NLSI-Telemetry-Setup-v0.2.0.exe`. No upload or GitHub Release creation occurs in the local build command.
+After reviewing and publishing the source release, create a GitHub Release for the matching version tag and attach its installer. No upload or GitHub Release creation occurs in the local build command.

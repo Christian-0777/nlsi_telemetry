@@ -98,7 +98,7 @@ class DashboardRendererTests(unittest.TestCase):
         self.agent.process_message(telemetry(), now=1.0)
         dashboard = "\n".join(self.renderer.dashboard(now=1.5))
 
-        self.assertIn("NLSI Telemetry: 0.3.1", dashboard)
+        self.assertIn("NLSI Telemetry: 0.3.2", dashboard)
         self.assertIn("SCS Telemetry API: 1.01", dashboard)
 
     def test_dashboard_uses_real_cruise_retarder_throttle_brake_and_gear_values(self) -> None:

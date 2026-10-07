@@ -41,6 +41,10 @@ def run_command(args: list[str], cwd: Path | None = None, description: str | Non
         raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(args)}")
 
 
+def versioned_build_path(version: str) -> Path:
+    return ROOT / "build" / f"v{version}"
+
+
 def prepare_staging(version: str, sdk_root: Path) -> Path:
     stage_root = ROOT / "installer" / "staging"
     if stage_root.exists():
@@ -58,15 +62,22 @@ def prepare_staging(version: str, sdk_root: Path) -> Path:
         stage_root / "logs",
         stage_root / "runtime",
         stage_root / "tools",
+        stage_root / "app" / "img",
     ]
     for directory in dirs:
         directory.mkdir(parents=True, exist_ok=True)
 
+    dll_source = versioned_build_path(version) / "nlsi_telemetry.dll"
+    if not dll_source.exists():
+        raise FileNotFoundError(f"Missing DLL for version {version}: {dll_source}")
+
     shutil.copy2(ROOT / "agent.py", stage_root / "app" / "agent.py")
+    shutil.copy2(ROOT / "gui_app.py", stage_root / "app" / "gui_app.py")
     shutil.copy2(ROOT / "README.md", stage_root / "app" / "README.md")
+    shutil.copy2(ROOT / "img" / "logo.ico", stage_root / "app" / "img" / "logo.ico")
     shutil.copy2(ROOT / "version.json", stage_root / "version.json")
     shutil.copy2(ROOT / ".env.example", stage_root / "config" / ".env.example")
-    shutil.copy2(ROOT / "build" / "nlsi_telemetry.dll", stage_root / "bin" / "nlsi_telemetry.dll")
+    shutil.copy2(dll_source, stage_root / "bin" / "nlsi_telemetry.dll")
 
     launcher_source = ROOT / "installer" / "NLSI-Telemetry-Launcher.bat"
     shutil.copy2(launcher_source, stage_root / "NLSI-Telemetry.bat")
@@ -114,6 +125,8 @@ def locate_iscc() -> str:
 def build_iss_file(version: str, stage_root: Path, version_build_root: Path) -> Path:
     template = ISS_TEMPLATE.read_text(encoding="utf-8")
     compiled = template.replace('#define AppVersion "__APP_VERSION__"', f'#define AppVersion "{version}"')
+    setup_icon = (stage_root / "app" / "img" / "logo.ico").resolve().as_posix()
+    compiled = compiled.replace("SetupIconFile=__SETUP_ICON__", f"SetupIconFile={setup_icon}")
     compiled = compiled.replace("OutputDir=..\\build\\v{#AppVersion}", f"OutputDir={version_build_root.as_posix()}")
     compiled = compiled.replace("SourceDir=staging", f"SourceDir={stage_root.as_posix()}")
 

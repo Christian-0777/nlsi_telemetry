@@ -4,18 +4,18 @@
 
 - Windows x64.
 - ETS2 and/or ATS for live game telemetry.
-- For the installed launcher, Python 3.10 or newer and the Windows Python Launcher (`py`) unless a bundled `runtime\python.exe` is provided separately.
+- For the installed launcher, Python 3.10 or newer and the Windows Python Launcher (`pyw`) unless a bundled runtime is provided.
 - Administrator approval for installation under the default `C:\nlsi-tem` path and game plugin folders.
 
 The installer does not bundle a Python runtime in the current build. The native plugin is included in the installer; the SCS SDK and MSVC are build-time dependencies only.
 
 ## Fresh installation
 
-1. Download `NLSI-Telemetry-Setup-v0.2.0.exe` from the [GitHub Release](https://github.com/Christian-0777/nlsi_telemetry/releases).
+1. Download `NLSI-Telemetry-Setup-v0.3.2.exe` from the [GitHub Release](https://github.com/Christian-0777/nlsi_telemetry/releases).
 2. Close ETS2 and ATS before setup.
 3. Run the installer and approve its administrator prompt.
 4. Keep or select the application install directory (the default is `C:\nlsi-tem`).
-5. Setup installs the agent, canonical DLL at `bin\nlsi_telemetry.dll`, launcher BAT, version information, and the installer helper.
+5. Setup installs the agent and Tkinter GUI, canonical DLL at `bin\nlsi_telemetry.dll`, application logo, launcher BAT, version information, and the installer helper.
 6. Setup searches detected Steam libraries for ETS2 and ATS. For each installed game it creates the `bin\win_x64\plugins` directory if needed and copies the canonical DLL there.
 7. Setup creates **NLSI Telemetry** shortcuts in the Start Menu and on the current user's Desktop.
 8. On the final page, plugin detection results are shown. Optionally check **TikTok - @kape_073**. The default is unchecked; TikTok is opened only after Finish is clicked with the box checked.
@@ -37,7 +37,7 @@ If a game is running or otherwise locks its plugin DLL, setup reports the plugin
 
 ## Upgrade from v0.1.0
 
-Run the v0.2.0 installer over the existing install; a manual uninstall is not required. Both versions use the same Inno Setup application identity and default install path, so the update can append to the existing uninstall log and update the installed files and shortcuts.
+Run the v0.3.2 installer over the existing install; a manual uninstall is not required. It uses the existing Inno Setup application identity and default install path, so the update can append to the existing uninstall log and update the installed files and shortcuts.
 
 The upgrade does not remove the entire application directory. Existing `config`, `data`, `logs`, and agent event output under `app\test\output` are retained. The example configuration is installed only if it does not already exist. Setup also removes the v0.1.0 startup shortcut and launcher BAT from the common Startup folder so the agent is not started automatically at Windows sign-in.
 
@@ -45,7 +45,7 @@ Close ETS2 and ATS before updating so their loaded plugin copies can be replaced
 
 ## Launcher and shortcuts
 
-The installed `NLSI-Telemetry.bat` resolves its application directory relative to itself. It uses `<install directory>\runtime\python.exe` if present; otherwise it launches the agent with `py -3`. No manual BAT or shortcut creation is required.
+The installed `NLSI-Telemetry.bat` resolves its application directory relative to itself. It uses `<install directory>\runtime\pythonw.exe` if present; otherwise it launches with `pyw -3` to open the GUI without a persistent CMD dashboard. If the window does not start, `py -3 agent.py` from the `app` directory provides console diagnostics. No manual BAT or shortcut creation is required.
 
 The Start Menu and Desktop shortcuts point to the installed BAT. The uninstaller removes those Inno Setup-managed shortcuts. It also attempts to remove only game plugin DLL copies recorded by NLSI and whose contents still match the installed canonical DLL; changed files are left in place. A locked plugin copy that cannot be removed is recorded in the persistent installer log.
 

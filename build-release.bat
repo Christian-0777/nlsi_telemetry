@@ -24,6 +24,7 @@ echo.
 
 set "CLEAN_BUILD=0"
 set "SDK_ROOT=C:\SCS\scs_sdk_1_15"
+set "BUILD_OUTPUT=%CD%\build\v%APP_VERSION%"
 
 if /i "%~1"=="clean" goto clean_argument
 if not "%~1"=="" goto sdk_argument
@@ -51,25 +52,26 @@ echo [OK] SDK found: "%SDK_ROOT%"
 
 if "%CLEAN_BUILD%"=="1" (
     echo [INFO] Removing generated build artifacts...
-    if exist "%CD%\build" rmdir /s /q "%CD%\build"
+    if exist "%BUILD_OUTPUT%" rmdir /s /q "%BUILD_OUTPUT%"
     if errorlevel 1 (
-        echo [ERROR] Could not remove the generated build directory.
+        echo [ERROR] Could not remove the current version build directory.
         exit /b 1
     )
-    echo [OK] Generated build artifacts removed
+    echo [OK] Current version build artifacts removed
 )
 
 echo [2/4] Building telemetry DLL...
-call "%CD%\build.bat" "%SDK_ROOT%"
+call "%CD%\build.bat" "%SDK_ROOT%" "%BUILD_OUTPUT%"
 if errorlevel 1 (
     echo [ERROR] DLL compilation failed.
     exit /b %ERRORLEVEL%
 )
-if not exist "%CD%\build\nlsi_telemetry.dll" (
-    echo [ERROR] DLL build reported success, but build\nlsi_telemetry.dll was not created.
+if not exist "%BUILD_OUTPUT%\nlsi_telemetry.dll" (
+    echo [ERROR] DLL build reported success, but the expected DLL was not created:
+    echo         "%BUILD_OUTPUT%\nlsi_telemetry.dll"
     exit /b 1
 )
-echo [OK] DLL built
+echo [OK] DLL built: "%BUILD_OUTPUT%\nlsi_telemetry.dll"
 
 echo [3/4] Running tests...
 py -3 -m unittest discover -s test -v
@@ -80,6 +82,10 @@ if errorlevel 1 (
 echo [OK] All tests passed
 
 echo [4/4] Building installer...
+if not exist "%BUILD_OUTPUT%\nlsi_telemetry.dll" (
+    echo [ERROR] Versioned DLL is missing; refusing to build an installer from a different DLL.
+    exit /b 1
+)
 call "%CD%\build-installer.bat" "%SDK_ROOT%"
 if errorlevel 1 (
     echo [ERROR] Installer build failed.
@@ -98,7 +104,7 @@ if not exist "%BUILD_INFO_PATH%" (
     echo         "%BUILD_INFO_PATH%"
     exit /b 1
 )
-echo [OK] Installer built
+echo [OK] Installer built: "%INSTALLER_PATH%"
 
 echo.
 echo ========================================
@@ -112,7 +118,7 @@ echo Build info:
 echo %BUILD_INFO_PATH%
 echo.
 echo DLL:
-echo %CD%\build\nlsi_telemetry.dll
+echo %CD%\build\v%APP_VERSION%\nlsi_telemetry.dll
 echo.
 echo ========================================
 exit /b 0

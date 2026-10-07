@@ -16,6 +16,7 @@ DefaultGroupName={#AppName}
 OutputBaseFilename=NLSI-Telemetry-Setup-v{#AppVersion}
 OutputDir=..\build\v{#AppVersion}
 SourceDir=staging
+SetupIconFile=__SETUP_ICON__
 Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=admin
@@ -47,8 +48,8 @@ Name: "{app}\runtime"; Flags: uninsneveruninstall
 Name: "{app}\app\test\output"; Flags: uninsneveruninstall
 
 [Icons]
-Name: "{group}\NLSI Telemetry"; Filename: "{app}\NLSI-Telemetry.bat"; WorkingDir: "{app}\app"
-Name: "{autodesktop}\NLSI Telemetry"; Filename: "{app}\NLSI-Telemetry.bat"; WorkingDir: "{app}\app"
+Name: "{group}\NLSI Telemetry"; Filename: "{app}\NLSI-Telemetry.bat"; WorkingDir: "{app}\app"; IconFilename: "{app}\app\img\logo.ico"
+Name: "{autodesktop}\NLSI Telemetry"; Filename: "{app}\NLSI-Telemetry.bat"; WorkingDir: "{app}\app"; IconFilename: "{app}\app\img\logo.ico"
 
 [Code]
 type

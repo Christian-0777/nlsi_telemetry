@@ -164,6 +164,42 @@ class TelemetryAgentTests(unittest.TestCase):
         self.assertEqual(["SESSION_STARTED"], [event["event"] for event in events])
         self.assertEqual("ets2", events[0]["game"])
 
+    def test_session_ids_skip_ids_already_persisted_in_event_history(self) -> None:
+        events_path = Path(self.temp_dir.name) / "events.jsonl"
+        events_path.write_text(
+            json.dumps(
+                {
+                    "timestamp": "2026-10-08T00:00:00Z",
+                    "event": "SESSION_STARTED",
+                    "game": "ets2",
+                    "data": {"session_id": "NLSI-20261008-0001"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        new_id = self.agent._new_session_id("2026-10-08T00:00:00Z")
+        self.assertNotEqual("NLSI-20261008-0001", new_id)
+
+    def test_reconnected_session_gets_a_new_id_and_fresh_metrics(self) -> None:
+        self.agent.process_message(
+            {"type": "plugin_init", "game": GAME, "timestamp": "2026-10-08T00:00:00Z"},
+            now=0.0,
+        )
+        first_id = self.agent.session_id
+        self.agent.process_message(
+            {"type": "plugin_shutdown", "game": GAME, "timestamp": "2026-10-08T00:01:00Z"},
+            now=60.0,
+        )
+        self.agent.process_message(
+            {"type": "plugin_init", "game": GAME, "timestamp": "2026-10-08T00:02:00Z"},
+            now=120.0,
+        )
+
+        self.assertNotEqual(first_id, self.agent.session_id)
+        self.assertEqual(0.0, self.agent._session_metrics(120.0)["duration_seconds"])
+
 
 if __name__ == "__main__":
     unittest.main()

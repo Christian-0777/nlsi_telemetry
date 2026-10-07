@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = ROOT / "test" / "output"
 DATA_DIR = ROOT / "data"
 SESSION_DATA_DIR = DATA_DIR / "sessions"
-LOGO_PATH = ROOT / "img" / "logo.png"
+LOGO_PATH = ROOT / "img" / "logo.ico"
 UDP_HOST = "127.0.0.1"
 UDP_PORT = 28745
 HEARTBEAT_INTERVAL_SECONDS = 15.0
@@ -46,6 +46,15 @@ class TelemetryAgent:
         self.session_id: str | None = None
         self._session_sequence = 0
         self.session_started_at: str | None = None
+        self.last_session_id: str | None = None
+        self.last_session_started_at: str | None = None
+        self.last_session_ended_at: str | None = None
+        self.last_session_metrics: dict[str, float | int] = {
+            "duration_seconds": 0.0,
+            "driving_time_seconds": 0.0,
+            "distance_driven_km": 0.0,
+            "jobs_performed": 0,
+        }
         self.session_started_monotonic: float | None = None
         self.last_accounted_monotonic: float | None = None
         self.last_packet_monotonic: float | None = None
@@ -61,8 +70,6 @@ class TelemetryAgent:
         self.last_odometer_km: float | None = None
         self.jobs_performed = 0
         self._seen_job_configurations: set[str] = set()
-        self._job_pdf_path: Path | None = None
-        self._job_pdf_exported = False
 
     def _set_game(self, game: Any) -> None:
         if not isinstance(game, dict):
@@ -80,8 +87,28 @@ class TelemetryAgent:
                 dt = datetime.now(timezone.utc)
         else:
             dt = datetime.now(timezone.utc)
+        day_prefix = f"NLSI-{dt.strftime('%Y%m%d')}-"
+        existing_ids: set[str] = set()
+        if self.events_path.exists():
+            with self.events_path.open("r", encoding="utf-8") as event_file:
+                for line_number, line in enumerate(event_file, start=1):
+                    if not line.strip():
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError as error:
+                        raise ValueError(f"Cannot create a session ID: invalid event JSON at line {line_number}.") from error
+                    if not isinstance(record, dict):
+                        continue
+                    data = record.get("data")
+                    if isinstance(data, dict) and isinstance(data.get("session_id"), str):
+                        existing_ids.add(data["session_id"])
         self.__class__._session_counter += 1
-        return f"NLSI-{dt.strftime('%Y%m%d')}-{self.__class__._session_counter:04d}"
+        sequence = self.__class__._session_counter
+        while f"{day_prefix}{sequence:04d}" in existing_ids:
+            sequence += 1
+        self.__class__._session_counter = sequence
+        return f"{day_prefix}{sequence:04d}"
 
     def _job_snapshot(self) -> dict[str, Any]:
         active_job = self.configurations.get("job") or self.configurations.get("car_job") or self.configurations.get("bus_job") or {}
@@ -109,30 +136,15 @@ class TelemetryAgent:
             "position": position,
         }
 
-    def _pdf_storage_dir(self) -> Path:
-        SESSION_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        return SESSION_DATA_DIR
-
     def _escape_pdf_text(self, value: str) -> str:
         return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
-    def _write_pdf_report(self, job_data: dict[str, Any]) -> Path:
-        session_id = job_data.get("session_id") or self.session_id or "NLSI-SESSION"
+    def _write_pdf_report(self, job_data: dict[str, Any], output_path: Path) -> Path:
+        session_id = job_data.get("session_id") or "--"
         now_utc = datetime.now(timezone.utc)
-        safe_name = session_id
-        candidate = self._pdf_storage_dir() / f"{safe_name}.pdf"
-        if candidate.exists():
-            counter = 1
-            while True:
-                alt = self._pdf_storage_dir() / f"{safe_name}-{counter}.pdf"
-                if not alt.exists():
-                    candidate = alt
-                    break
-                counter += 1
-
-        session_start = self.session_started_at or job_data.get("session_start") or now_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        end_time = job_data.get("end_time") or now_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        elapsed_seconds = max(0.0, self.driving_time_seconds)
+        session_start = job_data.get("start_time") or job_data.get("session_start") or "--"
+        end_time = job_data.get("end_time") or "--"
+        elapsed_seconds = max(0.0, float(job_data.get("duration_seconds") or 0.0))
         source = job_data.get("source") or "N/A"
         destination = job_data.get("destination") or "N/A"
         distance = job_data.get("distance_km") or job_data.get("planned_distance_km") or "N/A"
@@ -175,8 +187,8 @@ class TelemetryAgent:
             f"Revenue: {job_data.get('revenue') or 'N/A'}",
             "",
             "NLSI Telemetry Agent",
-            "Generated automatically",
-            f"Version {__package__ or '0.3.0'}",
+            "Generated on user request",
+            f"Version {app_version()}",
             f"Logo: {logo_reference}",
         ]
 
@@ -210,42 +222,8 @@ class TelemetryAgent:
         pdf_bytes.extend(
             f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode("latin-1")
         )
-        candidate.write_bytes(pdf_bytes)
-        self._job_pdf_path = candidate
-        return candidate
-
-    def _start_pdf_export(self, payload: dict[str, Any]) -> Path | None:
-        try:
-            pdf_path = self._write_pdf_report({"session_id": self.session_id, **payload})
-            self._job_pdf_exported = True
-            return pdf_path
-        except Exception:  # pragma: no cover - defensive path
-            return None
-
-    def _maybe_export_completed_job(self, event: str, data: dict[str, Any], timestamp: str | None = None) -> None:
-        if event not in {"job.delivered", "car_job.delivered"}:
-            return
-        if self._job_pdf_exported:
-            return
-        active_job = self.configurations.get("job") or self.configurations.get("car_job") or self.configurations.get("bus_job") or {}
-        summary = self._job_snapshot()
-        summary.update(
-            {
-                "event": event,
-                "distance_km": data.get("distance_km")
-                or data.get("distance.km")
-                or data.get("distance")
-                or configured_value(active_job, "distance_km", "planned_distance_km", "planned_distance"),
-                "session_start": self.session_started_at,
-                "end_time": timestamp or utc_now(),
-                "truck_brand": configured_value(self.configurations.get("truck", {}), "brand", "manufacturer"),
-                "truck_model": configured_value(self.configurations.get("truck", {}), "name", "model", "model_name"),
-                "license_plate": configured_value(self.configurations.get("truck", {}), "license_plate", "licenseplate", "plate"),
-                "fuel_liters": (self.latest_telemetry or {}).get("truck", {}).get("fuel_liters") if isinstance(self.latest_telemetry, dict) else None,
-                "odometer_km": (self.latest_telemetry or {}).get("truck", {}).get("odometer_km") if isinstance(self.latest_telemetry, dict) else None,
-            }
-        )
-        self._start_pdf_export(summary)
+        output_path.write_bytes(pdf_bytes)
+        return output_path
 
     def _record_event(self, event: str, data: dict[str, Any], timestamp: str | None = None) -> None:
         if self.game is None:
@@ -296,11 +274,16 @@ class TelemetryAgent:
             raise ValueError("Cannot start a session without game metadata.")
         if self.session_id is None:
             self.session_id = self._new_session_id(timestamp)
+        if self.last_session_id is not None:
+            self.driving_time_seconds = 0.0
+            self.distance_driven_km = 0.0
+            self.jobs_performed = 0
+            self.last_odometer_km = None
         self.session_started_at = timestamp
+        self.last_session_started_at = timestamp
         self.session_started_monotonic = now
         self.last_accounted_monotonic = now
         self.last_heartbeat_monotonic = now
-        self._job_pdf_exported = False
         self._record_event(
             "SESSION_STARTED",
             {
@@ -323,15 +306,20 @@ class TelemetryAgent:
         self._update_driving_clock(end_time)
         self._record_event(
             "SESSION_ENDED",
-            {"reason": reason, **self._session_metrics(end_time)},
+            {"session_id": self.session_id, "reason": reason, **self._session_metrics(end_time)},
             timestamp,
         )
+        self.last_session_id = self.session_id
+        self.last_session_metrics = self._session_metrics(end_time)
+        self.last_session_ended_at = timestamp or utc_now()
+        self.session_id = None
         self.session_started_at = None
         self.session_started_monotonic = None
         self.last_accounted_monotonic = None
         self.last_heartbeat_monotonic = None
         self.driving = False
         self.last_odometer_km = None
+        self.last_packet_monotonic = None
 
     def _handle_configuration(self, message: dict[str, Any], now: float) -> None:
         config_id = message.get("id")
@@ -344,7 +332,12 @@ class TelemetryAgent:
             if config_id in self._seen_job_configurations and not previous and attributes:
                 self._record_event(
                     "JOB_STARTED",
-                    {"configuration": config_id, "job": attributes, "derived_from": "configuration_change"},
+                    {
+                        "session_id": self.session_id,
+                        "configuration": config_id,
+                        "job": attributes,
+                        "derived_from": "configuration_change",
+                    },
                     message.get("timestamp"),
                 )
             self._seen_job_configurations.add(config_id)
@@ -358,9 +351,15 @@ class TelemetryAgent:
             raise ValueError("Gameplay message must contain a string event and object data.")
         if event in {"job.delivered", "car_job.delivered"}:
             self.jobs_performed += 1
-        self._record_event(event, {"session_id": self.session_id, **data}, message.get("timestamp"))
-        if event in {"job.delivered", "car_job.delivered"}:
-            self._maybe_export_completed_job(event, data, message.get("timestamp"))
+        event_data = {"session_id": self.session_id, **data}
+        if event in {
+            "job.delivered",
+            "car_job.delivered",
+            "job.cancelled",
+            "car_job.cancelled",
+        }:
+            event_data["job_snapshot"] = self._job_snapshot()
+        self._record_event(event, event_data, message.get("timestamp"))
 
     def _snapshot(self, message: dict[str, Any], now: float) -> None:
         timestamp = message.get("timestamp")
@@ -486,12 +485,12 @@ def app_version() -> str:
     try:
         payload = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
-        return "0.3.1"
+        return "0.3.2"
     if isinstance(payload, dict):
         version = payload.get("version")
         if isinstance(version, str) and version.strip():
             return version
-    return "0.3.1"
+    return "0.3.2"
 
 
 def display_value(value: Any) -> str:
@@ -930,9 +929,16 @@ def handle_console_key(view: str, key: str | None) -> tuple[str, bool]:
 def run_agent() -> None:
     parser = argparse.ArgumentParser(description="NLSI local ETS2/ATS telemetry agent")
     parser.add_argument("--port", type=int, default=UDP_PORT, help="UDP port used by the local SCS plugin")
+    parser.add_argument("--console", action="store_true", help="Use the legacy console dashboard instead of the desktop GUI")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("--port must be between 1 and 65535")
+
+    if not args.console:
+        from gui_app import run_gui
+
+        run_gui(args.port)
+        return
 
     agent = TelemetryAgent(output=lambda _message: None)
     renderer = DashboardRenderer(agent)

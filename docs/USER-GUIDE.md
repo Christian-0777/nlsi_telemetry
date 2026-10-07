@@ -1,52 +1,45 @@
 # NLSI Telemetry user guide
 
-## Installation
+## Installation and launch
 
-Install the Windows x64 setup package from the [GitHub Releases page](https://github.com/Christian-0777/nlsi_telemetry/releases). Close ETS2 and ATS before installing or updating. The installer creates Desktop and Start Menu shortcuts and attempts to install the plugin for each detected Steam game. See [Installation](INSTALLATION.md) for requirements and upgrade details.
+Install the v0.3.2 package from the [GitHub Releases page](https://github.com/Christian-0777/nlsi_telemetry/releases). Close ETS2 and ATS before installing or updating. Start **NLSI Telemetry Agent** from its Desktop or Start Menu shortcut before opening the game. The GUI can also start without a game; live values remain unavailable until the SCS plugin sends packets.
 
-The installer currently does not bundle Python. If no bundled runtime is present, the launcher uses the Windows Python Launcher (`py -3`) and requires Python 3.10 or newer.
+The launcher uses a bundled `runtime\pythonw.exe` when available, otherwise `pyw -3`. If the window does not open, launch `py -3 agent.py` from the installation's `app` folder to see startup errors. Python 3.10 or newer and the Windows Python Launcher are required when no runtime is bundled.
 
-## Launching
+## Tabs
 
-Start **NLSI Telemetry** from the Desktop or Start Menu before opening ETS2 or ATS. The console agent listens on `127.0.0.1:28745`. Once the game loads the plugin, the dashboard identifies the game and displays available telemetry.
+- **Main** — live game/plugin connection, session, truck, job, and real-time information. Missing values display as `--`. Position is retained in telemetry internally but is not shown here.
+- **Finished Jobs** — job records derived from persisted job-start, delivery, and cancellation events. Filter by All, Delivered, Pending, or Cancelled and select a row to inspect its recorded details. A field absent from the source event is not inferred.
+- **PDF Export** — choose a delivered job, click **Export PDF**, then select a destination in the Windows save dialog. No report is generated automatically when a job ends.
+- **Debug** — application/API versions, connection and packet diagnostics, last errors, and a redacted view of the latest telemetry packet. `.env` secrets are not included.
+- **Events** — persisted session and gameplay records from the JSONL event log.
+- **Active Mods** — mod detection is unavailable through the official telemetry interface used by this application; no unsupported detection is attempted.
+- **About Us** — Nabski Logistics and Solutions Inc., NLSI, Kamote Hauling, version, and any configured social links.
 
-If the game was already running when the plugin was installed or updated, close and relaunch the game so it loads the updated plugin.
+## Time and versions
 
-## Dashboard
+Real time uses the system clock formatted for UTC+08:00 Asia/Manila. Navigation ETA is calculated only when both navigation distance and positive vehicle speed are available. The current SCS plugin does not send game simulation time, so game time, in-game elapsed time, and game ETA are not fabricated and remain unavailable.
 
-The dashboard presents the live game and connection state, truck values, world position, navigation values, truck/job configuration, and session metrics. The exact values depend on what the game supplies. Missing or unavailable values display as `--`; this does not necessarily mean the plugin is malfunctioning.
+The NLSI application version is **0.3.2**. The SCS telemetry API version is a separate value reported by telemetry (currently 1.01); the GUI does not substitute the application version.
 
-## Controls
+## Configuration and privacy
 
-- **D** toggles the latest raw telemetry packet as formatted JSON.
-- **E** toggles the recent-events view.
-- **Q** stops the agent cleanly. Ctrl+C is also supported.
-
-The events view shows recent session, driving-state, derived job-start, and game-reported gameplay events. Event records are appended to the local `events.jsonl` file.
-
-## ETS2 and ATS
-
-The same agent and native plugin support ETS2 and ATS. Start the agent first, then launch the game and load a profile. The plugin reports which game it detected. Some dashboard fields remain unavailable when the game or its telemetry API does not provide them.
+Optional social links are read from `.env` (the source tree root during development or the installed `config\.env`). Copy `.env.example` as a starting point. Only configured HTTP(S) social/website URLs are shown in About Us. API keys, tokens, and passwords are not displayed or sent anywhere. Telemetry and event history remain local.
 
 ## Troubleshooting
 
-### Dashboard says disconnected
+### The GUI does not start
 
-1. Confirm the NLSI Telemetry console is running.
-2. Confirm the game was launched after the plugin was installed.
-3. Check that `nlsi_telemetry.dll` exists in the game's `bin\win_x64\plugins` directory.
-4. If the game was running during setup, close and relaunch it.
+Run `py -3 agent.py` from the installed `app` directory to view errors. Confirm Python 3.10+ and the Windows Python Launcher are installed. The app requires Tkinter, which is included with the standard Windows Python distribution.
 
-The agent listens only on the local loopback address. It does not receive telemetry while the game/plugin is not sending packets.
+### Telemetry says disconnected
 
-### Automatic game detection skipped a game
+Confirm the game was started after plugin installation and that `nlsi_telemetry.dll` exists in the game's `bin\win_x64\plugins` directory. The agent listens only on `127.0.0.1:28745`. Debug shows a bind error if another process already uses that port.
 
-The installer detects registered Steam installations, Steam library paths from `steamapps\libraryfolders.vdf`, and common Steam folders at drive roots. For a non-Steam or otherwise unrecognized installation, close the game and copy `C:\nlsi-tem\bin\nlsi_telemetry.dll` into that game's `bin\win_x64\plugins` folder.
+### History is empty
 
-### Launcher reports that Python is missing
+Finished Jobs and Events use `app\test\output\events.jsonl` in the default installation (`C:\nlsi-tem\app\test\output\events.jsonl`). Job fields only appear when the game/plugin included them in persisted events.
 
-Install Python 3.10 or newer with the Windows Python Launcher enabled, then run the shortcut again. The launcher prefers `runtime\python.exe` if a bundled runtime is present.
+### Known limitations
 
-### Data and logs
-
-The agent writes gameplay/session events to `app\test\output\events.jsonl` below the install directory (by default `C:\nlsi-tem\app\test\output\events.jsonl`). Installer plugin detection and copy results are recorded in `logs\game-plugin-install.log` and `logs\game-plugin-status.txt`.
+The current plugin does not provide game-time samples or reliable active-mod information. Job history is derived from the existing event stream and therefore cannot show unrecorded details. Live ETS2/ATS validation remains necessary.

@@ -2,6 +2,23 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v0.3.2 — desktop interface update
+
+### Implemented
+
+- Updated the NLSI application release version to `0.3.2`; the SCS telemetry API value remains independent.
+- Replaced the default CMD dashboard with a Tkinter window containing Main, Finished Jobs, PDF Export, Debug, Events, Active Mods, and About Us tabs.
+- Runs the existing UDP telemetry agent in a background worker and delivers snapshots to Tkinter using a thread-safe queue.
+- Shows persisted job and event history from the existing JSONL event stream without inventing unavailable fields.
+- Makes PDF creation an explicit user action and prompts for the output path.
+- Includes the existing logo in the app package and shortcut/installer icon.
+
+### Notes / limitations
+
+- The current plugin does not supply game simulation time or reliable active-mod data; the corresponding tabs/fields explain that limitation.
+- Existing event JSONL is the available persisted source for session and job views; this release does not add a second event manager.
+- A live ETS2/ATS session is still required to validate real plugin traffic.
+
 ## v0.3.0 — telemetry improvements release
 
 ### Implemented
@@ -9,8 +26,8 @@ Release history is based on the repository's tagged v0.1.0 source and the confir
 - Updated the authoritative version in `version.json` to `0.3.0`.
 - Improved the console dashboard and kept the live telemetry model intact while adding explicit cruise-control indicators and session metadata.
 - Added session IDs to session lifecycle records and preserved session data over the life of a run.
-- Added PDF export events (`PDF_EXPORT_STARTED`, `PDF_EXPORT_COMPLETED`, `PDF_EXPORT_FAILED`) and a completed-job report generated once per delivery.
-- Named completed job PDFs from the session ID and stored them under the local `data/sessions` folder with the source, destination, and distance summary when the telemetry data is present.
+- Added a completed-job report mechanism.
+- In v0.3.2 PDF creation is manual only and the user selects the output path.
 - Used the project logo in the operational report and kept the export as a local report layer instead of a primary data store.
 - Kept the install and upgrade flow compatible with the v0.2.0 app identity and data retention model.
 

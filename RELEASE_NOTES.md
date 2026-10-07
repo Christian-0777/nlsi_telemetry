@@ -1,36 +1,28 @@
-# NLSI Telemetry v0.3.1
+# NLSI Telemetry v0.3.2
 
-NLSI Telemetry v0.3.1 corrects the live dashboard telemetry output for cruise control, adaptive cruise, retarder, throttle, brake, gear, fuel, and job-time calculations. The application version is kept separate from the official SCS telemetry API value.
+NLSI Telemetry v0.3.2 replaces the continuously updating CMD dashboard with a Tkinter desktop interface while retaining the existing SCS plugin and Python telemetry/session engine. The NLSI application version is 0.3.2; the telemetry API version remains supplied by the plugin/game and is not the application version.
 
 ## What's new
 
-- Corrected live dashboard handling so cruise-control and adaptive-cruise values come from official telemetry when available and show `N/A` when the SDK does not expose them.
-- Distinguishes manual retarder activation from cruise-control-driven retarder activation, and applies the same manual-vs-automatic logic to throttle and brake input.
-- Added session IDs and more structured session metadata.
-- Recorded PDF export events (`PDF_EXPORT_STARTED`, `PDF_EXPORT_COMPLETED`, `PDF_EXPORT_FAILED`) and wrote session-based completed job reports under the local `data/sessions` folder.
-- Ensured the delivery PDF filename is derived from the session ID and includes the source/destination and distance summary when available.
-- Kept the v0.2.0 upgrade path intact and maintained local user data retention.
+- Added seven GUI tabs: Main, Finished Jobs, PDF Export, Debug, Events, Active Mods, and About Us.
+- Moved UDP telemetry processing to a background worker; GUI updates are delivered through a thread-safe queue and Tkinter's event loop.
+- Added persisted job-history views based on job and gameplay events already recorded in JSONL.
+- Changed PDF reporting to manual export: a report is written only after the user selects a delivered job, presses Export PDF, and chooses a file path.
+- Uses `img\logo.ico` for the application and installer shortcuts.
+- Social URLs on About Us can be configured in `.env`; secret configuration is not displayed in Debug.
+- Preserved telemetry fields including internal position data. Position coordinates are not displayed on the Main tab.
 
-## Telemetry features
+## Limitations
 
-- Native telemetry plugin built with the SCS Telemetry SDK 1.15.
-- Local Python agent receives telemetry over loopback UDP and displays a live console dashboard for vehicle, driving, position, navigation, job, session, and connection status.
-- Press **D** to inspect the latest raw telemetry packet as formatted JSON, **E** to review recent events, and **Q** to stop the agent cleanly.
-- Gameplay events, session metrics, and PDF export events are recorded locally as JSONL.
-- Delivery PDFs are written locally and are not the primary telemetry store.
+- The current SCS packet model does not provide game-time samples, so game time and in-game elapsed/ETA display as unavailable.
+- The official telemetry interface used here does not provide reliable active-mod information.
+- Finished job history is derived from persisted event records; values not recorded by the game/plugin remain unavailable.
+- Live ETS2/ATS operation still requires validation in each supported game build.
 
 ## Install or upgrade
 
-Download `NLSI-Telemetry-Setup-v0.3.1.exe` from the [NLSI Telemetry GitHub Releases page](https://github.com/Christian-0777/nlsi_telemetry/releases). Close ETS2 and ATS before installing or updating. The default application directory remains `C:\nlsi-tem`.
+Download `NLSI-Telemetry-Setup-v0.3.2.exe` from the [NLSI Telemetry GitHub Releases page](https://github.com/Christian-0777/nlsi_telemetry/releases). Close ETS2 and ATS before installing or updating. Install over v0.3.1 without uninstalling so existing configuration, data, and logs are retained.
 
-Run the v0.3.1 installer over a v0.3.0 installation to upgrade; do not uninstall first. After setup, start NLSI Telemetry from its Desktop or Start Menu shortcut before launching the game.
+The launcher requires Python 3.10 or newer and the Windows Python Launcher unless a bundled runtime is provided. The current installer does not bundle Python.
 
-## Requirements and limitations
-
-- Windows x64 and ETS2 and/or ATS for live game telemetry.
-- Python 3.10 or newer and the Windows Python Launcher (`py`) are required by the installed launcher unless a bundled `runtime\python.exe` is provided. The current installer does not bundle Python.
-- Session and PDF records are stored locally under the project data directories. PDF generation uses the actual project logo and is a local export layer.
-- Adaptive cruise control is shown as `N/A` when the underlying official telemetry fields are not exposed by the SDK version in use.
-- Telemetry is processed locally. This release does not upload data to a website or cloud service; NLSI API upload, authentication, cloud storage, and Driver Portal integration are not included.
-
-For setup details, controls, and troubleshooting, see the [user guide](docs/USER-GUIDE.md).
+See the [user guide](docs/USER-GUIDE.md) for the tabs, PDF export, and troubleshooting.

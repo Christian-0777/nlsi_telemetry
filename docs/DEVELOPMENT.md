@@ -3,7 +3,7 @@
 ## Windows build requirements
 
 - Windows x64.
-- Python 3.10 or newer. The agent uses only Python's standard library.
+- Python 3.10 or newer with Tkinter. The agent and GUI use only Python's standard library.
 - Visual Studio Build Tools with the **Desktop development with C++** workload and MSVC x64 tools.
 - The extracted official SCS Telemetry SDK 1.15. The normal local SDK path used by the release script is `C:\SCS\scs_sdk_1_15`.
 - Inno Setup 6 to compile the installer.
@@ -18,7 +18,7 @@ From the repository root, run:
 py -3 -m unittest discover -s test -v
 ```
 
-These tests exercise the agent model and dashboard without a live game or plugin.
+These tests exercise the agent model, GUI view-model, persisted history, and build staging without a live game or plugin.
 
 ## Build the native plugin
 
@@ -28,7 +28,7 @@ Use the existing native build script:
 build.bat "C:\SCS\scs_sdk_1_15"
 ```
 
-It locates MSVC with `vswhere`, calls the Visual Studio x64 developer environment, and builds `build\nlsi_telemetry.dll` from `src\nlsi_telemetry.cpp` and `src\nlsi_telemetry.def`.
+It locates MSVC with `vswhere`, calls the Visual Studio x64 developer environment, and builds `build\v<VERSION>\nlsi_telemetry.dll` from `src\nlsi_telemetry.cpp` and `src\nlsi_telemetry.def`. The version comes from `version.json`; previous version folders are not overwritten.
 
 ## Build a complete release
 
@@ -41,12 +41,13 @@ build-release.bat clean
 build-release.bat clean "C:\SCS\scs_sdk_1_15"
 ```
 
-`clean` removes only the generated `build` directory. The existing `build-installer.bat`/`installer\build_installer.py` flow itself repeats its test and DLL build before staging and compiling with Inno Setup.
+`clean` removes only the current version's generated output directory. The existing `build-installer.bat`/`installer\build_installer.py` flow itself repeats its test and DLL build before staging and compiling with Inno Setup.
 
 ## Project layout
 
 - `src\` — SCS native plugin implementation and exports.
-- `agent.py` — local UDP receiver, event/session model, and console dashboard.
+- `agent.py` — local UDP receiver, event/session model, and optional legacy console dashboard (`--console`).
+- `gui_app.py` — Tkinter presentation layer, event/job history views, and worker-thread orchestration.
 - `test\` — unit tests.
 - `installer\` — Inno Setup definition, staging builder, launcher, and Steam game plugin helper.
 - `docs\` — user and development documentation; `POC-README.md` retains the original detailed README.

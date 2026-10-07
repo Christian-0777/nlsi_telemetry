@@ -68,9 +68,11 @@ test/output/*
 *.jsonl
 *.log
 /logs/
+/data/sessions/*.pdf
 
 # Keep the output directory structure
 !test/output/.gitkeep
+!/data/sessions/.gitkeep
 
 # ------------------------------------------
 # SCS SDK extracts (build-time dependency)
