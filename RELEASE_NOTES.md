@@ -1,11 +1,11 @@
-# NLSI Telemetry v0.3.0
+# NLSI Telemetry v0.3.1
 
-NLSI Telemetry v0.3.0 improves the local Windows telemetry workflow for Euro Truck Simulator 2 (ETS2) and American Truck Simulator (ATS). It keeps the existing live telemetry architecture and adds a more professional dashboard, explicit cruise-control indicators, session tracking, and a completed-delivery PDF report export.
+NLSI Telemetry v0.3.1 corrects the live dashboard telemetry output for cruise control, adaptive cruise, retarder, throttle, brake, gear, fuel, and job-time calculations. The application version is kept separate from the official SCS telemetry API value.
 
 ## What's new
 
-- Refined the live console dashboard to keep the existing structure while surfacing session, cruise-control, and delivery context in a clearer layout.
-- Added explicit cruise-control and adaptive-cruise indicators when the supported telemetry fields are present; otherwise the dashboard shows `N/A` without guessing.
+- Corrected live dashboard handling so cruise-control and adaptive-cruise values come from official telemetry when available and show `N/A` when the SDK does not expose them.
+- Distinguishes manual retarder activation from cruise-control-driven retarder activation, and applies the same manual-vs-automatic logic to throttle and brake input.
 - Added session IDs and more structured session metadata.
 - Recorded PDF export events (`PDF_EXPORT_STARTED`, `PDF_EXPORT_COMPLETED`, `PDF_EXPORT_FAILED`) and wrote session-based completed job reports under the local `data/sessions` folder.
 - Ensured the delivery PDF filename is derived from the session ID and includes the source/destination and distance summary when available.
@@ -21,9 +21,9 @@ NLSI Telemetry v0.3.0 improves the local Windows telemetry workflow for Euro Tru
 
 ## Install or upgrade
 
-Download `NLSI-Telemetry-Setup-v0.3.0.exe` from the [NLSI Telemetry GitHub Releases page](https://github.com/Christian-0777/nlsi_telemetry/releases). Close ETS2 and ATS before installing or updating. The default application directory remains `C:\nlsi-tem`.
+Download `NLSI-Telemetry-Setup-v0.3.1.exe` from the [NLSI Telemetry GitHub Releases page](https://github.com/Christian-0777/nlsi_telemetry/releases). Close ETS2 and ATS before installing or updating. The default application directory remains `C:\nlsi-tem`.
 
-Run the v0.3.0 installer over a v0.2.0 installation to upgrade; do not uninstall first. After setup, start NLSI Telemetry from its Desktop or Start Menu shortcut before launching the game.
+Run the v0.3.1 installer over a v0.3.0 installation to upgrade; do not uninstall first. After setup, start NLSI Telemetry from its Desktop or Start Menu shortcut before launching the game.
 
 ## Requirements and limitations
 

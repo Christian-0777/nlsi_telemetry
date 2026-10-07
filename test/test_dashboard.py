@@ -82,7 +82,7 @@ class DashboardRendererTests(unittest.TestCase):
         self.assertIn("CONNECTION", dashboard)
         self.assertIn("Press Q to quit | D debug | E events", dashboard)
         self.assertIn("LIVE | Euro Truck Simulator 2 1.61.1.1s", dashboard)
-        self.assertIn("Telemetry API 1.01", dashboard)
+        self.assertIn("SCS Telemetry API: 1.01", dashboard)
         self.assertIn("Scania | S", dashboard)
         self.assertIn("Plate: XTIANFOUR", dashboard)
         self.assertIn("Fuel: 623.7 / 1,000.0 L", dashboard)
@@ -93,6 +93,36 @@ class DashboardRendererTests(unittest.TestCase):
         self.assertIn("Distance: 2.3 km  Time: 01:01:01", dashboard)
         self.assertIn("Berlin -> Paris", dashboard)
         self.assertIn("Cargo: Furniture", dashboard)
+
+    def test_dashboard_reports_distinct_app_and_sdk_versions(self) -> None:
+        self.agent.process_message(telemetry(), now=1.0)
+        dashboard = "\n".join(self.renderer.dashboard(now=1.5))
+
+        self.assertIn("NLSI Telemetry: 0.3.1", dashboard)
+        self.assertIn("SCS Telemetry API: 1.01", dashboard)
+
+    def test_dashboard_uses_real_cruise_retarder_throttle_brake_and_gear_values(self) -> None:
+        packet = telemetry()
+        packet["truck"].update(
+            {
+                "cruise_control": 67.5,
+                "adaptive_cruise": 2,
+                "retarder": 2,
+                "throttle": 0.72,
+                "brake": 0.18,
+                "gear": 6,
+                "automatic_transmission": True,
+            }
+        )
+        self.agent.process_message(packet, now=1.0)
+        dashboard = "\n".join(self.renderer.dashboard(now=1.5))
+
+        self.assertIn("Cruise Control: 67.5", dashboard)
+        self.assertIn("Adaptive Cruise: 2.0", dashboard)
+        self.assertIn("Retarder: 2", dashboard)
+        self.assertIn("Throttle: 72%", dashboard)
+        self.assertIn("Brake: 18%", dashboard)
+        self.assertIn("Gear: 6A", dashboard)
 
     def test_dashboard_marks_missing_values_and_disconnected_state(self) -> None:
         dashboard = "\n".join(self.renderer.dashboard(now=10.0))

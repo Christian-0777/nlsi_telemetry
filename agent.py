@@ -482,10 +482,181 @@ class TelemetryAgent:
         self._end_session("agent_stopped")
 
 
+def app_version() -> str:
+    try:
+        payload = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return "0.3.1"
+    if isinstance(payload, dict):
+        version = payload.get("version")
+        if isinstance(version, str) and version.strip():
+            return version
+    return "0.3.1"
+
+
 def display_value(value: Any) -> str:
     if value is None or isinstance(value, bool):
         return "--" if value is None else ("Yes" if value else "No")
     return str(value)
+
+
+def coerce_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def first_available(mapping: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in mapping and mapping[key] is not None:
+            return mapping[key]
+    return None
+
+
+def is_auto_control_active(truck: dict[str, Any], *keys: str) -> bool:
+    for key in keys:
+        value = truck.get(key)
+        if isinstance(value, bool):
+            if value:
+                return True
+            continue
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"auto", "automatic", "cruise", "enabled", "on", "active"}:
+                return True
+    return False
+
+
+def display_cruise_value(truck: dict[str, Any]) -> str:
+    value = first_available(
+        truck,
+        "cruise_control",
+        "cruise_control_value",
+        "cruise_speed",
+        "cruise_set_speed",
+        "cruise_target_speed",
+    )
+    if value is None:
+        if is_auto_control_active(truck, "cruise_control_active", "cruise_active", "cruise_enabled"):
+            return "ACTIVE"
+        return "N/A"
+    numeric = coerce_number(value)
+    if numeric is not None:
+        return display_number(numeric, 1)
+    if isinstance(value, bool):
+        return "ON" if value else "OFF"
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"active", "enabled", "on", "true"}:
+            return "ACTIVE"
+        if lowered in {"off", "disabled", "false"}:
+            return "OFF"
+        return value.strip() or "N/A"
+    return "N/A"
+
+
+def display_adaptive_cruise_value(truck: dict[str, Any]) -> str:
+    value = first_available(
+        truck,
+        "adaptive_cruise",
+        "adaptive_cruise_control",
+        "adaptive_cruise_value",
+        "adaptive_cruise_active",
+        "acc",
+        "acc_active",
+    )
+    if value is None:
+        return "N/A"
+    numeric = coerce_number(value)
+    if numeric is not None:
+        return display_number(numeric, 1)
+    if isinstance(value, bool):
+        return "ON" if value else "OFF"
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"active", "enabled", "on", "true"}:
+            return "ON"
+        if lowered in {"off", "disabled", "false"}:
+            return "OFF"
+        return value.strip() or "N/A"
+    return "N/A"
+
+
+def display_retarder_value(truck: dict[str, Any]) -> str:
+    if is_auto_control_active(truck, "retarder_automatic", "retarder_auto", "automatic_retarder", "retarder_cruise"):
+        return "A"
+    value = first_available(truck, "retarder", "retarder_step", "retarder_level", "retarder_value")
+    if value is None:
+        return "N/A"
+    numeric = coerce_number(value)
+    if numeric is not None:
+        return str(int(round(numeric))) if numeric == int(round(numeric)) else str(numeric)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"auto", "automatic", "a"}:
+            return "A"
+        return value.strip() or "N/A"
+    return "N/A"
+
+
+def display_throttle_value(truck: dict[str, Any]) -> str:
+    if is_auto_control_active(
+        truck,
+        "cruise_control_active",
+        "cruise_active",
+        "auto_throttle",
+        "throttle_auto",
+        "throttle_control_source",
+    ):
+        return "A"
+    value = truck.get("throttle")
+    numeric = coerce_number(value)
+    if numeric is None:
+        return "N/A"
+    return display_percent(numeric)
+
+
+def display_brake_value(truck: dict[str, Any]) -> str:
+    if is_auto_control_active(
+        truck,
+        "cruise_control_active",
+        "cruise_active",
+        "auto_brake",
+        "brake_auto",
+        "brake_control_source",
+    ):
+        return "A"
+    value = truck.get("brake")
+    numeric = coerce_number(value)
+    if numeric is None:
+        return "N/A"
+    return display_percent(numeric)
+
+
+def display_gear_value(truck: dict[str, Any]) -> str:
+    value = truck.get("gear")
+    if value is None:
+        return "N/A"
+    if isinstance(value, str):
+        normalized = value.strip().upper()
+        return normalized if normalized else "N/A"
+    numeric = coerce_number(value)
+    if numeric is None:
+        return "N/A"
+    if numeric == 0:
+        return "N"
+    if numeric < 0:
+        return "R"
+    if is_auto_control_active(truck, "automatic_transmission", "transmission_automatic", "gearbox_automatic"):
+        return f"{int(round(numeric))}A"
+    return str(int(round(numeric)))
 
 
 def display_number(value: Any, places: int = 1, suffix: str = "") -> str:
@@ -584,48 +755,30 @@ class DashboardRenderer:
         source = configured_value(job, "source", "source_city", "source_city_name")
         destination = configured_value(job, "destination", "destination_city", "destination_city_name")
         gear = truck.get("gear")
-        gear_display = "N" if isinstance(gear, (int, float)) and not isinstance(gear, bool) and gear == 0 else display_value(gear)
+        gear_display = display_gear_value(truck)
+        if gear is None:
+            gear_display = "N/A"
+        cruise_state = display_cruise_value(truck)
+        adaptive_cruise_state = display_adaptive_cruise_value(truck)
 
-        cruise_state = "N/A"
-        cruise_candidates = [
-            "cruise_control",
-            "cruise_control_active",
-            "cruise_active",
-            "cruise_state",
-            "cruise_status",
-        ]
-        for key in cruise_candidates:
-            candidate = truck.get(key)
-            if isinstance(candidate, bool):
-                cruise_state = "ACTIVE" if candidate else "OFF"
-                break
-            if isinstance(candidate, str):
-                cruise_state = candidate.upper()
-                break
-        adaptive_cruise_state = "N/A"
-        acc_candidates = [
-            "adaptive_cruise_control",
-            "adaptive_cruise_control_active",
-            "adaptive_cruise_active",
-            "acc",
-            "acc_active",
-            "acc_status",
-        ]
-        for key in acc_candidates:
-            candidate = truck.get(key)
-            if isinstance(candidate, bool):
-                adaptive_cruise_state = "ACTIVE" if candidate else "OFF"
-                break
-            if isinstance(candidate, str):
-                adaptive_cruise_state = candidate.upper()
-                break
+        if (
+            isinstance(navigation_distance, (int, float))
+            and not isinstance(navigation_distance, bool)
+            and isinstance(speed_kmh, (int, float))
+            and not isinstance(speed_kmh, bool)
+            and speed_kmh > 0
+        ):
+            eta_seconds = navigation_distance / max(speed_kmh / 3.6, 1e-9)
+            eta_label = display_duration(eta_seconds)
+        else:
+            eta_label = "--:--:--"
 
         session_id = self.agent.session_id or "NLSI-SESSION"
         lines = [
             "NLSI TELEMETRY AGENT",
             "-" * 80,
             f"{state} | {display_value(game.get('name'))} {display_value(game.get('version'))}",
-            f"Telemetry API {display_value(game.get('telemetry_api_version'))}",
+            f"NLSI Telemetry: {app_version()} | SCS Telemetry API: {display_value(game.get('telemetry_api_version'))}",
             "TRUCK",
             f"{display_value(configured_value(truck_config, 'brand'))} | "
             f"{display_value(configured_value(truck_config, 'name', 'model', 'model_name'))}",
@@ -635,11 +788,11 @@ class DashboardRenderer:
             "DRIVING",
             f"Speed: {display_number(speed_kmh)} km/h  RPM: {display_number(truck.get('rpm'), 0)}  "
             f"Gear: {gear_display}",
-            f"Steering: {display_percent(steering)}  Throttle: {display_percent(truck.get('throttle'))}  "
-            f"Brake: {display_percent(truck.get('brake'))}  "
-            f"Retarder: {display_value(truck.get('retarder'))}",
+            f"Steering: {display_percent(steering)}  Throttle: {display_throttle_value(truck)}  "
+            f"Brake: {display_brake_value(truck)}  "
+            f"Retarder: {display_retarder_value(truck)}",
             "CRUISE CONTROL",
-            f"Cruise: {cruise_state} | Adaptive Cruise: {adaptive_cruise_state}",
+            f"Cruise Control: {cruise_state} | Adaptive Cruise: {adaptive_cruise_state}",
             "POSITION",
             f"X: {display_number(position.get('x'), 2)}  Y: {display_number(position.get('y'), 2)}  "
             f"Z: {display_number(position.get('z'), 2)}",
@@ -648,7 +801,7 @@ class DashboardRenderer:
             f"Roll: {display_number(position.get('roll_degrees'), 1)} deg",
             "NAVIGATION",
             f"Distance: {display_number(navigation_distance_km)} km  "
-            f"Time: {display_duration(truck.get('navigation_time_s'))}",
+            f"Time: {display_duration(truck.get('navigation_time_s'))}  ETA: {eta_label}",
             "JOB",
             (
                 f"Active: {display_value(source)} -> {display_value(destination)} | "
