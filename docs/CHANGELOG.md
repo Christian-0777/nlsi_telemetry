@@ -1,6 +1,23 @@
 # Changelog
 
-Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0 release changes.
+Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
+
+## v0.3.0 — telemetry improvements release
+
+### Implemented
+
+- Updated the authoritative version in `version.json` to `0.3.0`.
+- Improved the console dashboard and kept the live telemetry model intact while adding explicit cruise-control indicators and session metadata.
+- Added session IDs to session lifecycle records and preserved session data over the life of a run.
+- Added PDF export events (`PDF_EXPORT_STARTED`, `PDF_EXPORT_COMPLETED`, `PDF_EXPORT_FAILED`) and a completed-job report generated once per delivery.
+- Named completed job PDFs from the session ID and stored them under the local `data/sessions` folder with the source, destination, and distance summary when the telemetry data is present.
+- Used the project logo in the operational report and kept the export as a local report layer instead of a primary data store.
+- Kept the install and upgrade flow compatible with the v0.2.0 app identity and data retention model.
+
+### Notes / limitations
+
+- Adaptive cruise control is displayed as `N/A` when the official SCS telemetry fields are not exposed in the currently used SDK.
+- Live validation across all game versions remains dependent on the underlying game telemetry availability.
 
 ## v0.2.0 — update release
 

@@ -15,6 +15,9 @@ from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = ROOT / "test" / "output"
+DATA_DIR = ROOT / "data"
+SESSION_DATA_DIR = DATA_DIR / "sessions"
+LOGO_PATH = ROOT / "img" / "logo.png"
 UDP_HOST = "127.0.0.1"
 UDP_PORT = 28745
 HEARTBEAT_INTERVAL_SECONDS = 15.0
@@ -26,6 +29,8 @@ def utc_now() -> str:
 
 
 class TelemetryAgent:
+    _session_counter = 0
+
     def __init__(
         self,
         output_dir: Path = DEFAULT_OUTPUT_DIR,
@@ -38,6 +43,8 @@ class TelemetryAgent:
         self.monotonic = monotonic
         self.configurations: dict[str, dict[str, Any]] = {}
         self.game: dict[str, Any] | None = None
+        self.session_id: str | None = None
+        self._session_sequence = 0
         self.session_started_at: str | None = None
         self.session_started_monotonic: float | None = None
         self.last_accounted_monotonic: float | None = None
@@ -54,6 +61,8 @@ class TelemetryAgent:
         self.last_odometer_km: float | None = None
         self.jobs_performed = 0
         self._seen_job_configurations: set[str] = set()
+        self._job_pdf_path: Path | None = None
+        self._job_pdf_exported = False
 
     def _set_game(self, game: Any) -> None:
         if not isinstance(game, dict):
@@ -62,6 +71,181 @@ class TelemetryAgent:
         if game_id not in {"ets2", "ats"}:
             raise ValueError(f"Unsupported or missing game id: {game_id!r}")
         self.game = game
+
+    def _new_session_id(self, timestamp: str | None = None) -> str:
+        if timestamp:
+            try:
+                dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(timezone.utc)
+            except ValueError:
+                dt = datetime.now(timezone.utc)
+        else:
+            dt = datetime.now(timezone.utc)
+        self.__class__._session_counter += 1
+        return f"NLSI-{dt.strftime('%Y%m%d')}-{self.__class__._session_counter:04d}"
+
+    def _job_snapshot(self) -> dict[str, Any]:
+        active_job = self.configurations.get("job") or self.configurations.get("car_job") or self.configurations.get("bus_job") or {}
+        if not isinstance(active_job, dict):
+            active_job = {}
+        truck_config = self.configurations.get("truck", {}) if isinstance(self.configurations.get("truck", {}), dict) else {}
+        truck = self.latest_telemetry.get("truck", {}) if isinstance(self.latest_telemetry, dict) and isinstance(self.latest_telemetry.get("truck", {}), dict) else {}
+        position = self.latest_telemetry.get("position", {}) if isinstance(self.latest_telemetry, dict) and isinstance(self.latest_telemetry.get("position", {}), dict) else {}
+        return {
+            "session_id": self.session_id,
+            "source": configured_value(active_job, "source", "source_city", "source_city_name"),
+            "destination": configured_value(active_job, "destination", "destination_city", "destination_city_name"),
+            "cargo": configured_value(active_job, "cargo", "cargo_name"),
+            "cargo_mass_kg": configured_value(active_job, "cargo_mass_kg", "cargo_mass", "cargo_mass_kg"),
+            "planned_distance_km": configured_value(active_job, "planned_distance_km", "planned_distance"),
+            "remaining_distance_km": configured_value(active_job, "remaining_distance_km", "remaining_distance"),
+            "delivery_time": configured_value(active_job, "delivery_time", "delivery_deadline"),
+            "revenue": configured_value(active_job, "income", "job_income", "revenue"),
+            "job_type": configured_value(active_job, "job_type", "type"),
+            "truck_brand": configured_value(truck_config, "brand", "manufacturer"),
+            "truck_model": configured_value(truck_config, "name", "model", "model_name"),
+            "license_plate": configured_value(truck_config, "license_plate", "licenseplate", "plate"),
+            "odometer_km": truck.get("odometer_km"),
+            "fuel_liters": truck.get("fuel_liters"),
+            "position": position,
+        }
+
+    def _pdf_storage_dir(self) -> Path:
+        SESSION_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        return SESSION_DATA_DIR
+
+    def _escape_pdf_text(self, value: str) -> str:
+        return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    def _write_pdf_report(self, job_data: dict[str, Any]) -> Path:
+        session_id = job_data.get("session_id") or self.session_id or "NLSI-SESSION"
+        now_utc = datetime.now(timezone.utc)
+        safe_name = session_id
+        candidate = self._pdf_storage_dir() / f"{safe_name}.pdf"
+        if candidate.exists():
+            counter = 1
+            while True:
+                alt = self._pdf_storage_dir() / f"{safe_name}-{counter}.pdf"
+                if not alt.exists():
+                    candidate = alt
+                    break
+                counter += 1
+
+        session_start = self.session_started_at or job_data.get("session_start") or now_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        end_time = job_data.get("end_time") or now_utc.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        elapsed_seconds = max(0.0, self.driving_time_seconds)
+        source = job_data.get("source") or "N/A"
+        destination = job_data.get("destination") or "N/A"
+        distance = job_data.get("distance_km") or job_data.get("planned_distance_km") or "N/A"
+        if isinstance(distance, (int, float)) and not isinstance(distance, bool):
+            distance_label = f"{float(distance):,.1f} km"
+        else:
+            distance_label = str(distance)
+
+        logo_reference = str(LOGO_PATH.relative_to(ROOT)) if LOGO_PATH.exists() else "img/logo.png"
+        lines = [
+            "NLSI TELEMETRY",
+            "COMPLETED DELIVERY REPORT",
+            "",
+            f"Session ID: {session_id}",
+            f"Date: {now_utc.strftime('%B %d, %Y')}",
+            "",
+            "DELIVERY SUMMARY",
+            f"FROM: {source}",
+            f"TO: {destination}",
+            f"DISTANCE: {distance_label}",
+            "STATUS: DELIVERED",
+            "",
+            "SESSION",
+            f"Session ID: {session_id}",
+            f"Start Time: {session_start}",
+            f"End Time: {end_time}",
+            f"Elapsed Time: {display_duration(elapsed_seconds)}",
+            f"Driving Time: {display_duration(elapsed_seconds)}",
+            "",
+            "TRUCK",
+            f"Truck: {job_data.get('truck_brand') or job_data.get('truck_model') or 'N/A'}",
+            f"Model: {job_data.get('truck_model') or 'N/A'}",
+            f"Plate: {job_data.get('license_plate') or 'N/A'}",
+            f"Odometer: {display_number(job_data.get('odometer_km'), 1)} km",
+            f"Fuel: {display_number(job_data.get('fuel_liters'), 1)} L",
+            "",
+            "NAVIGATION",
+            f"Planned Distance: {job_data.get('planned_distance_km') or 'N/A'}",
+            f"Remaining Distance: {job_data.get('remaining_distance_km') or 'N/A'}",
+            f"Revenue: {job_data.get('revenue') or 'N/A'}",
+            "",
+            "NLSI Telemetry Agent",
+            "Generated automatically",
+            f"Version {__package__ or '0.3.0'}",
+            f"Logo: {logo_reference}",
+        ]
+
+        content_lines = []
+        y = 770
+        for line in lines:
+            content_lines.append(f"BT /F1 12 Tf 72 {y} Td ({self._escape_pdf_text(line)}) Tj ET")
+            y -= 18
+        stream = "\n".join(content_lines)
+
+        pdf_bytes = bytearray()
+        pdf_bytes.extend(b"%PDF-1.4\n")
+        objects = [
+            b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+            b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n",
+            (
+                f"4 0 obj\n<< /Length {len(stream.encode('latin-1', errors='replace'))} >>\nstream\n{stream}\nendstream\nendobj\n"
+            ).encode("latin-1", errors="replace"),
+            b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+        ]
+        offsets = [0]
+        for obj in objects:
+            offsets.append(len(pdf_bytes))
+            pdf_bytes.extend(obj)
+        xref_start = len(pdf_bytes)
+        pdf_bytes.extend(f"xref\n0 {len(objects) + 1}\n".encode("latin-1"))
+        pdf_bytes.extend(b"0000000000 65535 f \n")
+        for offset in offsets[1:]:
+            pdf_bytes.extend(f"{offset:010d} 00000 n \n".encode("latin-1"))
+        pdf_bytes.extend(
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode("latin-1")
+        )
+        candidate.write_bytes(pdf_bytes)
+        self._job_pdf_path = candidate
+        return candidate
+
+    def _start_pdf_export(self, payload: dict[str, Any]) -> Path | None:
+        try:
+            pdf_path = self._write_pdf_report({"session_id": self.session_id, **payload})
+            self._job_pdf_exported = True
+            return pdf_path
+        except Exception:  # pragma: no cover - defensive path
+            return None
+
+    def _maybe_export_completed_job(self, event: str, data: dict[str, Any], timestamp: str | None = None) -> None:
+        if event not in {"job.delivered", "car_job.delivered"}:
+            return
+        if self._job_pdf_exported:
+            return
+        active_job = self.configurations.get("job") or self.configurations.get("car_job") or self.configurations.get("bus_job") or {}
+        summary = self._job_snapshot()
+        summary.update(
+            {
+                "event": event,
+                "distance_km": data.get("distance_km")
+                or data.get("distance.km")
+                or data.get("distance")
+                or configured_value(active_job, "distance_km", "planned_distance_km", "planned_distance"),
+                "session_start": self.session_started_at,
+                "end_time": timestamp or utc_now(),
+                "truck_brand": configured_value(self.configurations.get("truck", {}), "brand", "manufacturer"),
+                "truck_model": configured_value(self.configurations.get("truck", {}), "name", "model", "model_name"),
+                "license_plate": configured_value(self.configurations.get("truck", {}), "license_plate", "licenseplate", "plate"),
+                "fuel_liters": (self.latest_telemetry or {}).get("truck", {}).get("fuel_liters") if isinstance(self.latest_telemetry, dict) else None,
+                "odometer_km": (self.latest_telemetry or {}).get("truck", {}).get("odometer_km") if isinstance(self.latest_telemetry, dict) else None,
+            }
+        )
+        self._start_pdf_export(summary)
 
     def _record_event(self, event: str, data: dict[str, Any], timestamp: str | None = None) -> None:
         if self.game is None:
@@ -110,13 +294,17 @@ class TelemetryAgent:
     def _start_session(self, timestamp: str, now: float) -> None:
         if self.game is None:
             raise ValueError("Cannot start a session without game metadata.")
+        if self.session_id is None:
+            self.session_id = self._new_session_id(timestamp)
         self.session_started_at = timestamp
         self.session_started_monotonic = now
         self.last_accounted_monotonic = now
         self.last_heartbeat_monotonic = now
+        self._job_pdf_exported = False
         self._record_event(
             "SESSION_STARTED",
             {
+                "session_id": self.session_id,
                 "game_name": self.game.get("name"),
                 "game_version": self.game.get("version"),
                 "telemetry_api_version": self.game.get("telemetry_api_version"),
@@ -170,7 +358,9 @@ class TelemetryAgent:
             raise ValueError("Gameplay message must contain a string event and object data.")
         if event in {"job.delivered", "car_job.delivered"}:
             self.jobs_performed += 1
-        self._record_event(event, data, message.get("timestamp"))
+        self._record_event(event, {"session_id": self.session_id, **data}, message.get("timestamp"))
+        if event in {"job.delivered", "car_job.delivered"}:
+            self._maybe_export_completed_job(event, data, message.get("timestamp"))
 
     def _snapshot(self, message: dict[str, Any], now: float) -> None:
         timestamp = message.get("timestamp")
@@ -396,6 +586,41 @@ class DashboardRenderer:
         gear = truck.get("gear")
         gear_display = "N" if isinstance(gear, (int, float)) and not isinstance(gear, bool) and gear == 0 else display_value(gear)
 
+        cruise_state = "N/A"
+        cruise_candidates = [
+            "cruise_control",
+            "cruise_control_active",
+            "cruise_active",
+            "cruise_state",
+            "cruise_status",
+        ]
+        for key in cruise_candidates:
+            candidate = truck.get(key)
+            if isinstance(candidate, bool):
+                cruise_state = "ACTIVE" if candidate else "OFF"
+                break
+            if isinstance(candidate, str):
+                cruise_state = candidate.upper()
+                break
+        adaptive_cruise_state = "N/A"
+        acc_candidates = [
+            "adaptive_cruise_control",
+            "adaptive_cruise_control_active",
+            "adaptive_cruise_active",
+            "acc",
+            "acc_active",
+            "acc_status",
+        ]
+        for key in acc_candidates:
+            candidate = truck.get(key)
+            if isinstance(candidate, bool):
+                adaptive_cruise_state = "ACTIVE" if candidate else "OFF"
+                break
+            if isinstance(candidate, str):
+                adaptive_cruise_state = candidate.upper()
+                break
+
+        session_id = self.agent.session_id or "NLSI-SESSION"
         lines = [
             "NLSI TELEMETRY AGENT",
             "-" * 80,
@@ -413,6 +638,8 @@ class DashboardRenderer:
             f"Steering: {display_percent(steering)}  Throttle: {display_percent(truck.get('throttle'))}  "
             f"Brake: {display_percent(truck.get('brake'))}  "
             f"Retarder: {display_value(truck.get('retarder'))}",
+            "CRUISE CONTROL",
+            f"Cruise: {cruise_state} | Adaptive Cruise: {adaptive_cruise_state}",
             "POSITION",
             f"X: {display_number(position.get('x'), 2)}  Y: {display_number(position.get('y'), 2)}  "
             f"Z: {display_number(position.get('z'), 2)}",
@@ -423,13 +650,12 @@ class DashboardRenderer:
             f"Distance: {display_number(navigation_distance_km)} km  "
             f"Time: {display_duration(truck.get('navigation_time_s'))}",
             "JOB",
-            "Active" if is_active_job else "No active job",
             (
-                f"{display_value(source)} -> {display_value(destination)}"
+                f"Active: {display_value(source)} -> {display_value(destination)} | "
+                f"Cargo: {display_value(configured_value(job, 'cargo', 'cargo_name'))}"
                 if is_active_job
-                else ""
+                else "No active job"
             ),
-            f"Cargo: {display_value(configured_value(job, 'cargo', 'cargo_name'))}" if is_active_job else "",
             (
                 f"Planned: {display_number(configured_value(job, 'planned_distance_km', 'planned_distance'))} km  "
                 f"Income: {display_number(configured_value(job, 'income', 'job_income'), 0)}  "
@@ -438,9 +664,9 @@ class DashboardRenderer:
                 else ""
             ),
             "SESSION",
-            f"Start: {display_time(self.agent.session_started_at)}  "
-            f"Duration: {display_duration(metrics['duration_seconds'])}  "
-            f"Driving: {display_duration(metrics['driving_time_seconds'])}",
+            f"ID: {session_id}  Started: {display_time(self.agent.session_started_at)}  "
+            f"Elapsed: {display_duration(metrics['duration_seconds'])}  "
+            f"Status: {state}",
             f"Distance: {display_number(metrics['distance_driven_km'])} km  "
             f"Jobs completed: {metrics['jobs_performed']}",
             "CONNECTION",
@@ -453,10 +679,9 @@ class DashboardRenderer:
             "Press Q to quit | D debug | E events",
         ]
         if not is_active_job:
-            # Keep the no-job row while removing the unused job detail placeholders.
             job_index = lines.index("JOB")
             connection_index = lines.index("CONNECTION")
-            lines[job_index + 2 : connection_index] = []
+            del lines[job_index + 2 : connection_index]
         return lines
 
     def debug(self) -> list[str]:

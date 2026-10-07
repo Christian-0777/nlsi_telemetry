@@ -17,13 +17,13 @@ The installer detects Steam libraries and copies the plugin into the installed g
 
 ## Current release
 
-The current source version is **v0.2.0**, an update to v0.1.0. Release installers are published as GitHub Release assets:
+The current source version is **v0.3.0**, an update to v0.2.0. Release installers are published as GitHub Release assets:
 
 **[Download NLSI Telemetry releases](https://github.com/Christian-0777/nlsi_telemetry/releases)**
 
 ## Installation
 
-1. Download `NLSI-Telemetry-Setup-v0.2.0.exe` from the v0.2.0 GitHub Release.
+1. Download `NLSI-Telemetry-Setup-v0.3.0.exe` from the v0.3.0 GitHub Release.
 2. Close ETS2 and ATS before installing or updating.
 3. Run the installer. It installs the launcher and creates Desktop and Start Menu shortcuts. Existing configuration, data, and logs are retained during an upgrade.
 4. On the final installer page, optionally select TikTok if you want the installer to open `https://www.tiktok.com/@kape_073` when you finish.
@@ -56,6 +56,7 @@ The agent writes session and gameplay events to `C:\nlsi-tem\app\test\output\eve
 
 ## Release history
 
+- **v0.3.0** — improved dashboard, cruise control and adaptive cruise display, session-based telemetry tracking, completed-job PDF export with session-based naming, logo usage, and refreshed installer/build documentation.
 - **v0.2.0** — installer upgrade, launcher and shortcut integration, Steam game plugin installation, and optional final-page TikTok link.
 - **v0.1.0** — initial Windows x64 telemetry proof of concept.
 
