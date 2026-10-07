@@ -1,0 +1,111 @@
+# ==========================================
+# NLSI TELEMETRY
+# Git Ignore
+# ==========================================
+
+# ------------------------------------------
+# Python
+# ------------------------------------------
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+
+# ------------------------------------------
+# Environment / Secrets
+# ------------------------------------------
+
+.env
+.env.local
+.env.*
+
+# Keep example configuration
+!.env.example
+
+# Local-only configuration and credentials
+/config/local/
+/secrets/
+*.secret
+
+# ------------------------------------------
+# Build output
+# ------------------------------------------
+
+/build/
+dist/
+out/
+/installer/staging/
+
+*.dll
+*.exe
+*.exp
+*.lib
+*.obj
+*.pdb
+*.ilk
+*.pch
+
+# ------------------------------------------
+# Telemetry runtime output
+# ------------------------------------------
+
+test/output/*
+*.jsonl
+*.log
+/logs/
+
+# Keep the output directory structure
+!test/output/.gitkeep
+
+# ------------------------------------------
+# SCS SDK extracts (build-time dependency)
+# ------------------------------------------
+
+/scs_sdk/
+/scs_sdk_*/
+/SCS_SDK*/
+
+# ------------------------------------------
+# Temporary files
+# ------------------------------------------
+
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.iss.tmp
+*.iss.bak
+*.iss~
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# ------------------------------------------
+# Editors / IDEs
+# ------------------------------------------
+
+.vscode/
+.idea/
+
+# ------------------------------------------
+# OS / development
+# ------------------------------------------
+
+.DS_Store

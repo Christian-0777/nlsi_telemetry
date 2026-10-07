@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10141c">
+  <meta name="description" content="NLSI Telemetry Agent release notes and installation guide for ETS2 and ATS.">
+  <title>NLSI Telemetry Agent | Release Notes</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="NLSI Telemetry Agent home">
+        <span class="brand-mark" aria-hidden="true">N</span>
+        <span class="brand-copy">
+          <span class="brand-name">NLSI</span>
+          <span class="brand-product">TELEMETRY AGENT</span>
+        </span>
+      </a>
+      <span class="header-label">RELEASE NOTES</span>
+    </header>
+
+    <main id="top">
+      <section class="install-section" aria-labelledby="install-title">
+        <div class="eyebrow"><span class="status-dot"></span> WINDOWS · ETS2 &amp; ATS</div>
+        <h1 id="install-title">Install the update</h1>
+        <p class="intro">
+          Install the complete plugin package so the DLL and its accompanying files stay together.
+          Do not copy or install the DLL by itself.
+        </p>
+
+        <ol class="install-steps">
+          <li>
+            <span class="step-number">01</span>
+            <div>
+              <h2>Close the game</h2>
+              <p>Exit Euro Truck Simulator 2 or American Truck Simulator before replacing plugin files.</p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <div>
+              <h2>Open the game’s plugin folder</h2>
+              <p>
+                In Steam, open the game’s <strong>Manage</strong> menu and choose
+                <strong>Browse local files</strong>. Open the 64-bit game folder, then its
+                <strong>plugins</strong> folder. Create <strong>plugins</strong> if it is not there.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <div>
+              <h2>Copy the complete package</h2>
+              <p>
+                Copy all files from the supplied plugin package into the game’s
+                <strong>plugins</strong> folder. Keep the package’s folder structure and supporting
+                files intact. When updating, replace the previous NLSI plugin files.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span class="step-number">04</span>
+            <div>
+              <h2>Launch and verify</h2>
+              <p>Start the game and the NLSI Telemetry Agent. Confirm the agent reports a connection.</p>
+            </div>
+          </li>
+        </ol>
+
+        <aside class="install-note">
+          <span class="note-icon" aria-hidden="true">i</span>
+          <p><strong>Updating an existing install?</strong> Keep a backup of the current NLSI plugin files until the new version connects successfully.</p>
+        </aside>
+      </section>
+
+      <section class="release-section" aria-labelledby="release-title">
+        <div class="release-heading">
+          <div>
+            <div class="eyebrow">LATEST PACKAGE</div>
+            <h2 id="release-title">What’s new</h2>
+          </div>
+          <span class="release-badge">Agent update</span>
+        </div>
+
+        <article class="release-card">
+          <div class="release-meta">
+            <span class="release-indicator" aria-hidden="true"></span>
+            <span>TELEMETRY AGENT</span>
+            <span class="meta-divider" aria-hidden="true"></span>
+            <span>ETS2 · ATS</span>
+          </div>
+          <h3>A clearer view of your session</h3>
+          <p class="release-summary">
+            The console now presents telemetry as a live dashboard instead of repeatedly printing
+            complete packets.
+          </p>
+          <ul class="change-list">
+            <li><span class="check" aria-hidden="true">✓</span><span>Live truck, driving, position, navigation, job, session, and connection status.</span></li>
+            <li><span class="check" aria-hidden="true">✓</span><span>Press <kbd>D</kbd> to inspect the latest telemetry packet as formatted JSON.</span></li>
+            <li><span class="check" aria-hidden="true">✓</span><span>Press <kbd>E</kbd> to review recent events in a readable list.</span></li>
+            <li><span class="check" aria-hidden="true">✓</span><span>Press <kbd>Q</kbd> to exit the agent cleanly.</span></li>
+            <li><span class="check" aria-hidden="true">✓</span><span>Existing telemetry collection and event recording are retained.</span></li>
+          </ul>
+        </article>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>NLSI TELEMETRY AGENT</span>
+      <span>ETS2 &amp; ATS · WINDOWS</span>
+    </footer>
+  </div>
+</body>
+</html>
