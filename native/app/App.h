@@ -25,6 +25,6 @@ private:
     void Shutdown();
 
     std::wstring product_name_ = L"NLSI Exclusive Logbook";
-    std::wstring version_label_ = L"v1.3.2 Alpha";
+    std::wstring version_label_ = L"v1.3.3 Alpha";
     nlsi::telemetry::TelemetryCore telemetry_core_;
 };

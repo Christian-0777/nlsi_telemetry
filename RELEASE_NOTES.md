@@ -1,3 +1,23 @@
+# NLSI Exclusive Logbook v1.3.3 Alpha
+
+The v1.3.3 Alpha release updates the native Qt 6 Widgets application and its Windows installer.
+
+## What's new
+
+- Reorganized the shared sidebar into compact WORKSPACE and SYSTEM sections with a horizontal NLSI logo-and-brand header, icons, clear active-page state, and a bottom Close action.
+- Kept all navigation connected to the existing stacked-page system and retained the 900×600 minimum and default window size.
+- Added explicit existing-install detection and an update summary showing installed and new versions.
+- Preserved configuration and log files during in-place updates; legacy `C:\nlsi-tem` cleanup now leaves known user-data folders untouched.
+- Made installer packaging reject an executable whose Windows version metadata is not v1.3.3 Alpha.
+- Kept the release marked Alpha and retained the existing branding, terms/privacy acceptance, shortcuts, and Qt/MSVC runtime packaging.
+
+## Validation notes
+
+- The installer target is `build/releases/v1.3.3-alpha/NLSI-Exclusive-Logbook-v1.3.3-alpha-Setup.exe`.
+- The native RenCloud provider remains a stub and does not ingest RenCloud telemetry.
+
+---
+
 # NLSI Exclusive Logbook v1.3.2 Alpha
 
 The v1.3.2 Alpha source refines the native Qt 6 Widgets interface for the existing C++ telemetry core. The Python implementation remains available as a reference and fallback; this source update is not a GitHub release.

@@ -1,5 +1,5 @@
 #define AppName "NLSI Exclusive Logbook"
-#define AppVersion "1.3.2"
+#define AppVersion "1.3.3"
 #define ReleaseTag "v" + AppVersion + "-alpha"
 #define ReleasePayload "build\intermediate\installer-payload-" + ReleaseTag
 #define AppPublisher "NLSI"
@@ -21,7 +21,7 @@ AppSupportURL={#AppURL}
 AppUpdatesURL={#AppURL}
 DefaultDirName={autopf32}\NLSI Exclusive Logbook
 DefaultGroupName={#AppName}
-UsePreviousAppDir=no
+UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 ArchitecturesAllowed=x64compatible
@@ -46,8 +46,8 @@ UninstallDisplayIcon={app}\NLSI-Exclusive-Logbook.exe
 SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.3.2.0
-VersionInfoProductVersion=1.3.2.0
+VersionInfoVersion=1.3.3.0
+VersionInfoProductVersion=1.3.3.0
 VersionInfoCompany=NLSI
 VersionInfoProductName={#AppName}
 
@@ -78,10 +78,48 @@ Filename: "https://www.tiktok.com/@kape_073"; Description: "Follow @kape_073 on 
 Filename: "https://github.com/Christian-0777/nlsi_telemetry/releases/tag/{#ReleaseTag}"; Description: "View release notes"; Flags: postinstall shellexec nowait skipifsilent unchecked
 
 [Code]
+const
+  UninstallRegistryKey =
+    'Software\Microsoft\Windows\CurrentVersion\Uninstall\NLSI Exclusive Logbook_is1';
+
 var
   PrivacyPage: TWizardPage;
   PrivacyMemo: TNewMemo;
   PrivacyAccepted: TNewCheckBox;
+  InstallInfoPage: TWizardPage;
+  InstallInfoText: TNewStaticText;
+  ExistingInstallDir: String;
+  ExistingInstallVersion: String;
+  ExistingInstallDetected: Boolean;
+
+function DetectExistingInstallation: Boolean;
+var
+  RegistryInstallDir: String;
+begin
+  ExistingInstallDir := ExpandConstant('{autopf32}\NLSI Exclusive Logbook');
+  ExistingInstallVersion := '';
+
+  if not RegQueryStringValue(HKLM32, UninstallRegistryKey, 'InstallLocation',
+     RegistryInstallDir) or not DirExists(RegistryInstallDir) then
+    RegQueryStringValue(HKLM32, UninstallRegistryKey, 'Inno Setup: App Path',
+      RegistryInstallDir);
+  if DirExists(RegistryInstallDir) then
+    ExistingInstallDir := RegistryInstallDir;
+
+  Result := DirExists(ExistingInstallDir);
+  if Result then
+    RegQueryStringValue(HKLM32, UninstallRegistryKey, 'DisplayVersion',
+      ExistingInstallVersion);
+end;
+
+function LegacyContainsUserData(const LegacyPath: String): Boolean;
+begin
+  Result :=
+    DirExists(LegacyPath + '\config') or
+    DirExists(LegacyPath + '\data') or
+    DirExists(LegacyPath + '\logs') or
+    DirExists(LegacyPath + '\app\test\output');
+end;
 
 function InitializeSetup: Boolean;
 begin
@@ -95,7 +133,40 @@ var
   PolicyText: String;
   PolicyLines: TArrayOfString;
   Index: Integer;
+  InstallationSummary: String;
 begin
+  ExistingInstallDetected := DetectExistingInstallation;
+
+  InstallInfoPage := CreateCustomPage(wpWelcome, 'Installation type',
+    'Review the installation or update details before continuing.');
+  InstallInfoText := TNewStaticText.Create(InstallInfoPage);
+  InstallInfoText.Parent := InstallInfoPage.Surface;
+  InstallInfoText.SetBounds(0, 0, InstallInfoPage.SurfaceWidth,
+    InstallInfoPage.SurfaceHeight);
+  InstallInfoText.Anchors := [akLeft, akTop, akRight, akBottom];
+  InstallInfoText.AutoSize := False;
+  InstallInfoText.WordWrap := True;
+  if ExistingInstallDetected then begin
+    if ExistingInstallVersion = '' then
+      ExistingInstallVersion := 'Not available';
+    InstallationSummary :=
+      'An existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
+      'This setup will UPDATE the existing installation.' + #13#10 +
+      'Installed version: ' + ExistingInstallVersion + #13#10 +
+      'New version: v{#AppVersion}-alpha' + #13#10 +
+      'Installation directory: ' + ExistingInstallDir + #13#10#13#10 +
+      'Existing configuration and log files will be preserved.';
+  end else begin
+    InstallationSummary :=
+      'No existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
+      'This setup will perform a fresh installation of v{#AppVersion}-alpha.';
+  end;
+  if DirExists(ExpandConstant('{#LegacyDirectory}')) and
+     LegacyContainsUserData(ExpandConstant('{#LegacyDirectory}')) then
+    InstallationSummary := InstallationSummary + #13#10#13#10 +
+      'The legacy C:\nlsi-tem directory contains known user data and will be left untouched.';
+  InstallInfoText.Caption := InstallationSummary;
+
   ExtractTemporaryFile('PrivacyPolicy.txt');
   if not LoadStringsFromFile(ExpandConstant('{tmp}\PrivacyPolicy.txt'), PolicyLines) then
     RaiseException('The Privacy Policy could not be loaded. Setup cannot continue.');
@@ -141,12 +212,16 @@ begin
   Result := '';
   LegacyPath := '{#LegacyDirectory}';
   if DirExists(LegacyPath) then begin
-    Log('Removing the requested legacy installation directory: ' + LegacyPath);
-    if not DelTree(LegacyPath, True, True, True) then
-      Result := 'The legacy directory could not be completely removed: ' + LegacyPath +
-        '. Close programs using files in that directory and try again.';
-    if (Result = '') and DirExists(LegacyPath) then
-      Result := 'The legacy directory still exists and could not be completely removed: ' + LegacyPath;
+    if LegacyContainsUserData(LegacyPath) then begin
+      Log('Preserving the legacy directory because it contains user data: ' + LegacyPath);
+    end else begin
+      Log('Removing the legacy application directory: ' + LegacyPath);
+      if not DelTree(LegacyPath, True, True, True) then
+        Result := 'The legacy directory could not be completely removed: ' + LegacyPath +
+          '. Close programs using files in that directory and try again.';
+      if (Result = '') and DirExists(LegacyPath) then
+        Result := 'The legacy directory still exists and could not be completely removed: ' + LegacyPath;
+    end;
   end;
 end;
 
@@ -155,11 +230,11 @@ begin
   if CurPageID = wpFinished then begin
     WizardForm.FinishedHeadingLabel.Caption := 'Installation complete';
     WizardForm.FinishedLabel.Caption :=
-      'NLSI Exclusive Logbook v1.3.2-alpha has been installed.' + #13#10#13#10 +
+      'NLSI Exclusive Logbook v1.3.3-alpha has been installed.' + #13#10#13#10 +
       'What''s New' + #13#10 +
-      '- Moved detailed NLSI and RenCloud status to Settings > Providers.' + #13#10 +
-      '- Improved responsive layouts and opened at the existing minimum size.' + #13#10 +
-      '- Retained lightweight, change-only telemetry updates.' + #13#10#13#10 +
+      '- Redesigned the compact sidebar with grouped navigation and clear active states.' + #13#10 +
+      '- Improved update detection while preserving configuration and logs.' + #13#10 +
+      '- Retained the lightweight Qt Widgets interface and 900×600 default size.' + #13#10#13#10 +
       'Select any optional action below, then click Finish.';
   end;
 end;

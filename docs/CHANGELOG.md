@@ -2,6 +2,14 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.3.3 — Alpha
+
+- Reorganized the compact shared sidebar into WORKSPACE and SYSTEM navigation with a horizontal NLSI brand header, consistent icons, and a bottom Close action.
+- Kept the existing page stack, active-page state, 900×600 minimum, and default window size.
+- Added installer detection and version reporting for existing installations; updates preserve configuration and log data.
+- Preserved known user data when cleaning up the legacy `C:\nlsi-tem` directory.
+- Guarded installer packaging against stale executables using Windows version metadata.
+
 ## v1.3.2 — Alpha
 
 - Moved detailed NLSI and RenCloud provider status from the Dashboard to Settings → Providers; Dashboard now reports only overall connection status.

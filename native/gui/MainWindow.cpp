@@ -9,6 +9,7 @@
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QStyle>
 #include <QToolButton>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -41,30 +42,36 @@ MainWindow::MainWindow(
 
     auto* sidebar = new QFrame(root);
     sidebar->setObjectName(QStringLiteral("sidebar"));
-    sidebar->setMinimumWidth(190);
-    sidebar->setMaximumWidth(220);
+    sidebar->setFixedWidth(210);
     sidebar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     auto* sidebar_layout = new QVBoxLayout(sidebar);
-    sidebar_layout->setContentsMargins(14, 20, 14, 16);
-    sidebar_layout->setSpacing(6);
+    sidebar_layout->setContentsMargins(12, 18, 12, 14);
+    sidebar_layout->setSpacing(4);
 
-    auto* logo = new QLabel(sidebar);
+    auto* brand = new QWidget(sidebar);
+    auto* brand_layout = new QHBoxLayout(brand);
+    brand_layout->setContentsMargins(0, 0, 0, 0);
+    brand_layout->setSpacing(10);
+    auto* logo = new QLabel(brand);
     logo->setObjectName(QStringLiteral("brandLogo"));
     logo->setPixmap(QPixmap(QStringLiteral(":/images/logo.png"))
-        .scaled(64, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    logo->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    sidebar_layout->addWidget(logo);
+        .scaled(44, 44, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    logo->setFixedSize(44, 44);
+    logo->setAlignment(Qt::AlignCenter);
+    brand_layout->addWidget(logo);
 
-    auto* brand = new QLabel(QStringLiteral("NLSI"), sidebar);
-    brand->setObjectName(QStringLiteral("brandTitle"));
-    sidebar_layout->addWidget(brand);
-    auto* product = new QLabel(QStringLiteral("EXCLUSIVE LOGBOOK"), sidebar);
+    auto* brand_text = new QVBoxLayout();
+    brand_text->setContentsMargins(0, 0, 0, 0);
+    brand_text->setSpacing(0);
+    auto* brand_title = new QLabel(QStringLiteral("NLSI"), brand);
+    brand_title->setObjectName(QStringLiteral("brandTitle"));
+    brand_text->addWidget(brand_title);
+    auto* product = new QLabel(QStringLiteral("Exclusive Logbook"), brand);
     product->setObjectName(QStringLiteral("brandSubtitle"));
-    sidebar_layout->addWidget(product);
-    auto* navigation_label = new QLabel(QStringLiteral("WORKSPACE"), sidebar);
-    navigation_label->setObjectName(QStringLiteral("sectionLabel"));
-    sidebar_layout->addWidget(navigation_label);
-    sidebar_layout->addSpacing(8);
+    brand_text->addWidget(product);
+    brand_layout->addLayout(brand_text, 1);
+    sidebar_layout->addWidget(brand);
+    sidebar_layout->addSpacing(18);
 
     auto* content = new QWidget(root);
     content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -100,23 +107,40 @@ MainWindow::MainWindow(
     struct NavigationEntry {
         QString key;
         QString title;
+        QStyle::StandardPixmap icon;
         StatePage* page;
     };
-    const QList<NavigationEntry> entries = {
-        {QStringLiteral("dashboard"), QStringLiteral("Dashboard"), new DashboardPage(this)},
-        {QStringLiteral("liveDrive"), QStringLiteral("Live Drive"), new LiveDrivePage(this)},
-        {QStringLiteral("jobs"), QStringLiteral("Jobs"), new JobsPage(this)},
-        {QStringLiteral("history"), QStringLiteral("History"), new HistoryPage(this)},
-        {QStringLiteral("events"), QStringLiteral("Events"), new EventsPage(this)},
-        {QStringLiteral("settings"), QStringLiteral("Settings"), new SettingsPage(this)},
-        {QStringLiteral("about"), QStringLiteral("About"), new AboutPage(version_label, this)},
+    const QList<NavigationEntry> workspace_entries = {
+        {QStringLiteral("dashboard"), QStringLiteral("Dashboard"), QStyle::SP_ComputerIcon,
+            new DashboardPage(this)},
+        {QStringLiteral("liveDrive"), QStringLiteral("Live Drive"), QStyle::SP_MediaPlay,
+            new LiveDrivePage(this)},
+        {QStringLiteral("jobs"), QStringLiteral("Jobs"), QStyle::SP_FileDialogDetailedView,
+            new JobsPage(this)},
+        {QStringLiteral("history"), QStringLiteral("History"), QStyle::SP_BrowserReload,
+            new HistoryPage(this)},
+        {QStringLiteral("events"), QStringLiteral("Events"), QStyle::SP_MessageBoxInformation,
+            new EventsPage(this)},
+    };
+    const QList<NavigationEntry> system_entries = {
+        {QStringLiteral("settings"), QStringLiteral("Settings"), QStyle::SP_FileDialogContentsView,
+            new SettingsPage(this)},
+        {QStringLiteral("about"), QStringLiteral("About"), QStyle::SP_MessageBoxQuestion,
+            new AboutPage(version_label, this)},
     };
 
-    for (const auto& entry : entries) {
+    auto* workspace_label = new QLabel(QStringLiteral("WORKSPACE"), sidebar);
+    workspace_label->setObjectName(QStringLiteral("sectionLabel"));
+    sidebar_layout->addWidget(workspace_label);
+
+    const auto add_navigation_entry = [this, sidebar, sidebar_layout](
+                                          const NavigationEntry& entry) {
         auto* button = new QToolButton(sidebar);
         button->setObjectName(QStringLiteral("navigationButton"));
         button->setText(entry.title);
-        button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        button->setIcon(style()->standardIcon(entry.icon));
+        button->setIconSize(QSize(18, 18));
+        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         button->setCheckable(true);
         button->setAutoRaise(true);
         sidebar_layout->addWidget(button);
@@ -126,8 +150,31 @@ MainWindow::MainWindow(
         connect(button, &QToolButton::clicked, this, [this, key = entry.key] {
             ActivatePage(key);
         });
+    };
+
+    for (const auto& entry : workspace_entries) {
+        add_navigation_entry(entry);
     }
+
+    auto* system_label = new QLabel(QStringLiteral("SYSTEM"), sidebar);
+    system_label->setObjectName(QStringLiteral("sectionLabel"));
+    system_label->setContentsMargins(0, 10, 0, 0);
+    sidebar_layout->addWidget(system_label);
+    for (const auto& entry : system_entries) {
+        add_navigation_entry(entry);
+    }
+
     sidebar_layout->addStretch(1);
+    auto* close_button = new QToolButton(sidebar);
+    close_button->setObjectName(QStringLiteral("navigationButton"));
+    close_button->setText(QStringLiteral("Close"));
+    close_button->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
+    close_button->setIconSize(QSize(18, 18));
+    close_button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    close_button->setAutoRaise(true);
+    sidebar_layout->addWidget(close_button);
+    connect(close_button, &QToolButton::clicked, this, &QWidget::close);
+
     root_layout->addWidget(sidebar);
     root_layout->addWidget(content, 1);
     setCentralWidget(root);

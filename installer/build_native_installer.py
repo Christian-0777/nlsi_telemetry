@@ -44,6 +44,28 @@ def verify_version() -> None:
         raise ValueError(f"version.json must describe {VERSION} {CHANNEL}.")
 
 
+def verify_executable_version(app_exe: Path) -> None:
+    escaped_path = str(app_exe).replace("'", "''")
+    command = (
+        f"$version = (Get-Item -LiteralPath '{escaped_path}').VersionInfo; "
+        'Write-Output "$($version.FileVersion)|$($version.ProductVersion)"'
+    )
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", command],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    expected = f"{VERSION}.0|{VERSION} Alpha"
+    actual = result.stdout.strip()
+    if actual != expected:
+        raise ValueError(
+            f"The native executable has version metadata {actual!r}; "
+            f"expected {expected!r}. Refusing to package a stale executable."
+        )
+
+
 def locate_iscc() -> Path:
     candidates = [
         shutil.which("ISCC.exe"),
@@ -61,7 +83,11 @@ def locate_windeployqt() -> Path:
     cache = ROOT / "build" / "cmake" / "CMakeCache.txt"
     if not cache.is_file():
         raise FileNotFoundError(f"Missing configured native CMake build: {cache}")
-    match = re.search(r"^Qt6_DIR:PATH=(.+)$", cache.read_text(encoding="utf-8", errors="replace"), re.MULTILINE)
+    match = re.search(
+        r"^Qt6_DIR(?::[^=]+)?=(.+)$",
+        cache.read_text(encoding="utf-8", errors="replace"),
+        re.MULTILINE,
+    )
     if not match:
         raise ValueError(f"Qt6_DIR was not recorded in {cache}.")
     qt_module_directory = Path(match.group(1).strip().replace("/", "\\"))
@@ -185,6 +211,7 @@ def main() -> int:
         app_exe = RELEASE_DIR / APP_EXE
         if not app_exe.is_file():
             raise FileNotFoundError(f"Build the native Release application first: {app_exe}")
+        verify_executable_version(app_exe)
         if not (ROOT / "installer" / "licenses" / "TermsAndConditions.txt").stat().st_size:
             raise ValueError("Terms and Conditions file is empty.")
         if not (ROOT / "installer" / "licenses" / "PrivacyPolicy.txt").stat().st_size:

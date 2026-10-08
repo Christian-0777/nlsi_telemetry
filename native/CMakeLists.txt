@@ -204,4 +204,53 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME nlsi_core_tests COMMAND nlsi_core_tests)
+
+    add_executable(nlsi_gui_tests
+        tests/main_window_tests.cpp
+        gui/MainWindow.cpp
+        gui/PageSupport.cpp
+        gui/DashboardPage.cpp
+        gui/DetailPages.cpp
+        gui/HistoryPages.cpp
+        telemetry/TelemetryCore.cpp
+        telemetry/TelemetryModel.cpp
+        telemetry/TelemetryUiState.cpp
+        providers/NLSIProvider.cpp
+        providers/RenCloudProvider.cpp
+        session/SessionManager.cpp
+        session/JobManager.cpp
+        logging/Logger.cpp
+        updater/GitHubUpdater.cpp
+        resources/resources.qrc
+    )
+
+    set_target_properties(nlsi_gui_tests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${NLSI_RELEASE_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${NLSI_RELEASE_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${NLSI_RELEASE_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${NLSI_RELEASE_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${NLSI_RELEASE_OUTPUT_DIR}"
+    )
+
+    target_include_directories(nlsi_gui_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/app
+        ${CMAKE_CURRENT_SOURCE_DIR}/gui
+        ${CMAKE_CURRENT_SOURCE_DIR}/telemetry
+        ${CMAKE_CURRENT_SOURCE_DIR}/providers
+        ${CMAKE_CURRENT_SOURCE_DIR}/session
+        ${CMAKE_CURRENT_SOURCE_DIR}/logging
+        ${CMAKE_CURRENT_SOURCE_DIR}/updater
+    )
+    target_link_libraries(nlsi_gui_tests PRIVATE Qt6::Widgets shell32 ws2_32)
+
+    if(MSVC)
+        target_compile_options(nlsi_gui_tests PRIVATE /W4)
+    endif()
+
+    add_test(NAME nlsi_gui_tests COMMAND nlsi_gui_tests)
+    set_tests_properties(nlsi_gui_tests PROPERTIES
+        ENVIRONMENT
+            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${NLSI_QT_ROOT}/plugins/platforms"
+    )
 endif()

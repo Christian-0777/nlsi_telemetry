@@ -1,4 +1,4 @@
-NLSI EXCLUSIVE LOGBOOK v1.3.2 ALPHA
+NLSI EXCLUSIVE LOGBOOK v1.3.3 ALPHA
 PRIVACY POLICY
 
 1. INFORMATION PROCESSED BY THE APPLICATION
@@ -18,11 +18,14 @@ values.
 2. INSTALLATION AND LEGACY CLEANUP
 
 The installer places Application files in the selected installation
-directory. As requested for this release, setup deletes the legacy directory
-C:\nlsi-tem before installing. Do not keep files you need in that legacy
-directory. The installer and uninstaller do not target user data stored
-outside the legacy and Application installation directories, except for
-shortcuts and the optional Windows startup shortcut you choose.
+directory. During an update, application files are replaced in place and
+existing configuration and logs are retained. Setup removes the legacy
+C:\nlsi-tem application directory only when it does not contain the known
+user-data folders (config, data, logs, or app\test\output). If any of those
+folders are present, setup leaves the legacy directory untouched to protect
+that data. The uninstaller does not target user data stored outside the
+Application installation directory, except for shortcuts and the optional
+Windows startup shortcut you choose.
 
 3. OPTIONAL EXTERNAL LINKS
 
@@ -45,5 +48,5 @@ files; it does not recreate C:\nlsi-tem.
 Project information is available at:
 https://github.com/Christian-0777/nlsi_telemetry
 
-This policy describes the v1.3.2 Alpha native Application and installer.
+This policy describes the v1.3.3 Alpha native Application and installer.
 Update it if data handling changes.

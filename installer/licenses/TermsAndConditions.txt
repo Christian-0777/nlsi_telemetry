@@ -1,10 +1,10 @@
-NLSI EXCLUSIVE LOGBOOK v1.3.2 ALPHA
+NLSI EXCLUSIVE LOGBOOK v1.3.3 ALPHA
 TERMS AND CONDITIONS
 
 1. ACCEPTANCE
 
 By selecting “I accept the Terms and Conditions” and continuing, you agree to
-these terms for your use of NLSI Exclusive Logbook v1.3.2 Alpha (“the
+these terms for your use of NLSI Exclusive Logbook v1.3.3 Alpha (“the
 Application”). If you do not agree, cancel the installer and do not use the
 Application.
 
@@ -56,10 +56,10 @@ law does not allow to be limited.
 
 You may uninstall the Application using its Windows uninstaller. The
 uninstaller removes files installed in the application directory. The
-installer separately removes the legacy C:\nlsi-tem directory as described
-in the installation information. Do not store information there that you
-need to keep. Files and user data outside those locations are not targeted
-by uninstall.
+installer removes the legacy C:\nlsi-tem application directory only when
+the known user-data folders are not present. If such data is present, setup
+leaves the legacy directory untouched. Files and user data outside the
+application installation directory are not targeted by uninstall.
 
 9. CONTACT AND UPDATES
 

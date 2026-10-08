@@ -24,24 +24,21 @@ QMainWindow, #appRoot {
 
 #brandTitle {
     color: #D96F96;
-    font-size: 21pt;
+    font-size: 18pt;
     font-weight: 700;
-    padding-left: 10px;
 }
 
 #brandSubtitle {
     color: #6D6870;
-    font-size: 8pt;
+    font-size: 8.5pt;
     font-weight: 600;
-    padding-left: 12px;
-    padding-bottom: 18px;
 }
 
 #sectionLabel {
     color: #6D6870;
     font-size: 8pt;
     font-weight: 700;
-    padding-left: 12px;
+    padding: 0 8px 4px;
 }
 
 QToolButton#navigationButton {
@@ -49,8 +46,8 @@ QToolButton#navigationButton {
     border: 0;
     border-radius: 7px;
     color: #242124;
-    min-height: 38px;
-    padding: 0 12px;
+    min-height: 36px;
+    padding: 0 9px;
     text-align: left;
 }
 
@@ -59,9 +56,13 @@ QToolButton#navigationButton:hover {
 }
 
 QToolButton#navigationButton:checked {
-    background-color: #FFADD2;
+    background-color: #F5B4D0;
     color: #1C1A1D;
     font-weight: 600;
+}
+
+QToolButton#navigationButton:focus {
+    outline: 1px solid #D96F96;
 }
 
 #appHeader {
