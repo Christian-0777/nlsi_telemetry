@@ -53,8 +53,14 @@ struct TelemetryState {
     NumericField rpm;
     NumericField gear;
     NumericField steering;
+    NumericField input_throttle;
+    NumericField effective_throttle;
     NumericField throttle;
+    NumericField input_brake;
+    NumericField effective_brake;
     NumericField brake;
+    NumericField retarder_level;
+    NumericField cruise_control;
     NumericField fuel;
     NumericField fuel_range;
     NumericField fuel_consumption;
@@ -205,8 +211,16 @@ std::string telemetry_packet()
     out << ",\"rpm\":" << json_field(g_state.rpm)
         << ",\"gear\":" << json_field(g_state.gear)
         << ",\"steering\":" << json_field(g_state.steering)
-        << ",\"throttle\":" << json_field(g_state.throttle)
-        << ",\"brake\":" << json_field(g_state.brake)
+        << ",\"input_throttle\":" << json_field(g_state.input_throttle)
+        << ",\"effective_throttle\":" << json_field(g_state.effective_throttle)
+        << ",\"throttle\":" << json_field(g_state.effective_throttle)
+        << ",\"input_brake\":" << json_field(g_state.input_brake)
+        << ",\"effective_brake\":" << json_field(g_state.effective_brake)
+        << ",\"brake\":" << json_field(g_state.effective_brake)
+        << ",\"retarder_level\":" << json_field(g_state.retarder_level)
+        << ",\"retarder_active\":" << (g_state.retarder_level.available ? (g_state.retarder_level.value > 0.0 ? "true" : "false") : "null")
+        << ",\"cruise_control_speed\":" << json_field(g_state.cruise_control)
+        << ",\"cruise_control_active\":" << (g_state.cruise_control.available ? (g_state.cruise_control.value > 0.0 ? "true" : "false") : "null")
         << ",\"fuel_liters\":" << json_field(g_state.fuel)
         << ",\"fuel_range_km\":" << json_field(g_state.fuel_range)
         << ",\"fuel_consumption_l_per_km\":" << json_field(g_state.fuel_consumption)
@@ -542,9 +556,19 @@ SCSAPI_RESULT scs_telemetry_init(
     register_numeric(init->register_for_channel, SCS_TELEMETRY_TRUCK_CHANNEL_input_steering,
         SCS_VALUE_TYPE_float, g_state.steering);
     register_numeric(init->register_for_channel, SCS_TELEMETRY_TRUCK_CHANNEL_input_throttle,
-        SCS_VALUE_TYPE_float, g_state.throttle);
+        SCS_VALUE_TYPE_float, g_state.input_throttle);
+    register_numeric(init->register_for_channel, SCS_TELEMETRY_TRUCK_CHANNEL_effective_throttle,
+        SCS_VALUE_TYPE_float, g_state.effective_throttle);
+    g_state.throttle = g_state.effective_throttle;
     register_numeric(init->register_for_channel, SCS_TELEMETRY_TRUCK_CHANNEL_input_brake,
-        SCS_VALUE_TYPE_float, g_state.brake);
+        SCS_VALUE_TYPE_float, g_state.input_brake);
+    register_numeric(init->register_for_channel, SCS_TELEMETRY_TRUCK_CHANNEL_effective_brake,
+        SCS_VALUE_TYPE_float, g_state.effective_brake);
+    g_state.brake = g_state.effective_brake;
+    register_numeric(init->register_for_channel, SCS_TELEMETRY_TRUCK_CHANNEL_retarder_level,
+        SCS_VALUE_TYPE_u32, g_state.retarder_level);
+    register_numeric(init->register_for_channel, SCS_TELEMETRY_TRUCK_CHANNEL_cruise_control,
+        SCS_VALUE_TYPE_float, g_state.cruise_control);
     register_numeric(init->register_for_channel, SCS_TELEMETRY_TRUCK_CHANNEL_fuel,
         SCS_VALUE_TYPE_float, g_state.fuel);
     register_numeric(init->register_for_channel, SCS_TELEMETRY_TRUCK_CHANNEL_fuel_range,

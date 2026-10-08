@@ -1,0 +1,33 @@
+#include <windows.h>
+
+#define APP_STRINGIZE_IMPL(value) #value
+#define APP_STRINGIZE(value) APP_STRINGIZE_IMPL(value)
+#define APP_VERSION_STRING APP_STRINGIZE(APP_VERSION_MAJOR) "." APP_STRINGIZE(APP_VERSION_MINOR) "." APP_STRINGIZE(APP_VERSION_PATCH)
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH, 0
+ PRODUCTVERSION APP_VERSION_MAJOR, APP_VERSION_MINOR, APP_VERSION_PATCH, 0
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS 0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_DLL
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "NLSI\0"
+            VALUE "FileDescription", "NLSI Telemetry SCS Plugin\0"
+            VALUE "FileVersion", APP_VERSION_STRING "\0"
+            VALUE "InternalName", "nlsi_telemetry\0"
+            VALUE "OriginalFilename", "nlsi_telemetry.dll\0"
+            VALUE "ProductName", "NLSI Telemetry\0"
+            VALUE "ProductVersion", APP_VERSION_STRING "\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

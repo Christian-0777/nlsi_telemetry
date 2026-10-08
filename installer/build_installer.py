@@ -92,7 +92,7 @@ def prepare_staging(version: str, sdk_root: Path) -> Path:
 def write_build_info(version: str, sdk_root: Path, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "product": "NLSI Telemetry",
+        "product": "NLSI Exclusive Logbook",
         "version": version,
         "platform": "windows-x64",
         "sdk_root": str(sdk_root),

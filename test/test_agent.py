@@ -125,18 +125,12 @@ class TelemetryAgentTests(unittest.TestCase):
         self.assertIsNone(snapshot["position"]["x"])
 
     def test_session_ends_after_heartbeat_loss(self) -> None:
-        self.agent.process_message(
-            {"type": "plugin_init", "game": GAME, "timestamp": "2026-01-01T00:00:00Z"},
-            now=0.0,
-        )
+        self.agent.process_message(telemetry(0.0, state="driving"), now=0.0)
         self.agent.check_timeout(now=5.0)
         self.assertEqual("telemetry_timeout", self.read_events()[-1]["data"]["reason"])
 
     def test_paused_game_plugin_heartbeat_keeps_session_and_records_heartbeat(self) -> None:
-        self.agent.process_message(
-            {"type": "plugin_init", "game": GAME, "timestamp": "2026-01-01T00:00:00Z"},
-            now=0.0,
-        )
+        self.agent.process_message(telemetry(0.0, state="paused"), now=0.0)
         self.agent.process_message(
             {
                 "type": "plugin_heartbeat",
@@ -160,9 +154,8 @@ class TelemetryAgentTests(unittest.TestCase):
             },
             now=1.0,
         )
-        events = self.read_events()
-        self.assertEqual(["SESSION_STARTED"], [event["event"] for event in events])
-        self.assertEqual("ets2", events[0]["game"])
+        self.assertIsNone(self.agent.session_id)
+        self.assertEqual([], self.read_events())
 
     def test_session_ids_skip_ids_already_persisted_in_event_history(self) -> None:
         events_path = Path(self.temp_dir.name) / "events.jsonl"
@@ -182,11 +175,37 @@ class TelemetryAgentTests(unittest.TestCase):
         new_id = self.agent._new_session_id("2026-10-08T00:00:00Z")
         self.assertNotEqual("NLSI-20261008-0001", new_id)
 
-    def test_reconnected_session_gets_a_new_id_and_fresh_metrics(self) -> None:
+    def test_effective_throttle_and_retarder_are_normalized(self) -> None:
         self.agent.process_message(
-            {"type": "plugin_init", "game": GAME, "timestamp": "2026-10-08T00:00:00Z"},
+            {
+                "type": "telemetry",
+                "timestamp": "2026-01-01T00:00:00.000Z",
+                "game": GAME,
+                "state": "driving",
+                "truck": {
+                    "input_throttle": 0.85,
+                    "effective_throttle": 0.37,
+                    "input_brake": 0.60,
+                    "effective_brake": 0.14,
+                    "retarder_level": 2,
+                    "cruise_control": 12.5,
+                },
+                "position": {"x": None, "y": None, "z": None},
+                "configurations": {},
+            },
             now=0.0,
         )
+        snapshot = json.loads(self.output[-1])
+        truck = snapshot["truck"]
+        self.assertEqual(0.37, truck["throttle"])
+        self.assertEqual(0.14, truck["brake"])
+        self.assertEqual(2, truck["retarder_level"])
+        self.assertTrue(truck["retarder_active"])
+        self.assertEqual(12.5, truck["cruiseControlSpeed"])
+        self.assertTrue(truck["cruiseControlActive"])
+
+    def test_reconnected_session_gets_a_new_id_and_fresh_metrics(self) -> None:
+        self.agent.process_message(telemetry(0.0, state="driving"), now=0.0)
         first_id = self.agent.session_id
         self.agent.process_message(
             {"type": "plugin_shutdown", "game": GAME, "timestamp": "2026-10-08T00:01:00Z"},
@@ -196,9 +215,58 @@ class TelemetryAgentTests(unittest.TestCase):
             {"type": "plugin_init", "game": GAME, "timestamp": "2026-10-08T00:02:00Z"},
             now=120.0,
         )
+        self.agent.process_message(telemetry(5.0, state="driving"), now=120.0)
 
         self.assertNotEqual(first_id, self.agent.session_id)
         self.assertEqual(0.0, self.agent._session_metrics(120.0)["duration_seconds"])
+
+    def test_provider_values_fallback_across_nlsi_and_rencloud(self) -> None:
+        self.agent.process_message(
+            {
+                "type": "telemetry",
+                "provider": "nlsi",
+                "game": GAME,
+                "state": "driving",
+                "timestamp": "2026-01-01T00:00:00.000Z",
+                "truck": {"speed_kmh": 32.0},
+                "position": {"x": 1.0, "y": 2.0, "z": 3.0},
+                "configurations": {},
+            },
+            now=0.0,
+        )
+        self.agent.process_message(
+            {
+                "type": "telemetry",
+                "provider": "rencloud",
+                "game": GAME,
+                "state": "driving",
+                "timestamp": "2026-01-01T00:00:01.000Z",
+                "truck": {"remaining_distance_km": 42.5, "speed_kmh": 40.0},
+                "position": {"x": 1.5, "y": 2.5, "z": 3.5},
+                "configurations": {},
+            },
+            now=1.0,
+        )
+
+        merged = self.agent.combined_telemetry(now=1.0)
+        self.assertEqual(32.0, merged["truck"]["speed_kmh"])
+        self.assertEqual(42.5, merged["truck"]["remaining_distance_km"])
+
+    def test_lifecycle_message_updates_timeout_window(self) -> None:
+        self.agent.process_message(
+            {
+                "type": "lifecycle",
+                "game": GAME,
+                "state": "driving",
+                "timestamp": "2026-01-01T00:00:00.000Z",
+            },
+            now=0.0,
+        )
+        self.assertIsNotNone(self.agent.last_packet_monotonic)
+        self.agent.check_timeout(now=4.9)
+        self.assertIsNotNone(self.agent.session_id)
+        self.agent.check_timeout(now=5.1)
+        self.assertIsNone(self.agent.session_id)
 
 
 if __name__ == "__main__":

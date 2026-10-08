@@ -1,0 +1,212 @@
+QWidget {
+    background-color: #FFFFFF;
+    color: #242124;
+    font-family: "Segoe UI";
+    font-size: 10pt;
+}
+
+QLabel {
+    background-color: transparent;
+}
+
+QMainWindow, #appRoot {
+    background-color: #FFFFFF;
+}
+
+#sidebar {
+    background-color: #FFF7FA;
+    border-right: 1px solid #F1DCE5;
+}
+
+#brandLogo {
+    background: #FFF7FA;
+}
+
+#brandTitle {
+    color: #D96F96;
+    font-size: 21pt;
+    font-weight: 700;
+    padding-left: 10px;
+}
+
+#brandSubtitle {
+    color: #6D6870;
+    font-size: 8pt;
+    font-weight: 600;
+    padding-left: 12px;
+    padding-bottom: 18px;
+}
+
+#sectionLabel {
+    color: #6D6870;
+    font-size: 8pt;
+    font-weight: 700;
+    padding-left: 12px;
+}
+
+QToolButton#navigationButton {
+    background-color: #FFF7FA;
+    border: 0;
+    border-radius: 7px;
+    color: #242124;
+    min-height: 38px;
+    padding: 0 12px;
+    text-align: left;
+}
+
+QToolButton#navigationButton:hover {
+    background-color: #FFD1E6;
+}
+
+QToolButton#navigationButton:checked {
+    background-color: #FFADD2;
+    color: #1C1A1D;
+    font-weight: 600;
+}
+
+#appHeader {
+    background-color: #FFFFFF;
+    border: 1px solid #F1DCE5;
+    border-radius: 8px;
+}
+
+#headerTitle {
+    color: #242124;
+    font-size: 15pt;
+    font-weight: 600;
+}
+
+#versionBadge {
+    background-color: #FFD1E6;
+    border: 1px solid #E8C2D2;
+    border-radius: 10px;
+    color: #242124;
+    font-size: 9pt;
+    font-weight: 600;
+    padding: 5px 11px;
+}
+
+#pageTitle {
+    color: #1C1A1D;
+    font-size: 20pt;
+    font-weight: 650;
+}
+
+#pageDescription {
+    color: #6D6870;
+    font-size: 10pt;
+}
+
+#pageScroll {
+    background-color: #FFFFFF;
+    border: 0;
+}
+
+#telemetryCard, #contentCard {
+    background-color: #FFF7FA;
+    border: 1px solid #F1DCE5;
+    border-radius: 8px;
+}
+
+#cardTitle {
+    color: #6D6870;
+    font-size: 8pt;
+    font-weight: 700;
+}
+
+#cardValue {
+    color: #242124;
+    font-size: 14pt;
+    font-weight: 600;
+}
+
+#detailRow {
+    background-color: #FFF7FA;
+    border: 0;
+}
+
+#detailLabel {
+    color: #6D6870;
+}
+
+#detailValue {
+    color: #242124;
+    font-weight: 600;
+}
+
+#divider {
+    background-color: #F1DCE5;
+    border: 0;
+}
+
+QTabWidget#contentTabs::pane {
+    background-color: #FFFFFF;
+    border: 1px solid #F1DCE5;
+    border-radius: 6px;
+    top: -1px;
+}
+
+QTabBar::tab {
+    background-color: #FFF7FA;
+    border: 1px solid #F1DCE5;
+    color: #6D6870;
+    padding: 8px 14px;
+}
+
+QTabBar::tab:selected {
+    background-color: #FFADD2;
+    color: #1C1A1D;
+}
+
+QTabBar::tab:first {
+    border-top-left-radius: 6px;
+}
+
+QTabBar::tab:last {
+    border-top-right-radius: 6px;
+}
+
+QTableView#dataTable {
+    background-color: #FFFFFF;
+    alternate-background-color: #FFF7FA;
+    border: 1px solid #F1DCE5;
+    gridline-color: #F1DCE5;
+    selection-background-color: #FFD1E6;
+    selection-color: #242124;
+}
+
+QHeaderView::section {
+    background-color: #FFF7FA;
+    border: 0;
+    border-bottom: 1px solid #E8C2D2;
+    color: #242124;
+    font-weight: 600;
+    padding: 10px;
+}
+
+QStatusBar {
+    background-color: #FFF7FA;
+    border-top: 1px solid #F1DCE5;
+    color: #6D6870;
+}
+
+#statusIndicator {
+    color: #D96F96;
+    padding-right: 12px;
+}
+
+QScrollBar:vertical {
+    background-color: #FFFFFF;
+    margin: 0;
+    width: 10px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #E8C2D2;
+    border-radius: 4px;
+    min-height: 28px;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}

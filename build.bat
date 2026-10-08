@@ -49,8 +49,16 @@ if not defined VS_INSTALL (
 call "%VS_INSTALL%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
 if errorlevel 1 exit /b 1
 
+for /f "tokens=1-3 delims=." %%A in ("%APP_VERSION%") do (
+    set "APP_VERSION_MAJOR=%%A"
+    set "APP_VERSION_MINOR=%%B"
+    set "APP_VERSION_PATCH=%%C"
+)
+rc /nologo /dAPP_VERSION_MAJOR=%APP_VERSION_MAJOR% /dAPP_VERSION_MINOR=%APP_VERSION_MINOR% /dAPP_VERSION_PATCH=%APP_VERSION_PATCH% /fo"%BUILD_ROOT%\nlsi_telemetry.res" src\nlsi_telemetry.rc
+if errorlevel 1 exit /b 1
+
 echo Compiler source: src\nlsi_telemetry.cpp
-cl /nologo /std:c++17 /EHsc /W4 /MT /LD /I "%SDK_ROOT%\include" /Fo"%BUILD_ROOT%\nlsi_telemetry.obj" src\nlsi_telemetry.cpp /link /DEF:src\nlsi_telemetry.def /OUT:"%BUILD_ROOT%\nlsi_telemetry.dll" /IMPLIB:"%BUILD_ROOT%\nlsi_telemetry.lib" Ws2_32.lib
+cl /nologo /std:c++17 /EHsc /W4 /MT /LD /I "%SDK_ROOT%\include" /Fo"%BUILD_ROOT%\nlsi_telemetry.obj" src\nlsi_telemetry.cpp "%BUILD_ROOT%\nlsi_telemetry.res" /link /DEF:src\nlsi_telemetry.def /OUT:"%BUILD_ROOT%\nlsi_telemetry.dll" /IMPLIB:"%BUILD_ROOT%\nlsi_telemetry.lib" Ws2_32.lib
 if errorlevel 1 exit /b 1
 
 echo Built %BUILD_ROOT%\nlsi_telemetry.dll

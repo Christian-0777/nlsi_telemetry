@@ -2,11 +2,14 @@ import argparse
 import ctypes
 import json
 import os
+import re
 import select
 import shutil
 import socket
 import sys
 import time
+import urllib.error
+import urllib.request
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +17,156 @@ from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parent
+
+
+def _resolve_app_resource_path(*parts: str) -> Path:
+    candidate_roots = []
+    module_dir = ROOT
+    for base in (module_dir, module_dir.parent):
+        if base not in candidate_roots:
+            candidate_roots.append(base)
+    for base in candidate_roots:
+        candidate = base.joinpath(*parts)
+        if candidate.exists():
+            return candidate
+    return module_dir.joinpath(*parts)
+
+
+def _version_path() -> Path:
+    return _resolve_app_resource_path("version.json")
+
+
+def _load_version_payload() -> dict[str, Any]:
+    version_file = _version_path()
+    try:
+        payload = json.loads(version_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Unable to read the application version from {version_file}.") from error
+    if isinstance(payload, dict):
+        return payload
+    raise ValueError(f"{version_file} does not contain a valid application version manifest.")
+
+
+def app_product() -> str:
+    payload = _load_version_payload()
+    product = payload.get("product")
+    if isinstance(product, str) and product.strip():
+        return product.strip()
+    return "NLSI Telemetry"
+
+
+def app_channel() -> str:
+    payload = _load_version_payload()
+    raw_channel = payload.get("channel")
+    if isinstance(raw_channel, str):
+        normalized = raw_channel.strip().lower()
+        if normalized in {"alpha", "beta", "public", "stable"}:
+            return "alpha" if normalized == "stable" else normalized
+    return "public"
+
+
+def app_version() -> str:
+    payload = _load_version_payload()
+    version = payload.get("version")
+    if isinstance(version, str) and version.strip():
+        return version.strip()
+    raise ValueError(f"{_version_path()} does not contain a valid application version.")
+
+
+def app_release_label() -> str:
+    labels = {"alpha": "Alpha", "beta": "Beta", "public": "Public"}
+    channel = app_channel()
+    version = app_version().split(".")[:2]
+    return f"{labels.get(channel, 'Public')} v{'.'.join(version)}"
+
+
+def normalize_release_channel(channel: str | None) -> str:
+    if not isinstance(channel, str):
+        return "public"
+    normalized = channel.strip().lower()
+    if normalized in {"alpha", "beta", "public"}:
+        return normalized
+    if normalized == "stable":
+        return "public"
+    return "public"
+
+
+def channel_priority(channel: str | None) -> int:
+    normalized = normalize_release_channel(channel)
+    priorities = {"alpha": 0, "beta": 1, "public": 2}
+    return priorities.get(normalized, 0)
+
+
+def parse_version(version: str | None) -> tuple[int, int, int]:
+    if not isinstance(version, str):
+        return (0, 0, 0)
+    match = re.fullmatch(r"v?(\d+)\.(\d+)(?:\.(\d+))?", version.strip())
+    if match is None:
+        return (0, 0, 0)
+    major, minor, patch = match.groups()
+    return (int(major), int(minor), int(patch or 0))
+
+
+def compare_versions(left: str | None, right: str | None) -> int:
+    left_version = parse_version(left)
+    right_version = parse_version(right)
+    if left_version < right_version:
+        return -1
+    if left_version > right_version:
+        return 1
+    return 0
+
+
+def is_newer_compatible_release(
+    installed_version: str | None,
+    installed_channel: str | None,
+    available_version: str | None,
+    available_channel: str | None,
+) -> bool:
+    if not available_version:
+        return False
+    version_delta = compare_versions(available_version, installed_version)
+    if version_delta <= 0:
+        if version_delta < 0:
+            return False
+        return channel_priority(available_channel) > channel_priority(installed_channel)
+    if normalize_release_channel(installed_channel) == "alpha" and normalize_release_channel(available_channel) == "public":
+        return False
+    return True
+
+
+def github_latest_release(repo: str = "Christian-0777/nlsi_telemetry", timeout: float = 3.0) -> dict[str, Any] | None:
+    url = f"https://api.github.com/repos/{repo}/releases/latest"
+    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "NLSI-Exclusive-Logbook"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def release_update_available(
+    installed_version: str | None = None,
+    installed_channel: str | None = None,
+    repo: str = "Christian-0777/nlsi_telemetry",
+    timeout: float = 3.0,
+) -> bool:
+    installed_version = installed_version or app_version()
+    installed_channel = installed_channel or app_channel()
+    release = github_latest_release(repo=repo, timeout=timeout)
+    if not isinstance(release, dict):
+        return False
+    available_version = release.get("tag_name")
+    available_channel = release.get("channel") or "public"
+    if not isinstance(available_version, str) or not available_version.strip():
+        return False
+    normalized_version = available_version.strip().lstrip("v")
+    return is_newer_compatible_release(installed_version, installed_channel, normalized_version, available_channel)
+
+
 DEFAULT_OUTPUT_DIR = ROOT / "test" / "output"
 DATA_DIR = ROOT / "data"
 SESSION_DATA_DIR = DATA_DIR / "sessions"
@@ -70,6 +223,90 @@ class TelemetryAgent:
         self.last_odometer_km: float | None = None
         self.jobs_performed = 0
         self._seen_job_configurations: set[str] = set()
+        self.provider_states: dict[str, dict[str, Any]] = {
+            "nlsi": {"connected": False, "last_update": None, "last_timestamp": None, "version": None},
+            "rencloud": {"connected": False, "last_update": None, "last_timestamp": None, "version": None},
+        }
+        self._provider_telemetry: dict[str, dict[str, Any]] = {"nlsi": {}, "rencloud": {}}
+
+    def _normalize_provider_name(self, provider: Any) -> str:
+        if not isinstance(provider, str):
+            return "nlsi"
+        normalized = provider.strip().lower().replace("-", "_").replace(" ", "_")
+        if "ren" in normalized and "cloud" in normalized:
+            return "rencloud"
+        if "nlsi" in normalized or normalized in {"scs", "scs_telemetry", "telemetry"}:
+            return "nlsi"
+        return "nlsi"
+
+    def _register_provider_update(self, provider: Any, message: dict[str, Any], now: float) -> None:
+        provider_key = self._normalize_provider_name(provider)
+        state = self.provider_states.setdefault(provider_key, {"connected": False, "last_update": None, "last_timestamp": None, "version": None})
+        state["connected"] = True
+        state["last_update"] = now
+        state["last_timestamp"] = message.get("timestamp") or utc_now()
+        game = message.get("game")
+        if isinstance(game, dict):
+            version = game.get("version")
+            if isinstance(version, str) and version.strip():
+                state["version"] = version
+        if provider_key in self._provider_telemetry:
+            self._provider_telemetry[provider_key] = message
+
+    def _provider_connected(self, provider: str, now: float | None = None) -> bool:
+        current_time = self.monotonic() if now is None else now
+        state = self.provider_states.get(provider)
+        if not isinstance(state, dict):
+            return False
+        if not state.get("connected"):
+            return False
+        last_update = state.get("last_update")
+        if last_update is None:
+            return False
+        return current_time - last_update < TELEMETRY_TIMEOUT_SECONDS
+
+    def _combined_connection_state(self, now: float | None = None) -> str:
+        current_time = self.monotonic() if now is None else now
+        active = sum(1 for provider in ("nlsi", "rencloud") if self._provider_connected(provider, current_time))
+        if active >= 2:
+            return "CONNECTED"
+        if active == 1:
+            return "PARTIAL"
+        return "DISCONNECTED"
+
+    def _merge_provider_values(self, nlsi_value: Any, rencloud_value: Any) -> Any:
+        if nlsi_value is not None:
+            return nlsi_value
+        return rencloud_value
+
+    def _merge_provider_payloads(self, nlsi_payload: Any, rencloud_payload: Any) -> Any:
+        if not isinstance(nlsi_payload, dict) and not isinstance(rencloud_payload, dict):
+            return self._merge_provider_values(nlsi_payload, rencloud_payload)
+        if not isinstance(nlsi_payload, dict):
+            return rencloud_payload
+        if not isinstance(rencloud_payload, dict):
+            return nlsi_payload
+        combined: dict[str, Any] = {}
+        for key in set(nlsi_payload) | set(rencloud_payload):
+            if key in nlsi_payload and key not in rencloud_payload:
+                combined[key] = nlsi_payload[key]
+                continue
+            if key in rencloud_payload and key not in nlsi_payload:
+                combined[key] = rencloud_payload[key]
+                continue
+            combined[key] = self._merge_provider_payloads(nlsi_payload.get(key), rencloud_payload.get(key))
+        return combined
+
+    def combined_telemetry(self, now: float | None = None) -> dict[str, Any] | None:
+        current = self.latest_telemetry if isinstance(self.latest_telemetry, dict) else {}
+        nlsi_payload = self._provider_telemetry.get("nlsi") if isinstance(self._provider_telemetry.get("nlsi"), dict) else {}
+        rencloud_payload = self._provider_telemetry.get("rencloud") if isinstance(self._provider_telemetry.get("rencloud"), dict) else {}
+        if not nlsi_payload and not rencloud_payload:
+            return current
+        merged = self._merge_provider_payloads(nlsi_payload, rencloud_payload)
+        if not isinstance(merged, dict):
+            return merged or current
+        return merged or current
 
     def _set_game(self, game: Any) -> None:
         if not isinstance(game, dict):
@@ -117,17 +354,39 @@ class TelemetryAgent:
         truck_config = self.configurations.get("truck", {}) if isinstance(self.configurations.get("truck", {}), dict) else {}
         truck = self.latest_telemetry.get("truck", {}) if isinstance(self.latest_telemetry, dict) and isinstance(self.latest_telemetry.get("truck", {}), dict) else {}
         position = self.latest_telemetry.get("position", {}) if isinstance(self.latest_telemetry, dict) and isinstance(self.latest_telemetry.get("position", {}), dict) else {}
+        scs_job_id = configured_value(active_job, "job_id", "id")
+        if scs_job_id is None:
+            scs_job_id = configured_value(active_job, "cargo_id", "cargo.id")
+        job_type = configured_value(active_job, "job_type", "type")
+        if job_type is None:
+            special_job = configured_value(active_job, "special_job", "is.special.job")
+            if isinstance(special_job, bool):
+                job_type = "SPECIAL" if special_job else "NORMAL"
+            elif isinstance(special_job, str):
+                lowered = special_job.strip().lower()
+                if lowered in {"true", "yes", "special", "1"}:
+                    job_type = "SPECIAL"
+                elif lowered in {"false", "no", "normal", "0"}:
+                    job_type = "NORMAL"
+            elif active_job:
+                job_type = "NORMAL" if configured_value(active_job, "job_market", "car_job_market") is not None else "UNKNOWN"
+            else:
+                job_type = "UNKNOWN"
         return {
             "session_id": self.session_id,
             "source": configured_value(active_job, "source", "source_city", "source_city_name"),
             "destination": configured_value(active_job, "destination", "destination_city", "destination_city_name"),
             "cargo": configured_value(active_job, "cargo", "cargo_name"),
+            "cargo_id": configured_value(active_job, "cargo_id", "cargo.id"),
             "cargo_mass_kg": configured_value(active_job, "cargo_mass_kg", "cargo_mass", "cargo_mass_kg"),
             "planned_distance_km": configured_value(active_job, "planned_distance_km", "planned_distance"),
             "remaining_distance_km": configured_value(active_job, "remaining_distance_km", "remaining_distance"),
             "delivery_time": configured_value(active_job, "delivery_time", "delivery_deadline"),
             "revenue": configured_value(active_job, "income", "job_income", "revenue"),
-            "job_type": configured_value(active_job, "job_type", "type"),
+            "job_type": job_type,
+            "scs_job_id": scs_job_id,
+            "nlsi_job_id": self.session_id,
+            "job_id": scs_job_id or self.session_id,
             "truck_brand": configured_value(truck_config, "brand", "manufacturer"),
             "truck_model": configured_value(truck_config, "name", "model", "model_name"),
             "license_plate": configured_value(truck_config, "license_plate", "licenseplate", "plate"),
@@ -279,6 +538,8 @@ class TelemetryAgent:
             self.distance_driven_km = 0.0
             self.jobs_performed = 0
             self.last_odometer_km = None
+        session_truck = self.configurations.get("truck", {})
+        session_job = self.configurations.get("job") or self.configurations.get("car_job") or self.configurations.get("bus_job", {})
         self.session_started_at = timestamp
         self.last_session_started_at = timestamp
         self.session_started_monotonic = now
@@ -291,13 +552,13 @@ class TelemetryAgent:
                 "game_name": self.game.get("name"),
                 "game_version": self.game.get("version"),
                 "telemetry_api_version": self.game.get("telemetry_api_version"),
-                "truck": self.configurations.get("truck", {}),
-                "job": self.configurations.get("job")
-                or self.configurations.get("car_job")
-                or self.configurations.get("bus_job", {}),
+                "truck": session_truck,
+                "job": session_job,
             },
             timestamp,
         )
+        self.configurations.clear()
+        self._seen_job_configurations.clear()
 
     def _end_session(self, reason: str, timestamp: str | None = None, now: float | None = None) -> None:
         if self.session_started_monotonic is None:
@@ -320,6 +581,8 @@ class TelemetryAgent:
         self.driving = False
         self.last_odometer_km = None
         self.last_packet_monotonic = None
+        self.configurations.clear()
+        self._seen_job_configurations.clear()
 
     def _handle_configuration(self, message: dict[str, Any], now: float) -> None:
         config_id = message.get("id")
@@ -328,6 +591,7 @@ class TelemetryAgent:
             raise ValueError("Configuration message must contain a string id and object attributes.")
         previous = self.configurations.get(config_id)
         self.configurations[config_id] = attributes
+        self.last_packet_monotonic = now
         if config_id in {"job", "car_job", "bus_job"}:
             if config_id in self._seen_job_configurations and not previous and attributes:
                 self._record_event(
@@ -349,6 +613,7 @@ class TelemetryAgent:
         data = message.get("data")
         if not isinstance(event, str) or not isinstance(data, dict):
             raise ValueError("Gameplay message must contain a string event and object data.")
+        self.last_packet_monotonic = self.monotonic()
         if event in {"job.delivered", "car_job.delivered"}:
             self.jobs_performed += 1
         event_data = {"session_id": self.session_id, **data}
@@ -361,12 +626,28 @@ class TelemetryAgent:
             event_data["job_snapshot"] = self._job_snapshot()
         self._record_event(event, event_data, message.get("timestamp"))
 
+    def _start_session_if_gameplay_active(self, message: dict[str, Any], timestamp: str, now: float) -> None:
+        if self.session_started_monotonic is not None:
+            return
+        state = message.get("state")
+        if isinstance(state, str):
+            normalized_state = state.strip().lower()
+            if normalized_state in {"driving", "paused"}:
+                self._start_session(timestamp, now)
+                return
+
+        configurations = message.get("configurations")
+        if isinstance(configurations, dict):
+            for config_id in ("job", "car_job", "bus_job"):
+                if isinstance(configurations.get(config_id), dict) and configurations[config_id]:
+                    self._start_session(timestamp, now)
+                    return
+
     def _snapshot(self, message: dict[str, Any], now: float) -> None:
         timestamp = message.get("timestamp")
         if not isinstance(timestamp, str):
             timestamp = utc_now()
-        if self.session_started_monotonic is None:
-            self._start_session(timestamp, now)
+        self._start_session_if_gameplay_active(message, timestamp, now)
         self._update_driving_clock(now)
 
         configurations = message.get("configurations")
@@ -392,6 +673,8 @@ class TelemetryAgent:
         self.last_accounted_monotonic = now
         self.last_packet_monotonic = now
         snapshot = dict(message)
+        truck = normalize_truck_telemetry(snapshot.get("truck"))
+        snapshot["truck"] = truck
         snapshot["job"] = (
             self.configurations.get("job")
             or self.configurations.get("car_job")
@@ -403,8 +686,12 @@ class TelemetryAgent:
             for config_id, attributes in self.configurations.items()
             if config_id == "trailer" or config_id.startswith("trailer.")
         }
+        snapshot["sdk_active"] = True
+        snapshot["paused"] = not self.driving
         self.latest_telemetry = snapshot
         self.last_telemetry_timestamp = timestamp
+        provider = message.get("provider")
+        self._register_provider_update(provider, snapshot, now)
         self.output(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")))
 
         self._maybe_record_heartbeat(timestamp, now)
@@ -422,21 +709,27 @@ class TelemetryAgent:
 
         if message_type == "configuration":
             self._handle_configuration(message, current_time)
+            if self.session_started_monotonic is None:
+                attributes = message.get("attributes")
+                if isinstance(attributes, dict) and attributes:
+                    config_id = message.get("id")
+                    if config_id in {"job", "car_job", "bus_job"}:
+                        self._start_session_if_gameplay_active(message, timestamp or utc_now(), current_time)
         elif message_type == "gameplay_event":
             self._handle_gameplay_event(message)
+            self.last_packet_monotonic = current_time
         elif message_type == "plugin_init":
             self.last_packet_monotonic = current_time
-            if self.session_started_monotonic is None:
-                self._start_session(timestamp or utc_now(), current_time)
+            self._register_provider_update("nlsi", message, current_time)
         elif message_type == "plugin_heartbeat":
             self.last_packet_monotonic = current_time
-            if self.session_started_monotonic is None:
-                self._start_session(timestamp or utc_now(), current_time)
+            self._register_provider_update("nlsi", message, current_time)
             self._maybe_record_heartbeat(timestamp or utc_now(), current_time)
         elif message_type == "lifecycle":
             state = message.get("state")
             if state not in {"driving", "paused"}:
                 raise ValueError(f"Unsupported lifecycle state: {state!r}")
+            self.last_packet_monotonic = current_time
             if self.session_started_monotonic is None:
                 self._start_session(timestamp or utc_now(), current_time)
             if self.session_started_monotonic is not None:
@@ -450,6 +743,8 @@ class TelemetryAgent:
                 )
         elif message_type == "telemetry":
             self._snapshot(message, current_time)
+            provider = message.get("provider") or "nlsi"
+            self._register_provider_update(provider, self.latest_telemetry or message, current_time)
         elif message_type == "plugin_shutdown":
             self._end_session("game_plugin_shutdown", timestamp, current_time)
         else:
@@ -470,27 +765,24 @@ class TelemetryAgent:
 
     def check_timeout(self, now: float | None = None) -> None:
         current_time = self.monotonic() if now is None else now
-        if (
-            self.session_started_monotonic is not None
-            and self.last_packet_monotonic is not None
+        if self.session_started_monotonic is None:
+            return
+        packet_timeout = (
+            self.last_packet_monotonic is not None
             and current_time - self.last_packet_monotonic >= TELEMETRY_TIMEOUT_SECONDS
-        ):
+        )
+        provider_timeout = all(
+            not self._provider_connected(provider, current_time)
+            for provider in ("nlsi", "rencloud")
+        ) and any(
+            state.get("last_update") is not None
+            for state in self.provider_states.values()
+        )
+        if packet_timeout or provider_timeout:
             self._end_session("telemetry_timeout", now=current_time)
 
     def close(self) -> None:
         self._end_session("agent_stopped")
-
-
-def app_version() -> str:
-    try:
-        payload = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
-        return "0.3.2"
-    if isinstance(payload, dict):
-        version = payload.get("version")
-        if isinstance(version, str) and version.strip():
-            return version
-    return "0.3.2"
 
 
 def display_value(value: Any) -> str:
@@ -536,14 +828,16 @@ def is_auto_control_active(truck: dict[str, Any], *keys: str) -> bool:
 def display_cruise_value(truck: dict[str, Any]) -> str:
     value = first_available(
         truck,
+        "cruiseControlSpeed",
+        "cruise_control_speed",
         "cruise_control",
-        "cruise_control_value",
+        "cruise_target_speed",
         "cruise_speed",
         "cruise_set_speed",
-        "cruise_target_speed",
+        "cruise_control_value",
     )
     if value is None:
-        if is_auto_control_active(truck, "cruise_control_active", "cruise_active", "cruise_enabled"):
+        if is_auto_control_active(truck, "cruise_control_active", "cruiseControlActive", "cruise_active", "cruise_enabled"):
             return "ACTIVE"
         return "N/A"
     numeric = coerce_number(value)
@@ -589,9 +883,17 @@ def display_adaptive_cruise_value(truck: dict[str, Any]) -> str:
 
 
 def display_retarder_value(truck: dict[str, Any]) -> str:
-    if is_auto_control_active(truck, "retarder_automatic", "retarder_auto", "automatic_retarder", "retarder_cruise"):
-        return "A"
-    value = first_available(truck, "retarder", "retarder_step", "retarder_level", "retarder_value")
+    value = first_available(
+        truck,
+        "retarderBrake",
+        "retarder_brake",
+        "retarder_level",
+        "retarderStepCount",
+        "retarder_step_count",
+        "retarder",
+        "retarder_step",
+        "retarder_value",
+    )
     if value is None:
         return "N/A"
     numeric = coerce_number(value)
@@ -599,23 +901,25 @@ def display_retarder_value(truck: dict[str, Any]) -> str:
         return str(int(round(numeric))) if numeric == int(round(numeric)) else str(numeric)
     if isinstance(value, str):
         lowered = value.strip().lower()
-        if lowered in {"auto", "automatic", "a"}:
-            return "A"
+        if lowered in {"off", "disabled", "none"}:
+            return "0"
         return value.strip() or "N/A"
     return "N/A"
 
 
 def display_throttle_value(truck: dict[str, Any]) -> str:
-    if is_auto_control_active(
+    value = first_available(
         truck,
-        "cruise_control_active",
-        "cruise_active",
-        "auto_throttle",
-        "throttle_auto",
-        "throttle_control_source",
-    ):
-        return "A"
-    value = truck.get("throttle")
+        "gameThrottle",
+        "game_throttle",
+        "effective_throttle",
+        "effectiveThrottle",
+        "throttle_effective",
+        "throttle",
+        "userThrottle",
+        "user_throttle",
+        "input_throttle",
+    )
     numeric = coerce_number(value)
     if numeric is None:
         return "N/A"
@@ -623,16 +927,18 @@ def display_throttle_value(truck: dict[str, Any]) -> str:
 
 
 def display_brake_value(truck: dict[str, Any]) -> str:
-    if is_auto_control_active(
+    value = first_available(
         truck,
-        "cruise_control_active",
-        "cruise_active",
-        "auto_brake",
-        "brake_auto",
-        "brake_control_source",
-    ):
-        return "A"
-    value = truck.get("brake")
+        "gameBrake",
+        "game_brake",
+        "effective_brake",
+        "effectiveBrake",
+        "brake_effective",
+        "brake",
+        "userBrake",
+        "user_brake",
+        "input_brake",
+    )
     numeric = coerce_number(value)
     if numeric is None:
         return "N/A"
@@ -656,6 +962,38 @@ def display_gear_value(truck: dict[str, Any]) -> str:
     if is_auto_control_active(truck, "automatic_transmission", "transmission_automatic", "gearbox_automatic"):
         return f"{int(round(numeric))}A"
     return str(int(round(numeric)))
+
+
+def display_trailer_value(trailers: Any) -> str:
+    if not isinstance(trailers, dict) or not trailers:
+        return "--"
+
+    displayed: list[str] = []
+    seen: set[str] = set()
+    for config_id, item in trailers.items():
+        if not isinstance(item, dict):
+            continue
+        if isinstance(item.get("connected"), bool) and not item.get("connected"):
+            continue
+
+        label = None
+        for candidate_key in ("name", "brand", "id", "cargo_accessory_id"):
+            value = item.get(candidate_key)
+            if isinstance(value, str) and value.strip():
+                label = value.strip()
+                break
+
+        if label is None:
+            continue
+        lower = label.lower()
+        if lower.startswith("trailer."):
+            continue
+        if label in seen:
+            continue
+        displayed.append(label)
+        seen.add(label)
+
+    return ", ".join(displayed) if displayed else "--"
 
 
 def display_number(value: Any, places: int = 1, suffix: str = "") -> str:
@@ -698,6 +1036,102 @@ def configured_value(configuration: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def normalize_truck_telemetry(truck: Any) -> dict[str, Any]:
+    if not isinstance(truck, dict):
+        return {}
+
+    normalized = dict(truck)
+
+    def choose_value(*keys: str) -> Any:
+        for key in keys:
+            value = truck.get(key)
+            if value is not None:
+                return value
+        return None
+
+    user_throttle = choose_value(
+        "userThrottle",
+        "user_throttle",
+        "input_throttle",
+        "throttle_input",
+        "accelerator_input",
+    )
+    game_throttle = choose_value(
+        "gameThrottle",
+        "game_throttle",
+        "effective_throttle",
+        "effectiveThrottle",
+        "throttle_effective",
+        "throttle",
+    )
+    if user_throttle is not None:
+        normalized["userThrottle"] = user_throttle
+        normalized["user_throttle"] = user_throttle
+    if game_throttle is not None:
+        normalized["gameThrottle"] = game_throttle
+        normalized["game_throttle"] = game_throttle
+        normalized["throttle"] = game_throttle
+
+    user_brake = choose_value(
+        "userBrake",
+        "user_brake",
+        "input_brake",
+        "brake_input",
+    )
+    game_brake = choose_value(
+        "gameBrake",
+        "game_brake",
+        "effective_brake",
+        "effectiveBrake",
+        "brake_effective",
+        "brake",
+    )
+    if user_brake is not None:
+        normalized["userBrake"] = user_brake
+        normalized["user_brake"] = user_brake
+    if game_brake is not None:
+        normalized["gameBrake"] = game_brake
+        normalized["game_brake"] = game_brake
+        normalized["brake"] = game_brake
+
+    retarder_level = choose_value(
+        "retarderBrake",
+        "retarder_brake",
+        "retarder_level",
+        "retarder_step_count",
+        "retarderStepCount",
+        "retarder",
+        "retarder_value",
+    )
+    if retarder_level is not None:
+        normalized["retarderBrake"] = retarder_level
+        normalized["retarder_brake"] = retarder_level
+        normalized["retarder_level"] = retarder_level
+        normalized["retarder"] = retarder_level
+        normalized["retarderStepCount"] = retarder_level
+        normalized["retarder_step_count"] = retarder_level
+        normalized["retarder_active"] = coerce_number(retarder_level) is not None and coerce_number(retarder_level) > 0
+
+    cruise_speed = choose_value(
+        "cruiseControlSpeed",
+        "cruise_control_speed",
+        "cruise_control",
+        "cruise_target_speed",
+        "cruise_target",
+        "cruise_speed",
+        "cruise_set_speed",
+    )
+    if cruise_speed is not None:
+        normalized["cruiseControlSpeed"] = cruise_speed
+        normalized["cruise_control_speed"] = cruise_speed
+        normalized["cruise_target_speed"] = cruise_speed
+        normalized["cruise_control"] = cruise_speed
+    numeric_cruise = coerce_number(cruise_speed)
+    normalized["cruiseControlActive"] = bool(numeric_cruise is not None and numeric_cruise > 0)
+    normalized["cruise_control_active"] = normalized["cruiseControlActive"]
+    return normalized
+
+
 class DashboardRenderer:
     def __init__(self, agent: TelemetryAgent) -> None:
         self.agent = agent
@@ -715,7 +1149,7 @@ class DashboardRenderer:
     def dashboard(self, now: float | None = None) -> list[str]:
         current_time = self.agent.monotonic() if now is None else now
         connected, state = self._connection_state(current_time)
-        packet = self.agent.latest_telemetry or {}
+        packet = self.agent.combined_telemetry(current_time) or self.agent.latest_telemetry or {}
         truck = packet.get("truck") if isinstance(packet.get("truck"), dict) else {}
         position = packet.get("position") if isinstance(packet.get("position"), dict) else {}
         configurations = packet.get("configurations")

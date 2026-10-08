@@ -1,0 +1,49 @@
+NLSI EXCLUSIVE LOGBOOK v1.3.1 ALPHA
+PRIVACY POLICY
+
+1. INFORMATION PROCESSED BY THE APPLICATION
+
+The native Application receives supported ETS2/ATS telemetry from the local
+SCS plugin over the computer's local interface. Values may include game,
+vehicle, navigation, job, session, and provider status fields when the game
+and plugin supply them. Telemetry is processed locally to display current
+application state. The native Application does not currently provide
+persisted job, session, or event history.
+
+The current native Application does not send gameplay telemetry to NLSI or
+another remote telemetry service. It does not require an online account.
+Unavailable telemetry values are not intentionally filled with invented
+values.
+
+2. INSTALLATION AND LEGACY CLEANUP
+
+The installer places Application files in the selected installation
+directory. As requested for this release, setup deletes the legacy directory
+C:\nlsi-tem before installing. Do not keep files you need in that legacy
+directory. The installer and uninstaller do not target user data stored
+outside the legacy and Application installation directories, except for
+shortcuts and the optional Windows startup shortcut you choose.
+
+3. OPTIONAL EXTERNAL LINKS
+
+If you select “Follow @kape_073 on TikTok” or “View release notes,” the
+installer opens the corresponding website in your default browser. Those
+websites are operated by third parties and may receive information such as
+your IP address and browser data under their own privacy policies. The
+installer opens neither website when its corresponding option is not
+selected.
+
+4. RETENTION AND CONTROL
+
+Telemetry displayed by the native Application is handled locally. You
+control whether to install or uninstall the Application and whether to open
+the optional links. The Windows uninstaller removes installed Application
+files; it does not recreate C:\nlsi-tem.
+
+5. CONTACT
+
+Project information is available at:
+https://github.com/Christian-0777/nlsi_telemetry
+
+This policy describes the v1.3.1 Alpha native Application and installer.
+Update it if data handling changes.

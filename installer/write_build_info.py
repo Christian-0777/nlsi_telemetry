@@ -10,10 +10,10 @@ from pathlib import Path
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate a build-info.json file for NLSI Telemetry.")
+    parser = argparse.ArgumentParser(description="Generate a build-info.json file for NLSI Exclusive Logbook.")
     parser.add_argument("--version", help="Semantic version to embed in the manifest.")
     parser.add_argument("--output", help="Path to the output build-info.json file.")
-    parser.add_argument("--product", default="NLSI Telemetry", help="Human-readable product name.")
+    parser.add_argument("--product", default="NLSI Exclusive Logbook", help="Human-readable product name.")
     parser.add_argument("--sdk-root", default="", help="Optional SDK root used during build.")
     return parser.parse_args()
 

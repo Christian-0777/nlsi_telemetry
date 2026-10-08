@@ -1,0 +1,70 @@
+NLSI EXCLUSIVE LOGBOOK v1.3.1 ALPHA
+TERMS AND CONDITIONS
+
+1. ACCEPTANCE
+
+By selecting “I accept the Terms and Conditions” and continuing, you agree to
+these terms for your use of NLSI Exclusive Logbook v1.3.1 Alpha (“the
+Application”). If you do not agree, cancel the installer and do not use the
+Application.
+
+2. PURPOSE AND COMPATIBILITY
+
+The Application is an alpha-stage desktop companion that displays telemetry
+made available by Euro Truck Simulator 2 (ETS2), American Truck Simulator
+(ATS), and the installed SCS telemetry plugin. Available values depend on the
+game, plugin, and supported telemetry interface. The Application does not
+guarantee that every value, provider, history feature, or game version is
+supported.
+
+3. THIRD-PARTY SOFTWARE
+
+ETS2, ATS, the SCS Telemetry SDK, and other third-party products remain the
+property of their respective owners and are subject to their own terms and
+licenses. These terms do not grant rights to those products. The Application
+does not include or replace a license for a game or third-party service.
+
+4. ALPHA SOFTWARE
+
+The Application is provided for evaluation and may contain defects, have
+incomplete features, or change in a later version. Keep independent backups
+of any information you want to retain. Do not rely on the Application as the
+sole record of gameplay, jobs, sessions, or other information.
+
+5. RESPONSIBLE USE
+
+Use the Application only on a device you are authorized to use and with games
+and software you are authorized to use. You are responsible for complying with
+the applicable game, platform, and third-party software terms.
+
+6. DISCLAIMER
+
+To the extent permitted by applicable law, the Application is provided “as
+is” and “as available,” without warranties or guarantees of uninterrupted
+operation, accuracy, fitness for a particular purpose, or compatibility.
+Nothing in these terms excludes a right or remedy that applicable law does
+not allow to be excluded.
+
+7. LIABILITY
+
+To the extent permitted by applicable law, NLSI is not responsible for
+indirect or consequential loss arising from use of, inability to use, or
+reliance on the Application. This does not limit liability that applicable
+law does not allow to be limited.
+
+8. UNINSTALLATION
+
+You may uninstall the Application using its Windows uninstaller. The
+uninstaller removes files installed in the application directory. The
+installer separately removes the legacy C:\nlsi-tem directory as described
+in the installation information. Do not store information there that you
+need to keep. Files and user data outside those locations are not targeted
+by uninstall.
+
+9. CONTACT AND UPDATES
+
+Project information and release notes are available at:
+https://github.com/Christian-0777/nlsi_telemetry
+
+These terms apply to this alpha installer unless replaced by a later version.
+Applicable mandatory consumer and other legal rights remain unaffected.

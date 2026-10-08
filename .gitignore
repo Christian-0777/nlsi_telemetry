@@ -3,9 +3,51 @@
 # Git Ignore
 # ==========================================
 
-# ------------------------------------------
-# Python
-# ------------------------------------------
+# ==========================================
+# BUILD / CMAKE
+# ==========================================
+
+/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+compile_commands.json
+
+# CMake generated files
+*.cmake.user
+*.ninja
+.ninja_deps
+.ninja_log
+
+# ==========================================
+# C++ / MSVC GENERATED FILES
+# ==========================================
+
+*.obj
+*.o
+*.pdb
+*.ilk
+*.idb
+*.ipdb
+*.iobj
+*.tlog
+*.lastbuildstate
+*.exp
+*.pch
+*.res
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# ==========================================
+# PYTHON
+# ==========================================
 
 __pycache__/
 *.py[cod]
@@ -14,100 +56,147 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 
 # Python virtual environments
 .venv/
 venv/
 env/
 ENV/
+env.bak/
+venv.bak/
 
-Include/
-Lib/
-Scripts/
-pyvenv.cfg
+# ==========================================
+# IDE / EDITORS
+# ==========================================
 
-# ------------------------------------------
-# Environment / Secrets
-# ------------------------------------------
+.vscode/
+.idea/
+
+# ==========================================
+# ENVIRONMENT / SECRETS
+# ==========================================
 
 .env
 .env.local
-.env.*
+.env.*.local
 
-# Keep example configuration
+# Keep example environment files
 !.env.example
 
-# Local-only configuration and credentials
-/config/local/
+# Credentials / secrets
 /secrets/
+**/secrets/
+
 *.secret
+*.secret.*
+credentials.json
+**/credentials.json
+*-credentials.json
+*_credentials.json
 
-# ------------------------------------------
-# Build output
-# ------------------------------------------
+secrets.json
+**/secrets.json
 
-/build/
-dist/
-out/
-/installer/staging/
+token.json
+**/token.json
 
-*.dll
-*.exe
-*.exp
-*.lib
-*.obj
-*.pdb
-*.ilk
-*.pch
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
 
-# ------------------------------------------
-# Telemetry runtime output
-# ------------------------------------------
+# ==========================================
+# LOGS
+# ==========================================
 
-test/output/*
-*.jsonl
 *.log
 /logs/
-/data/sessions/*.pdf
+change-log/
+build-output.log
+build-test.log
 
-# Keep the output directory structure
-!test/output/.gitkeep
+# ==========================================
+# RUNTIME / GENERATED DATA
+# ==========================================
+
+# Session/runtime output
+/data/sessions/
+/data/cache/
+/data/runtime/
+
+# Test output
+/test/output/
+
+# Keep directory placeholders
 !/data/sessions/.gitkeep
+!/test/output/.gitkeep
 
-# ------------------------------------------
-# SCS SDK extracts (build-time dependency)
-# ------------------------------------------
+# JSONL/runtime telemetry
+*.jsonl
 
-/scs_sdk/
-/scs_sdk_*/
-/SCS_SDK*/
-
-# ------------------------------------------
-# Temporary files
-# ------------------------------------------
+# ==========================================
+# TEMPORARY FILES
+# ==========================================
 
 *.tmp
 *.temp
 *.bak
 *.swp
 *.swo
+*.old
+
+# Inno Setup temporary files
 *.iss.tmp
 *.iss.bak
 *.iss~
 
-# Windows
+# ==========================================
+# INSTALLER BUILD TEMPORARY FILES
+# ==========================================
+
+/installer/staging/
+/installer/temp/
+/installer/output/
+
+# ==========================================
+# GENERATED APPLICATION BINARIES
+# ==========================================
+
+# Ignore generated binaries inside normal build folders
+/build/**/*.exe
+/build/**/*.dll
+/build/**/*.lib
+
+# ==========================================
+# SCS SDK / EXTERNAL SDK EXTRACTS
+# ==========================================
+
+/scs_sdk/
+/scs_sdk_*/
+/SCS_SDK*/
+
+# ==========================================
+# OS FILES
+# ==========================================
+
+.DS_Store
 Thumbs.db
 Desktop.ini
 
-# ------------------------------------------
-# Editors / IDEs
-# ------------------------------------------
+# ==========================================
+# LOCAL USER DATA
+# ==========================================
 
-.vscode/
-.idea/
+/data/user/
+/data/local/
+/data/cache/
 
-# ------------------------------------------
-# OS / development
-# ------------------------------------------
+# ==========================================
+# NLSI LOCAL CONFIGURATION
+# ==========================================
 
-.DS_Store
+/config/local/

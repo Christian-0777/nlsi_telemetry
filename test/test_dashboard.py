@@ -2,11 +2,13 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent import DashboardRenderer, TelemetryAgent, handle_console_key
+from agent import DashboardRenderer, TelemetryAgent, display_trailer_value, handle_console_key
+from gui_app import format_utc_and_manila_time
 
 
 GAME = {
@@ -98,8 +100,12 @@ class DashboardRendererTests(unittest.TestCase):
         self.agent.process_message(telemetry(), now=1.0)
         dashboard = "\n".join(self.renderer.dashboard(now=1.5))
 
-        self.assertIn("NLSI Telemetry: 0.3.2", dashboard)
+        self.assertIn("NLSI Telemetry: 1.3.1", dashboard)
         self.assertIn("SCS Telemetry API: 1.01", dashboard)
+
+    def test_format_utc_and_manila_time_contains_date_on_both_sides(self) -> None:
+        formatted = format_utc_and_manila_time(datetime(2026, 10, 8, 3, 15, 2, tzinfo=timezone.utc))
+        self.assertEqual("10/08/26 - 03:15:02 - UTC | 10/08/26 - 11:15:02 - Asia/Manila", formatted)
 
     def test_dashboard_uses_real_cruise_retarder_throttle_brake_and_gear_values(self) -> None:
         packet = telemetry()
@@ -124,6 +130,16 @@ class DashboardRendererTests(unittest.TestCase):
         self.assertIn("Brake: 18%", dashboard)
         self.assertIn("Gear: 6A", dashboard)
 
+    def test_trailer_display_filters_raw_config_ids_and_keeps_connected_names(self) -> None:
+        trailers = {
+            "trailer": {"id": "trailer.0", "name": "trailer.0"},
+            "trailer.0": {"id": "trailer.0", "name": "Box Trailer", "connected": True},
+            "trailer.1": {"id": "trailer.1", "name": "Reefer", "connected": False},
+            "trailer.2": {"id": "trailer.2", "name": "Tank Trailer", "connected": True},
+        }
+
+        self.assertEqual("Box Trailer, Tank Trailer", display_trailer_value(trailers))
+
     def test_dashboard_marks_missing_values_and_disconnected_state(self) -> None:
         dashboard = "\n".join(self.renderer.dashboard(now=10.0))
 
@@ -144,10 +160,6 @@ class DashboardRendererTests(unittest.TestCase):
 
     def test_event_view_renders_recent_recorded_events(self) -> None:
         self.agent.process_message(
-            {"type": "plugin_init", "game": GAME, "timestamp": "2026-10-07T08:32:10Z"},
-            now=1.0,
-        )
-        self.agent.process_message(
             {
                 "type": "lifecycle",
                 "game": GAME,
@@ -161,7 +173,7 @@ class DashboardRendererTests(unittest.TestCase):
         self.assertIn("TIME       EVENT", events)
         self.assertIn("SESSION_STARTED", events)
         self.assertIn("DRIVING_PAUSED", events)
-        self.assertEqual(2, self.agent.packets_received)
+        self.assertEqual(1, self.agent.packets_received)
 
     def test_event_view_keeps_the_latest_events(self) -> None:
         for index in range(25):
@@ -188,10 +200,7 @@ class DashboardRendererTests(unittest.TestCase):
         self.assertEqual(("events", True), handle_console_key("events", "q"))
 
     def test_clean_close_records_session_end_to_jsonl(self) -> None:
-        self.agent.process_message(
-            {"type": "plugin_init", "game": GAME, "timestamp": "2026-10-07T08:32:10Z"},
-            now=1.0,
-        )
+        self.agent.process_message(telemetry(), now=1.0)
         self.agent.close()
 
         events_path = Path(self.temp_dir.name) / "events.jsonl"

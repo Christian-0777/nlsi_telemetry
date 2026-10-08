@@ -3,12 +3,28 @@
 ## Windows build requirements
 
 - Windows x64.
-- Python 3.10 or newer with Tkinter. The agent and GUI use only Python's standard library.
-- Visual Studio Build Tools with the **Desktop development with C++** workload and MSVC x64 tools.
+- Visual Studio 2022 Build Tools with the **Desktop development with C++** workload and MSVC x64 tools.
+- CMake 3.20 or newer.
+- Qt 6.12 Widgets for MSVC 2022 x64. Set `CMAKE_PREFIX_PATH` to the Qt installation prefix when configuring.
 - The extracted official SCS Telemetry SDK 1.15. The normal local SDK path used by the release script is `C:\SCS\scs_sdk_1_15`.
 - Inno Setup 6 to compile the installer.
 
 The extracted SDK directory must contain `include\scssdk_telemetry.h`. The SDK is a build-time dependency and is not included in the release package.
+
+The native desktop application uses Qt Widgets and does not require a Python runtime. The existing Python agent and Tkinter GUI remain in the repository as a reference implementation.
+
+## Build the native desktop application
+
+Configure and build with the Visual Studio 2022 x64 generator:
+
+```bat
+cmake -S . -B build\cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:\Qt\6.12.0\msvc2022_64"
+cmake --build build\cmake --config Debug
+cmake --build build\cmake --config Release
+ctest --test-dir build\cmake -C Debug --output-on-failure
+```
+
+Debug binaries are written to `build\debug`; Release binaries are written to `build\releases\v1.3.1-alpha`. CMake deploys the required Qt runtime and platform plugin beside each application executable when `windeployqt` is available in the selected Qt installation.
 
 ## Tests
 

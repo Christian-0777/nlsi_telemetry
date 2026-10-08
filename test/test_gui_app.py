@@ -5,10 +5,12 @@ import tkinter as tk
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent import TelemetryAgent, app_version
+import agent as agent_module
+from agent import TelemetryAgent, app_channel, app_product, app_release_label, app_version
 from gui_app import (
     NLSITelemetryApp,
     TAB_NAMES,
@@ -34,8 +36,11 @@ class GuiDataTests(unittest.TestCase):
                 now=1.0,
             )
             snapshot = make_snapshot(agent, None, "Listening")
-            self.assertEqual("0.3.2", app_version())
-            self.assertEqual("0.3.2", snapshot["application_version"])
+            self.assertEqual("1.3.1", app_version())
+            self.assertEqual("NLSI Exclusive Logbook", app_product())
+            self.assertEqual("alpha", app_channel())
+            self.assertEqual("Alpha v1.3", app_release_label())
+            self.assertEqual("1.3.1", snapshot["application_version"])
             self.assertEqual("1.01", snapshot["telemetry_api_version"])
             agent.close()
 
@@ -47,6 +52,16 @@ class GuiDataTests(unittest.TestCase):
             self.assertEqual("--", snapshot["session_id"])
             self.assertEqual({}, snapshot["latest_telemetry"])
             self.assertIsNone(snapshot["game"].get("telemetry_api_version"))
+
+    def test_version_is_resolved_from_app_directory_or_install_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            app_dir = temp_root / "app"
+            app_dir.mkdir()
+            (temp_root / "version.json").write_text('{"version": "9.9.9"}\n', encoding="utf-8")
+            with mock.patch.object(agent_module, "ROOT", app_dir):
+                self.assertEqual(temp_root / "version.json", agent_module._version_path())
+                self.assertEqual("9.9.9", agent_module.app_version())
 
     def test_jobs_are_derived_from_persisted_events_and_status_filter(self) -> None:
         records = [

@@ -1,17 +1,17 @@
-#define AppName "NLSI Telemetry"
+#define AppName "NLSI Exclusive Logbook"
 #define AppVersion "__APP_VERSION__"
 #define AppPublisher "NLSI"
-#define AppURL "https://github.com/Christian-0777/nlsi_telemetry.git"
+#define AppURL "https://github.com/Christian-0777/nlsi_telemetry"
 
 [Setup]
-AppId=NLSI Telemetry
+AppId=NLSI Exclusive Logbook
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 AppUpdatesURL={#AppURL}
-DefaultDirName=C:\nlsi-tem
+DefaultDirName=C:\Program Files\NLSI Exclusive Logbook
 DefaultGroupName={#AppName}
 OutputBaseFilename=NLSI-Telemetry-Setup-v{#AppVersion}
 OutputDir=..\build\v{#AppVersion}
@@ -87,7 +87,7 @@ procedure InitializeWizard;
 var
   DescriptionLabel: TNewStaticText;
 begin
-  FollowPage := CreateCustomPage(wpInfoAfter, 'Follow Kape', 'Stay connected with NLSI and Kape.');
+  FollowPage := CreateCustomPage(wpInfoAfter, 'Follow NLSI Socials', 'Stay connected with NLSI and review the latest release notes.');
 
   DescriptionLabel := TNewStaticText.Create(FollowPage);
   DescriptionLabel.Parent := FollowPage.Surface;
@@ -97,7 +97,7 @@ begin
   DescriptionLabel.Height := ScaleY(32);
   DescriptionLabel.AutoSize := False;
   DescriptionLabel.WordWrap := True;
-  DescriptionLabel.Caption := 'The game plugin installation results are shown below. You can finish without following.';
+  DescriptionLabel.Caption := 'The installation is complete. You can finish without opening any external links.';
 
   PluginStatusMemo := TNewMemo.Create(FollowPage);
   PluginStatusMemo.Parent := FollowPage.Surface;
@@ -110,7 +110,8 @@ begin
   PluginStatusMemo.TabStop := False;
   PluginStatusMemo.Text := 'Plugin status is recorded in the installation logs.';
 
-  AddSocialLink('TikTok - @kape_073', 'https://www.tiktok.com/@kape_073');
+  AddSocialLink('Follow NLSI Socials', 'https://github.com/Christian-0777/nlsi_telemetry');
+  AddSocialLink('View Release Notes', 'https://github.com/Christian-0777/nlsi_telemetry/releases');
 end;
 
 procedure CurPageChanged(CurPageID: Integer);

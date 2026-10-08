@@ -19,6 +19,9 @@ from agent import (
     ROOT,
     TELEMETRY_TIMEOUT_SECONDS,
     TelemetryAgent,
+    app_channel,
+    app_product,
+    app_release_label,
     app_version,
     configured_value,
     display_adaptive_cruise_value,
@@ -29,10 +32,12 @@ from agent import (
     display_number,
     display_retarder_value,
     display_throttle_value,
+    display_trailer_value,
 )
 
 
 UTC_PLUS_8 = timezone(timedelta(hours=8))
+MANILA_TZ = timezone(timedelta(hours=8))
 SOCIAL_KEYS = {
     "SOCIAL_TIKTOK_URL": "TikTok",
     "SOCIAL_DISCORD_URL": "Discord",
@@ -203,10 +208,19 @@ def format_real_time(value: str | None) -> str:
     if not value:
         return "--"
     try:
-        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC_PLUS_8)
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return "--"
-    return timestamp.strftime("%m/%d/%y - %H:%M:%S - UTC+08:00 Asia/Manila")
+    return format_utc_and_manila_time(timestamp)
+
+
+def format_utc_and_manila_time(now: datetime | None = None) -> str:
+    current = datetime.now(timezone.utc) if now is None else now
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    utc_current = current.astimezone(timezone.utc)
+    manila_now = utc_current.astimezone(MANILA_TZ)
+    return f"{utc_current.strftime('%m/%d/%y - %H:%M:%S')} - UTC | {manila_now.strftime('%m/%d/%y - %H:%M:%S')} - Asia/Manila"
 
 
 def format_clock(value: str | None) -> str:
@@ -263,7 +277,7 @@ def make_snapshot(agent: TelemetryAgent, last_error: str | None, worker_status: 
         and not isinstance(speed_kmh, bool)
         and speed_kmh > 0
     ):
-        eta = format_real_time((datetime.now(UTC_PLUS_8) + timedelta(seconds=nav_distance / (speed_kmh / 3.6))).isoformat())
+        eta = format_utc_and_manila_time(datetime.now(timezone.utc) + timedelta(seconds=nav_distance / (speed_kmh / 3.6)))
 
     return {
         "application_version": app_version(),
@@ -280,6 +294,7 @@ def make_snapshot(agent: TelemetryAgent, last_error: str | None, worker_status: 
         "last_telemetry": agent.last_telemetry_timestamp,
         "session_id": agent.session_id or agent.last_session_id or "--",
         "session_start": agent.session_started_at or agent.last_session_started_at,
+        "session_ended": agent.last_session_ended_at,
         "session_elapsed": metrics["duration_seconds"],
         "driving_time": metrics["driving_time_seconds"],
         "paused_time": max(0.0, metrics["duration_seconds"] - metrics["driving_time_seconds"]),
@@ -288,7 +303,7 @@ def make_snapshot(agent: TelemetryAgent, last_error: str | None, worker_status: 
         "truck_configuration": truck_config,
         "job": job,
         "job_status": "Active" if job else "No Active Job",
-        "real_time": datetime.now(UTC_PLUS_8).strftime("%m/%d/%y - %H:%M:%S - UTC+08:00 Asia/Manila"),
+        "real_time": format_utc_and_manila_time(),
         "real_eta": eta,
         "game_time": packet.get("game_time"),
         "in_game_elapsed": "--",
@@ -407,7 +422,7 @@ class NLSITelemetryApp:
         self.root.after(1000, self._refresh_clock)
 
     def _build_window(self) -> None:
-        self.root.title("NLSI Telemetry Agent")
+        self.root.title(f"{app_product()} | {app_release_label()}")
         self.root.geometry("1120x780")
         self.root.minsize(900, 640)
         icon_path = ROOT / "img" / "logo.ico"
@@ -423,7 +438,7 @@ class NLSITelemetryApp:
         style.configure("Status.TLabel", font=("Segoe UI", 10, "bold"))
         header = ttk.Frame(self.root, padding=(18, 12, 18, 8))
         header.pack(fill="x")
-        ttk.Label(header, text="NLSI Telemetry Agent", style="AppTitle.TLabel").pack(side="left")
+        ttk.Label(header, text=f"{app_product()} | {app_release_label()}", style="AppTitle.TLabel").pack(side="left")
         self.header_status = ttk.Label(header, text="Starting telemetry worker...", style="Status.TLabel")
         self.header_status.pack(side="right")
         self.notebook = ttk.Notebook(self.root)
@@ -510,7 +525,7 @@ class NLSITelemetryApp:
             self._make_card(
                 self.main_content,
                 "Session",
-                ("Session ID", "Session Start", "Current Time", "Elapsed", "Driving Time", "Paused Time", "Session Distance", "Session Status"),
+                ("Session ID", "Session Start", "Session Ended", "Current Time", "Elapsed", "Driving Time", "Paused Time", "Session Distance", "Session Status"),
                 0,
                 1,
             )
@@ -687,9 +702,9 @@ class NLSITelemetryApp:
     def _build_about_tab(self) -> None:
         panel = ttk.Frame(self.about_tab, padding=24)
         panel.pack(anchor="nw", fill="x")
-        ttk.Label(panel, text="NLSI Telemetry Agent", style="AppTitle.TLabel").pack(anchor="w", pady=(0, 12))
+        ttk.Label(panel, text=f"{app_product()} | {app_release_label()}", style="AppTitle.TLabel").pack(anchor="w", pady=(0, 12))
         ttk.Label(panel, text="Nabski Logistics and Solutions Inc.\nNLSI\nKamote Hauling\n\nETS2 / ATS telemetry companion for NLSI drivers.", justify="left").pack(anchor="w")
-        self.about_version = ttk.Label(panel, text=f"Application Version: {app_version()}")
+        self.about_version = ttk.Label(panel, text=f"Application Version: {app_version()} ({app_release_label()})")
         self.about_version.pack(anchor="w", pady=(14, 8))
         self.social_frame = ttk.Frame(panel)
         self.social_frame.pack(anchor="w", pady=(8, 0))
@@ -747,6 +762,7 @@ class NLSITelemetryApp:
         self._set_value("Packets/sec", display_number(pps) if pps is not None else "--")
         self._set_value("Session ID", data.get("session_id"))
         self._set_value("Session Start", format_real_time(data.get("session_start")))
+        self._set_value("Session Ended", format_real_time(data.get("session_ended")))
         self._set_value("Current Time", data.get("real_time"))
         self._set_value("Elapsed", display_duration(data.get("session_elapsed")))
         self._set_value("Driving Time", display_duration(data.get("driving_time")))
@@ -792,7 +808,7 @@ class NLSITelemetryApp:
         self._set_value("Revenue", _first_value(job, "income", "job_income", "revenue"))
         self._set_value("Job Type", _first_value(job, "job_type", "type"))
         trailer = data.get("latest_telemetry", {}).get("trailer", {})
-        self._set_value("Trailer", ", ".join(str(item.get("name") or item.get("id") or key) for key, item in trailer.items() if isinstance(item, dict)) if trailer else "--")
+        self._set_value("Trailer", display_trailer_value(trailer))
         self._set_value("Real Time", data.get("real_time"))
         self._set_value("Real ETA", data.get("real_eta"))
         self._set_value("Game Time", data.get("game_time"))
@@ -952,8 +968,9 @@ class NLSITelemetryApp:
             self.pdf_status.configure(text=f"PDF exported: {result['path']}")
 
     def _refresh_clock(self) -> None:
-        self._set_value("Current Time", datetime.now(UTC_PLUS_8).strftime("%m/%d/%y - %H:%M:%S - UTC+08:00 Asia/Manila"))
-        self._set_value("Real Time", datetime.now(UTC_PLUS_8).strftime("%m/%d/%y - %H:%M:%S - UTC+08:00 Asia/Manila"))
+        current_time = format_utc_and_manila_time()
+        self._set_value("Current Time", current_time)
+        self._set_value("Real Time", current_time)
         if self.root.winfo_exists():
             self.root.after(1000, self._refresh_clock)
 
@@ -971,7 +988,7 @@ def run_gui(port: int = 28745) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="NLSI Telemetry Agent desktop interface")
+    parser = argparse.ArgumentParser(description=f"{app_product()} desktop interface")
     parser.add_argument("--port", type=int, default=28745, help="UDP port used by the local SCS plugin")
     arguments = parser.parse_args()
     if not 1 <= arguments.port <= 65535:

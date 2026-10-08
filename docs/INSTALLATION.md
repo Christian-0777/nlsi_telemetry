@@ -11,7 +11,7 @@ The installer does not bundle a Python runtime in the current build. The native 
 
 ## Fresh installation
 
-1. Download `NLSI-Telemetry-Setup-v0.3.2.exe` from the [GitHub Release](https://github.com/Christian-0777/nlsi_telemetry/releases).
+1. Download `NLSI-Telemetry-Setup-v1.0.0.exe` from the [GitHub Release](https://github.com/Christian-0777/nlsi_telemetry/releases).
 2. Close ETS2 and ATS before setup.
 3. Run the installer and approve its administrator prompt.
 4. Keep or select the application install directory (the default is `C:\nlsi-tem`).
@@ -35,9 +35,9 @@ If a non-Steam installation is not detected, close the game, create its `bin\win
 
 If a game is running or otherwise locks its plugin DLL, setup reports the plugin copy failure rather than treating it as successful. Close the affected game and rerun the installer.
 
-## Upgrade from v0.1.0
+## Upgrade from an existing install
 
-Run the v0.3.2 installer over the existing install; a manual uninstall is not required. It uses the existing Inno Setup application identity and default install path, so the update can append to the existing uninstall log and update the installed files and shortcuts.
+Run the v1.0.0 installer over the existing install; a manual uninstall is not required. It uses the existing Inno Setup application identity and default install path, so the update can append to the existing uninstall log and update the installed files and shortcuts.
 
 The upgrade does not remove the entire application directory. Existing `config`, `data`, `logs`, and agent event output under `app\test\output` are retained. The example configuration is installed only if it does not already exist. Setup also removes the v0.1.0 startup shortcut and launcher BAT from the common Startup folder so the agent is not started automatically at Windows sign-in.
 

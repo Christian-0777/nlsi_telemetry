@@ -1,13 +1,13 @@
-# NLSI Telemetry
+# NLSI Exclusive Logbook
 
-NLSI Telemetry is a Windows x64 desktop companion that receives local telemetry from Euro Truck Simulator 2 (ETS2) and American Truck Simulator (ATS) through an SCS telemetry plugin and presents it in a Tkinter interface.
+NLSI Exclusive Logbook is a native Windows desktop companion for ETS2 and ATS telemetry. The v1.3.1 Alpha C++ application uses Qt 6 Widgets and retains the existing Python implementation as a reference and fallback.
 
 ## What it does
 
-- Shows live truck, navigation, job, session, and connection information in seven tabs.
-- Records gameplay/session events to a local JSONL file and derives job history from recorded events.
-- Exports a selected job report to PDF only when requested.
+- Presents live vehicle, navigation, job, session, and provider information supplied by the native telemetry core.
+- Keeps unavailable history and unsupported telemetry fields explicit rather than fabricating values.
 - Keeps telemetry on the local computer; it does not upload data to a website or cloud service.
+- Leaves the existing Python reference implementation and its event/job logging behavior in place.
 
 ## Supported games
 
@@ -18,30 +18,30 @@ The installer detects Steam libraries and copies the plugin into the installed g
 
 ## Current release
 
-The current source version is **v0.3.2**, an update to v0.3.1. Release installers are published as GitHub Release assets:
+The current source version is **Alpha v1.3.1**. The native application can be configured and built with CMake and Qt 6.12; its Debug and Release output locations are documented in [development](docs/DEVELOPMENT.md). Release installers are published as GitHub Release assets when available:
 
-**[Download NLSI Telemetry releases](https://github.com/Christian-0777/nlsi_telemetry/releases)**
+**[Download NLSI release assets](https://github.com/Christian-0777/nlsi_telemetry/releases)**
 
 ## Installation
 
-1. Download `NLSI-Telemetry-Setup-v0.3.2.exe` from the v0.3.2 GitHub Release.
+1. Download the latest published installer from the GitHub Release assets.
 2. Close ETS2 and ATS before installing or updating.
-3. Run the installer. It installs the launcher and creates Desktop and Start Menu shortcuts. Existing configuration, data, and logs are retained during an upgrade.
-4. On the final installer page, optionally select TikTok if you want the installer to open `https://www.tiktok.com/@kape_073` when you finish.
+3. Run the installer. It installs the launcher and creates Desktop and Start Menu shortcuts. Existing configuration, data, and logs are retained during an upgrade where practical.
+4. On the final installer page, optionally select **Follow NLSI Socials** or **View Release Notes** if you want to open the configured release or project links after setup.
 
-The installer does not bundle Python. If no bundled runtime is present, launching requires Python 3.10 or newer and the Windows Python Launcher (`py`).
+The CMake-built native v1.3.1 application does not require a Python runtime. The retained legacy Python launcher may require Python 3.10 or newer and the Windows Python Launcher (`py`).
 
 ## First run and using the application
 
-Start **NLSI Telemetry** from the Desktop or Start Menu before launching either game. The game plugin sends telemetry to the local agent over `127.0.0.1`; the GUI updates as packets arrive. The seven tabs are Main, Finished Jobs, PDF Export, Debug, Events, Active Mods, and About Us.
+Start **NLSI Exclusive Logbook** before launching either game. The SCS plugin sends telemetry locally; the Qt UI refreshes from normalized application state at a controlled rate. The seven sidebar destinations are Dashboard, Live Drive, Jobs, History, Events, Settings, and About. Settings contains Application, Providers, Telemetry, and Active Mods subsections.
 
-The Main tab shows live telemetry and session state. Finished Jobs and Events read persisted JSONL records. PDF Export requires selecting a delivered job and choosing an output path. Active mod detection is unavailable from the supported telemetry interface. Game time is shown only if telemetry supplies it; the current plugin does not provide game-time samples.
+Dashboard and Live Drive show current vehicle/session information; Jobs separates current job metadata from progress. The native build does not yet persist completed jobs, session history, or event history, and the corresponding views identify those records as unavailable. Native RenCloud ingestion is not implemented, so the UI reports that provider as disconnected instead of claiming fallback is active. Active mod detection is unavailable from the supported telemetry interface.
 
 Game telemetry is available only while the game loads the plugin. See the [user guide](docs/USER-GUIDE.md) and [installation guide](docs/INSTALLATION.md) for setup and troubleshooting.
 
 ## Telemetry data
 
-The agent writes session and gameplay events to `C:\nlsi-tem\app\test\output\events.jsonl` in the default install. Telemetry and logs remain local. Application version 0.3.2 is separate from the SCS telemetry API value reported at runtime (currently 1.01). For the packet model and known limitations, see [technical documentation](docs/TECHNICAL.md).
+The retained Python reference agent writes session and gameplay events to its local logger. The native C++ application does not currently persist history records. Application version 1.3.1 is separate from the SCS telemetry API value reported at runtime. For the packet model and known limitations, see [technical documentation](docs/TECHNICAL.md) and [telemetry mapping](docs/TELEMETRY-MAPPING.md).
 
 ## Documentation
 
@@ -55,6 +55,9 @@ The agent writes session and gameplay events to `C:\nlsi-tem\app\test\output\eve
 
 ## Release history
 
+- **v1.0.0** — Baseline stability and production-readiness release for the official NLSI telemetry application. The project preserves the existing SCS SDK data flow, validates session lifecycle behavior, clarifies unavailable telemetry states, and keeps the application version separate from the SCS telemetry API version.
+- **v0.3.4** — Correction release for trailer display, time formatting, gameplay-session timing, job and cruise telemetry mappings, and installer/runtime dependency validation while preserving the existing desktop interface and SCS telemetry contract.
+- **v0.3.3** — Stability fixes for gameplay/session lifecycle, reconnect handling, and version metadata while retaining the desktop interface and telemetry engine.
 - **v0.3.2** — Tkinter desktop UI with seven tabs, background telemetry worker, persisted event-derived job history, and manual PDF export; SCS telemetry handling retained.
 - **v0.3.1** — telemetry correction pass for cruise control, adaptive cruise, retarder, throttle, brake, gear, fuel, ETA, and version labeling; keeps the official SCS telemetry API version separate from the NLSI application version.
 - **v0.2.0** — installer upgrade, launcher and shortcut integration, Steam game plugin installation, and optional final-page TikTok link.
