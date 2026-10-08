@@ -1,3 +1,21 @@
+# NLSI Exclusive Logbook v1.3.4 Alpha
+
+The v1.3.4 Alpha release refines the native Qt 6 Widgets layout and updates the Windows installer.
+
+## What's new
+
+- Extended the active navigation background across the full sidebar while keeping the horizontal NLSI branding and pink/white theme.
+- Made page scrolling conditional on that page's content exceeding the available window space; removed scrollbars caused by inactive pages.
+- Tested responsive layouts at 900×600, normal, large, and maximized window sizes without changing the 900×600 minimum or default.
+- Updated the installer and executable metadata to v1.3.4-alpha while preserving update detection, user data, branding, and installer choices.
+- Preserved telemetry, providers, SCS SDK integration, sessions, jobs, logging, and updater behavior.
+
+## Validation notes
+
+- The installer target is `build/releases/v1.3.4-alpha/NLSI-Exclusive-Logbook-v1.3.4-alpha-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.3.3 Alpha
 
 The v1.3.3 Alpha release updates the native Qt 6 Widgets application and its Windows installer.

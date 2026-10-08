@@ -2,6 +2,13 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.3.4 — Alpha
+
+- Extended the active sidebar navigation background across its full width without changing the NLSI pink/white horizontal brand header.
+- Made each page scroll only when its own content exceeds the available space, preventing inactive pages from causing unnecessary scrollbars.
+- Validated the existing 900×600 minimum/default, normal and large window sizes, and maximized layout.
+- Updated application and installer metadata to v1.3.4-alpha without changing telemetry or backend behavior.
+
 ## v1.3.3 — Alpha
 
 - Reorganized the compact shared sidebar into WORKSPACE and SYSTEM navigation with a horizontal NLSI brand header, consistent icons, and a bottom Close action.

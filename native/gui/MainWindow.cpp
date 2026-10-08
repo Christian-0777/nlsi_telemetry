@@ -45,12 +45,12 @@ MainWindow::MainWindow(
     sidebar->setFixedWidth(210);
     sidebar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     auto* sidebar_layout = new QVBoxLayout(sidebar);
-    sidebar_layout->setContentsMargins(12, 18, 12, 14);
+    sidebar_layout->setContentsMargins(0, 0, 0, 0);
     sidebar_layout->setSpacing(4);
 
     auto* brand = new QWidget(sidebar);
     auto* brand_layout = new QHBoxLayout(brand);
-    brand_layout->setContentsMargins(0, 0, 0, 0);
+    brand_layout->setContentsMargins(12, 18, 12, 0);
     brand_layout->setSpacing(10);
     auto* logo = new QLabel(brand);
     logo->setObjectName(QStringLiteral("brandLogo"));
@@ -96,13 +96,8 @@ MainWindow::MainWindow(
     page_stack_ = new QStackedWidget(content);
     page_stack_->setObjectName(QStringLiteral("pageStack"));
     page_stack_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    auto* page_scroll = new QScrollArea(content);
-    page_scroll->setObjectName(QStringLiteral("pageScroll"));
-    page_scroll->setWidgetResizable(true);
-    page_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    page_scroll->setFrameShape(QFrame::NoFrame);
-    page_scroll->setWidget(page_stack_);
-    content_layout->addWidget(page_scroll, 1);
+    page_stack_->setMinimumSize(0, 0);
+    content_layout->addWidget(page_stack_, 1);
 
     struct NavigationEntry {
         QString key;
@@ -143,10 +138,21 @@ MainWindow::MainWindow(
         button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         button->setCheckable(true);
         button->setAutoRaise(true);
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         sidebar_layout->addWidget(button);
         navigation_buttons_.insert(entry.key, button);
         pages_.insert(entry.key, entry.page);
-        page_stack_->addWidget(entry.page);
+        auto* page_scroll = new QScrollArea(page_stack_);
+        page_scroll->setObjectName(QStringLiteral("pageScroll"));
+        page_scroll->setWidgetResizable(true);
+        page_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        page_scroll->setMinimumSize(0, 0);
+        page_scroll->setFrameShape(QFrame::NoFrame);
+        page_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        page_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        page_scroll->setWidget(entry.page);
+        page_scroll_areas_.insert(entry.key, page_scroll);
+        page_stack_->addWidget(page_scroll);
         connect(button, &QToolButton::clicked, this, [this, key = entry.key] {
             ActivatePage(key);
         });
@@ -172,6 +178,7 @@ MainWindow::MainWindow(
     close_button->setIconSize(QSize(18, 18));
     close_button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     close_button->setAutoRaise(true);
+    close_button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     sidebar_layout->addWidget(close_button);
     connect(close_button, &QToolButton::clicked, this, &QWidget::close);
 
@@ -198,7 +205,7 @@ void MainWindow::ActivatePage(const QString& key) {
     if (!page) {
         return;
     }
-    page_stack_->setCurrentWidget(page);
+    page_stack_->setCurrentWidget(page_scroll_areas_.value(key));
     active_page_title_->setText(navigation_buttons_.value(key)->text());
     for (auto it = navigation_buttons_.cbegin(); it != navigation_buttons_.cend(); ++it) {
         it.value()->setChecked(it.key() == key);

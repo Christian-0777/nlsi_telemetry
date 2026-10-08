@@ -38,16 +38,16 @@ QMainWindow, #appRoot {
     color: #6D6870;
     font-size: 8pt;
     font-weight: 700;
-    padding: 0 8px 4px;
+    padding: 0 20px 4px;
 }
 
 QToolButton#navigationButton {
     background-color: #FFF7FA;
     border: 0;
-    border-radius: 7px;
+    border-radius: 0;
     color: #242124;
     min-height: 36px;
-    padding: 0 9px;
+    padding: 0 21px;
     text-align: left;
 }
 

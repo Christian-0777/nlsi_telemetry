@@ -1,6 +1,6 @@
 # NLSI Exclusive Logbook
 
-NLSI Exclusive Logbook is a native Windows desktop companion for ETS2 and ATS telemetry. The v1.3.2 Alpha C++ application uses Qt 6 Widgets and retains the existing Python implementation as a reference and fallback.
+NLSI Exclusive Logbook is a native Windows desktop companion for ETS2 and ATS telemetry. The v1.3.4 Alpha C++ application uses Qt 6 Widgets and retains the existing Python implementation as a reference and fallback.
 
 ## What it does
 
@@ -18,7 +18,7 @@ The installer detects Steam libraries and copies the plugin into the installed g
 
 ## Current release
 
-The current source version is **Alpha v1.3.2**. The native application can be configured and built with CMake and Qt 6.12; its Debug and Release output locations are documented in [development](docs/DEVELOPMENT.md). Release installers are published as GitHub Release assets when available:
+The current source version is **Alpha v1.3.4**. The native application can be configured and built with CMake and Qt 6.12; its Debug and Release output locations are documented in [development](docs/DEVELOPMENT.md). Release installers are published as GitHub Release assets when available:
 
 **[Download NLSI release assets](https://github.com/Christian-0777/nlsi_telemetry/releases)**
 

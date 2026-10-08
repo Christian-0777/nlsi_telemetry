@@ -2,7 +2,9 @@
 #include <QFrame>
 #include <QLabel>
 #include <QMainWindow>
+#include <QScrollArea>
 #include <QSize>
+#include <QScrollBar>
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QWidget>
@@ -19,17 +21,32 @@ bool CheckLayout(QMainWindow& window) {
     auto* stack = window.findChild<QStackedWidget*>(QStringLiteral("pageStack"));
     if (!sidebar || !stack || stack->width() <= 0 || stack->height() <= 0 ||
         sidebar->height() != window.centralWidget()->height()) {
+        std::cerr << "Invalid main content geometry: sidebar="
+                  << (sidebar ? sidebar->width() : -1) << 'x'
+                  << (sidebar ? sidebar->height() : -1) << ", stack="
+                  << (stack ? stack->width() : -1) << 'x'
+                  << (stack ? stack->height() : -1) << ".\n";
         return false;
     }
 
     const auto buttons = sidebar->findChildren<QToolButton*>(
         QStringLiteral("navigationButton"));
+    int navigation_width = -1;
     for (const auto* button : buttons) {
         const QRect bounds(button->mapTo(sidebar, QPoint(0, 0)), button->size());
         if (button->width() <= 0 || button->height() <= 0 ||
-            !sidebar->rect().contains(bounds)) {
+            !sidebar->rect().contains(bounds) ||
+            bounds.left() != sidebar->contentsRect().left() ||
+            (navigation_width >= 0 && button->width() != navigation_width)) {
+            std::cerr << "Invalid navigation geometry: " << button->text().toStdString()
+                      << " at " << bounds.x() << ',' << bounds.y() << ' '
+                      << bounds.width() << 'x' << bounds.height()
+                      << ", sidebar contents x=" << sidebar->contentsRect().x()
+                      << " width=" << sidebar->contentsRect().width()
+                      << ", prior navigation width=" << navigation_width << ".\n";
             return false;
         }
+        navigation_width = button->width();
     }
     return true;
 }
@@ -50,7 +67,7 @@ QToolButton* FindButton(QWidget& window, const QString& title) {
 int main(int argc, char** argv) {
     QApplication application(argc, argv);
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.3.3 Alpha",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.3.4 Alpha",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -75,7 +92,7 @@ int main(int argc, char** argv) {
     }
     if (brand_title->text() != QStringLiteral("NLSI") ||
         brand_subtitle->text() != QStringLiteral("Exclusive Logbook") ||
-        version_badge->text() != QStringLiteral("v1.3.3 Alpha") ||
+        version_badge->text() != QStringLiteral("v1.3.4 Alpha") ||
         logo->geometry().right() >= brand_title->geometry().left() ||
         brand_title->geometry().top() >= brand_subtitle->geometry().top() ||
         qAbs(logo->geometry().center().y() -
@@ -119,15 +136,37 @@ int main(int argc, char** argv) {
     for (const QSize size : {QSize(900, 600), QSize(1280, 800), QSize(1920, 1080)}) {
         window.showNormal();
         window.resize(size);
+        FindButton(window, QStringLiteral("Dashboard"))->click();
         application.processEvents();
         if (!CheckLayout(window)) {
             std::cerr << "Sidebar or page layout failed at "
                       << size.width() << 'x' << size.height() << ".\n";
             return 1;
         }
+        auto* dashboard_scroll = qobject_cast<QScrollArea*>(page_stack->currentWidget());
+        if (!dashboard_scroll ||
+            dashboard_scroll->verticalScrollBar()->isVisible() ||
+            dashboard_scroll->horizontalScrollBar()->isVisible()) {
+            std::cerr << "The Dashboard shows unnecessary scrollbars at "
+                      << size.width() << 'x' << size.height() << ".\n";
+            return 1;
+        }
+
+        FindButton(window, QStringLiteral("Live Drive"))->click();
+        application.processEvents();
+        auto* live_drive_scroll = qobject_cast<QScrollArea*>(page_stack->currentWidget());
+        const bool should_scroll_vertically = size == QSize(900, 600);
+        if (!live_drive_scroll ||
+            live_drive_scroll->verticalScrollBar()->isVisible() != should_scroll_vertically ||
+            live_drive_scroll->horizontalScrollBar()->isVisible()) {
+            std::cerr << "Live Drive scrolling does not match its content at "
+                      << size.width() << 'x' << size.height() << ".\n";
+            return 1;
+        }
     }
 
     window.showMaximized();
+    FindButton(window, QStringLiteral("Dashboard"))->click();
     application.processEvents();
     if (!CheckLayout(window)) {
         std::cerr << "Sidebar or page layout failed when maximized.\n";
@@ -149,6 +188,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::cout << "Window size, navigation, and responsive sidebar checks passed.\n";
+    std::cout << "Window size, full-width navigation, and responsive scrolling checks passed.\n";
     return 0;
 }

@@ -1,5 +1,5 @@
 #define AppName "NLSI Exclusive Logbook"
-#define AppVersion "1.3.3"
+#define AppVersion "1.3.4"
 #define ReleaseTag "v" + AppVersion + "-alpha"
 #define ReleasePayload "build\intermediate\installer-payload-" + ReleaseTag
 #define AppPublisher "NLSI"
@@ -46,8 +46,8 @@ UninstallDisplayIcon={app}\NLSI-Exclusive-Logbook.exe
 SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.3.3.0
-VersionInfoProductVersion=1.3.3.0
+VersionInfoVersion=1.3.4.0
+VersionInfoProductVersion=1.3.4.0
 VersionInfoCompany=NLSI
 VersionInfoProductName={#AppName}
 
@@ -230,10 +230,10 @@ begin
   if CurPageID = wpFinished then begin
     WizardForm.FinishedHeadingLabel.Caption := 'Installation complete';
     WizardForm.FinishedLabel.Caption :=
-      'NLSI Exclusive Logbook v1.3.3-alpha has been installed.' + #13#10#13#10 +
+      'NLSI Exclusive Logbook v1.3.4-alpha has been installed.' + #13#10#13#10 +
       'What''s New' + #13#10 +
-      '- Redesigned the compact sidebar with grouped navigation and clear active states.' + #13#10 +
-      '- Improved update detection while preserving configuration and logs.' + #13#10 +
+      '- Extended the active navigation background across the full sidebar width.' + #13#10 +
+      '- Improved responsive page layouts and removed unnecessary scrollbars.' + #13#10 +
       '- Retained the lightweight Qt Widgets interface and 900×600 default size.' + #13#10#13#10 +
       'Select any optional action below, then click Finish.';
   end;

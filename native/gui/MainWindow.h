@@ -9,6 +9,7 @@
 #include "telemetry/TelemetryCore.h"
 
 class QStackedWidget;
+class QScrollArea;
 class QToolButton;
 class QTimer;
 class QLabel;
@@ -29,6 +30,7 @@ private:
 
     telemetry::TelemetryCore& telemetry_core_;
     QStackedWidget* page_stack_ = nullptr;
+    QHash<QString, QScrollArea*> page_scroll_areas_;
     QLabel* active_page_title_ = nullptr;
     QLabel* connection_indicator_ = nullptr;
     QHash<QString, StatePage*> pages_;

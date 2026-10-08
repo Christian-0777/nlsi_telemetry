@@ -1,10 +1,10 @@
 # Installation
 
-## Native v1.3.3 Alpha
+## Native v1.3.4 Alpha
 
 - Windows x64; no Python runtime is required for the native desktop application.
 - The default installation directory is `%ProgramFiles(x86)%\NLSI Exclusive Logbook`.
-- Setup displays whether it detected an existing installation and, when available, its installed version before updating to v1.3.3 Alpha.
+- Setup displays whether it detected an existing installation and, when available, its installed version before updating to v1.3.4 Alpha.
 - Updates replace application files in place and retain existing configuration and logs. Existing Start Menu/Desktop shortcut options and Terms and Conditions/Privacy Policy acceptance remain available.
 - Setup removes the legacy `C:\nlsi-tem` application directory only when its known `config`, `data`, `logs`, and `app\test\output` user-data folders are absent; otherwise it leaves the legacy directory intact. Setup does not recreate that directory.
 - Uninstall removes the installed application and its managed shortcuts. User data stored outside the application installation directory is not targeted.
@@ -12,7 +12,7 @@
 
 ## Legacy Python telemetry installer (earlier releases)
 
-The instructions below apply only to the earlier Python/game-plugin installer, not the native v1.3.3 Alpha desktop installer.
+The instructions below apply only to the earlier Python/game-plugin installer, not the native v1.3.4 Alpha desktop installer.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ The instructions below apply only to the earlier Python/game-plugin installer, n
 - For the installed launcher, Python 3.10 or newer and the Windows Python Launcher (`pyw`) unless a bundled runtime is provided.
 - Administrator approval for installation under Program Files and game plugin folders.
 
-The legacy Python telemetry installer and its game-plugin procedures below describe the earlier installer; the native v1.3.3 Alpha desktop installer does not bundle that legacy agent or modify game-plugin folders.
+The legacy Python telemetry installer and its game-plugin procedures below describe the earlier installer; the native v1.3.4 Alpha desktop installer does not bundle that legacy agent or modify game-plugin folders.
 
 ## Fresh installation
 
