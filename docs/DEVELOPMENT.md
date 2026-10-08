@@ -24,7 +24,7 @@ cmake --build build\cmake --config Release
 ctest --test-dir build\cmake -C Debug --output-on-failure
 ```
 
-Debug binaries are written to `build\debug`; Release binaries are written to `build\releases\v1.3.1-alpha`. CMake deploys the required Qt runtime and platform plugin beside each application executable when `windeployqt` is available in the selected Qt installation.
+Debug binaries are written to `build\debug`; Release binaries are written to `build\releases\v1.3.2-alpha`. CMake deploys the required Qt runtime and platform plugin beside each application executable when `windeployqt` is available in the selected Qt installation.
 
 ## Tests
 

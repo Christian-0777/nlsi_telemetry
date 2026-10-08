@@ -1,6 +1,6 @@
 # NLSI Exclusive Logbook
 
-NLSI Exclusive Logbook is a native Windows desktop companion for ETS2 and ATS telemetry. The v1.3.1 Alpha C++ application uses Qt 6 Widgets and retains the existing Python implementation as a reference and fallback.
+NLSI Exclusive Logbook is a native Windows desktop companion for ETS2 and ATS telemetry. The v1.3.2 Alpha C++ application uses Qt 6 Widgets and retains the existing Python implementation as a reference and fallback.
 
 ## What it does
 
@@ -18,7 +18,7 @@ The installer detects Steam libraries and copies the plugin into the installed g
 
 ## Current release
 
-The current source version is **Alpha v1.3.1**. The native application can be configured and built with CMake and Qt 6.12; its Debug and Release output locations are documented in [development](docs/DEVELOPMENT.md). Release installers are published as GitHub Release assets when available:
+The current source version is **Alpha v1.3.2**. The native application can be configured and built with CMake and Qt 6.12; its Debug and Release output locations are documented in [development](docs/DEVELOPMENT.md). Release installers are published as GitHub Release assets when available:
 
 **[Download NLSI release assets](https://github.com/Christian-0777/nlsi_telemetry/releases)**
 
@@ -29,19 +29,19 @@ The current source version is **Alpha v1.3.1**. The native application can be co
 3. Run the installer. It installs the launcher and creates Desktop and Start Menu shortcuts. Existing configuration, data, and logs are retained during an upgrade where practical.
 4. On the final installer page, optionally select **Follow NLSI Socials** or **View Release Notes** if you want to open the configured release or project links after setup.
 
-The CMake-built native v1.3.1 application does not require a Python runtime. The retained legacy Python launcher may require Python 3.10 or newer and the Windows Python Launcher (`py`).
+The CMake-built native v1.3.2 application does not require a Python runtime. The retained legacy Python launcher may require Python 3.10 or newer and the Windows Python Launcher (`py`).
 
 ## First run and using the application
 
 Start **NLSI Exclusive Logbook** before launching either game. The SCS plugin sends telemetry locally; the Qt UI refreshes from normalized application state at a controlled rate. The seven sidebar destinations are Dashboard, Live Drive, Jobs, History, Events, Settings, and About. Settings contains Application, Providers, Telemetry, and Active Mods subsections.
 
-Dashboard and Live Drive show current vehicle/session information; Jobs separates current job metadata from progress. The native build does not yet persist completed jobs, session history, or event history, and the corresponding views identify those records as unavailable. Native RenCloud ingestion is not implemented, so the UI reports that provider as disconnected instead of claiming fallback is active. Active mod detection is unavailable from the supported telemetry interface.
+Dashboard shows overall connection status and current vehicle/session information; provider-specific status is available under Settings → Providers. Live Drive shows vehicle/session information; Jobs separates current job metadata from progress. The native build does not yet persist completed jobs, session history, or event history, and the corresponding views identify those records as unavailable. Native RenCloud ingestion is not implemented, so the UI reports that provider as disconnected instead of claiming fallback is active. Active mod detection is unavailable from the supported telemetry interface.
 
 Game telemetry is available only while the game loads the plugin. See the [user guide](docs/USER-GUIDE.md) and [installation guide](docs/INSTALLATION.md) for setup and troubleshooting.
 
 ## Telemetry data
 
-The retained Python reference agent writes session and gameplay events to its local logger. The native C++ application does not currently persist history records. Application version 1.3.1 is separate from the SCS telemetry API value reported at runtime. For the packet model and known limitations, see [technical documentation](docs/TECHNICAL.md) and [telemetry mapping](docs/TELEMETRY-MAPPING.md).
+The retained Python reference agent writes session and gameplay events to its local logger. The native C++ application does not currently persist history records. Application version 1.3.2 is separate from the SCS telemetry API value reported at runtime. For the packet model and known limitations, see [technical documentation](docs/TECHNICAL.md) and [telemetry mapping](docs/TELEMETRY-MAPPING.md).
 
 ## Documentation
 

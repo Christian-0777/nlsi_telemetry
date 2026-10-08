@@ -2,6 +2,13 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.3.2 — Alpha
+
+- Moved detailed NLSI and RenCloud provider status from the Dashboard to Settings → Providers; Dashboard now reports only overall connection status.
+- Made the native app open at its existing 900×600 minimum size and improved the Dashboard layout for that footprint.
+- Updated the native application, Windows metadata, and x64 installer to v1.3.2-alpha.
+- Preserved the existing provider/telemetry backend, privacy and terms acceptance, installation directory, shortcuts, and wizard assets.
+
 ## v1.3.1 — Alpha
 
 - Updated the native application version and Windows file metadata to 1.3.1 Alpha.

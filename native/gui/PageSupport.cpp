@@ -7,6 +7,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSizePolicy>
 #include <QVBoxLayout>
 
 namespace nlsi::gui {
@@ -76,8 +77,12 @@ void DetailPage::AddField(const QString& key, const QString& label) {
     row_layout->setContentsMargins(0, 11, 0, 11);
     auto* name = new QLabel(label, row);
     name->setObjectName(QStringLiteral("detailLabel"));
+    name->setWordWrap(true);
+    name->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     auto* value = new QLabel(QStringLiteral("--"), row);
     value->setObjectName(QStringLiteral("detailValue"));
+    value->setWordWrap(true);
+    value->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     value->setTextInteractionFlags(Qt::TextSelectableByMouse);
     row_layout->addWidget(name);
     row_layout->addStretch(1);

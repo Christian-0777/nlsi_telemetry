@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QPixmap>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QToolButton>
@@ -30,7 +31,7 @@ MainWindow::MainWindow(
     setWindowTitle(QString::fromStdWString(title));
     setWindowIcon(QIcon(QStringLiteral(":/icons/logo.ico")));
     setMinimumSize(900, 600);
-    resize(1240, 800);
+    resize(900, 600);
 
     auto* root = new QWidget(this);
     root->setObjectName(QStringLiteral("appRoot"));
@@ -42,6 +43,7 @@ MainWindow::MainWindow(
     sidebar->setObjectName(QStringLiteral("sidebar"));
     sidebar->setMinimumWidth(190);
     sidebar->setMaximumWidth(220);
+    sidebar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     auto* sidebar_layout = new QVBoxLayout(sidebar);
     sidebar_layout->setContentsMargins(14, 20, 14, 16);
     sidebar_layout->setSpacing(6);
@@ -65,6 +67,7 @@ MainWindow::MainWindow(
     sidebar_layout->addSpacing(8);
 
     auto* content = new QWidget(root);
+    content->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto* content_layout = new QVBoxLayout(content);
     content_layout->setContentsMargins(20, 16, 20, 10);
     content_layout->setSpacing(12);
@@ -85,9 +88,11 @@ MainWindow::MainWindow(
 
     page_stack_ = new QStackedWidget(content);
     page_stack_->setObjectName(QStringLiteral("pageStack"));
+    page_stack_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     auto* page_scroll = new QScrollArea(content);
     page_scroll->setObjectName(QStringLiteral("pageScroll"));
     page_scroll->setWidgetResizable(true);
+    page_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     page_scroll->setFrameShape(QFrame::NoFrame);
     page_scroll->setWidget(page_stack_);
     content_layout->addWidget(page_scroll, 1);
@@ -127,7 +132,7 @@ MainWindow::MainWindow(
     root_layout->addWidget(content, 1);
     setCentralWidget(root);
 
-    connection_indicator_ = new QLabel(QStringLiteral("NLSI · CONNECTING"), this);
+    connection_indicator_ = new QLabel(QStringLiteral("NOT CONNECTED"), this);
     connection_indicator_->setObjectName(QStringLiteral("statusIndicator"));
     statusBar()->addPermanentWidget(connection_indicator_);
 
@@ -160,8 +165,9 @@ void MainWindow::RefreshState() {
         page->UpdateState(state);
     }
 
-    const QString provider = QString::fromStdWString(telemetry::FormatStatus(state.providers.nlsi));
-    const QString connection_text = QStringLiteral("NLSI · %1").arg(provider);
+    const QString connection_text = state.fast.values.connected
+        ? QStringLiteral("CONNECTED")
+        : QStringLiteral("NOT CONNECTED");
     if (connection_indicator_->text() != connection_text) {
         connection_indicator_->setText(connection_text);
     }

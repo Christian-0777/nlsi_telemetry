@@ -1,5 +1,7 @@
 #define AppName "NLSI Exclusive Logbook"
-#define AppVersion "1.3.1"
+#define AppVersion "1.3.2"
+#define ReleaseTag "v" + AppVersion + "-alpha"
+#define ReleasePayload "build\intermediate\installer-payload-" + ReleaseTag
 #define AppPublisher "NLSI"
 #define AppURL "https://github.com/Christian-0777/nlsi_telemetry"
 #ifndef InstallPrivileges
@@ -23,13 +25,13 @@ UsePreviousAppDir=no
 DisableProgramGroupPage=yes
 AllowNoIcons=yes
 ArchitecturesAllowed=x64compatible
-OutputDir=build\releases\v1.3.1-alpha
-OutputBaseFilename=NLSI-Exclusive-Logbook-v1.3.1-alpha-Setup
+OutputDir=build\releases\{#ReleaseTag}
+OutputBaseFilename=NLSI-Exclusive-Logbook-{#ReleaseTag}-Setup
 SourceDir=..
 SetupIconFile=img\logo.ico
 LicenseFile=installer\licenses\TermsAndConditions.txt
-WizardImageFile=build\intermediate\installer-payload-v1.3.1-alpha\wizard-background.bmp
-WizardSmallImageFile=build\intermediate\installer-payload-v1.3.1-alpha\wizard-logo.bmp
+WizardImageFile={#ReleasePayload}\wizard-background.bmp
+WizardSmallImageFile={#ReleasePayload}\wizard-logo.bmp
 WizardImageStretch=yes
 WizardImageBackColor=$FFF7FA
 WizardSmallImageBackColor=$FFF7FA
@@ -44,8 +46,8 @@ UninstallDisplayIcon={app}\NLSI-Exclusive-Logbook.exe
 SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.3.1.0
-VersionInfoProductVersion=1.3.1.0
+VersionInfoVersion=1.3.2.0
+VersionInfoProductVersion=1.3.2.0
 VersionInfoCompany=NLSI
 VersionInfoProductName={#AppName}
 
@@ -58,7 +60,7 @@ Name: "desktopicon"; Description: "Create Desktop shortcut"; Flags: checkedonce
 Name: "startup"; Description: "Start NLSI Exclusive Logbook with Windows"; Flags: unchecked
 
 [Files]
-Source: "build\intermediate\installer-payload-v1.3.1-alpha\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#ReleasePayload}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "img\logo.ico"; DestDir: "{app}\img"; Flags: ignoreversion
 Source: "img\logo.png"; DestDir: "{app}\img"; Flags: ignoreversion
 Source: "version.json"; DestDir: "{app}"; Flags: ignoreversion
@@ -73,7 +75,7 @@ Name: "{userstartup}\NLSI Exclusive Logbook"; Filename: "{app}\NLSI-Exclusive-Lo
 [Run]
 Filename: "{app}\NLSI-Exclusive-Logbook.exe"; Description: "Launch NLSI Exclusive Logbook"; Flags: postinstall nowait skipifsilent unchecked
 Filename: "https://www.tiktok.com/@kape_073"; Description: "Follow @kape_073 on TikTok"; Flags: postinstall shellexec nowait skipifsilent unchecked
-Filename: "https://github.com/Christian-0777/nlsi_telemetry/releases/tag/v1.3.1-alpha"; Description: "View release notes"; Flags: postinstall shellexec nowait skipifsilent unchecked
+Filename: "https://github.com/Christian-0777/nlsi_telemetry/releases/tag/{#ReleaseTag}"; Description: "View release notes"; Flags: postinstall shellexec nowait skipifsilent unchecked
 
 [Code]
 var
@@ -153,11 +155,11 @@ begin
   if CurPageID = wpFinished then begin
     WizardForm.FinishedHeadingLabel.Caption := 'Installation complete';
     WizardForm.FinishedLabel.Caption :=
-      'NLSI Exclusive Logbook v1.3.1-alpha has been installed.' + #13#10#13#10 +
+      'NLSI Exclusive Logbook v1.3.2-alpha has been installed.' + #13#10#13#10 +
       'What''s New' + #13#10 +
-      '- Updated the Qt 6 interface with official NLSI branding.' + #13#10 +
-      '- Simplified navigation and grouped diagnostics under Settings.' + #13#10 +
-      '- Improved job progress presentation and clarified unavailable data.' + #13#10#13#10 +
+      '- Moved detailed NLSI and RenCloud status to Settings > Providers.' + #13#10 +
+      '- Improved responsive layouts and opened at the existing minimum size.' + #13#10 +
+      '- Retained lightweight, change-only telemetry updates.' + #13#10#13#10 +
       'Select any optional action below, then click Finish.';
   end;
 end;

@@ -12,8 +12,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.3.1"
-CHANNEL = "alpha"
+VERSION_METADATA = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
+VERSION = str(VERSION_METADATA["version"])
+CHANNEL = str(VERSION_METADATA["channel"]).lower()
 RELEASE_TAG = f"v{VERSION}-{CHANNEL}"
 RELEASE_DIR = ROOT / "build" / "releases" / RELEASE_TAG
 APP_EXE = "NLSI-Exclusive-Logbook.exe"

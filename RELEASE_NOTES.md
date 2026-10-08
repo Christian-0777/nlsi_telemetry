@@ -1,15 +1,15 @@
-# NLSI Exclusive Logbook v1.3.1 Alpha
+# NLSI Exclusive Logbook v1.3.2 Alpha
 
-The v1.3.1 Alpha source refines the native Qt 6 Widgets interface for the existing C++ telemetry core. The Python implementation remains available as a reference and fallback; this source update is not a GitHub release.
+The v1.3.2 Alpha source refines the native Qt 6 Widgets interface for the existing C++ telemetry core. The Python implementation remains available as a reference and fallback; this source update is not a GitHub release.
 
 ## What's new
 
-- Updated the version label and Windows application metadata to 1.3.1 Alpha.
-- Reorganized navigation into Dashboard, Live Drive, Jobs, History, Events, Settings, and About.
-- Grouped Providers, Telemetry diagnostics, and Active Mods under Settings.
-- Applied the supplied NLSI logo and pink/white/charcoal color palette.
-- Kept the compact dashboard and change-only widget updates.
-- Did not modify the SCS plugin or any RenCloud DLL.
+- Moved detailed NLSI and RenCloud provider information from the Dashboard into Settings → Providers; Dashboard shows only overall connection status.
+- Opened the application at the existing 900×600 minimum window size without changing that minimum.
+- Improved the Dashboard layout while preserving the Qt 6 interface and official NLSI pink/white branding.
+- Kept UI refresh change-only and telemetry processing separate from the GUI.
+- Updated application, Windows resource, and installer versions to v1.3.2-alpha.
+- Did not modify telemetry/backend behavior, the SCS plugin, or any RenCloud DLL.
 
 ## Native provider limitation
 

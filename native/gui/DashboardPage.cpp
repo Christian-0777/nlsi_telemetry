@@ -3,20 +3,16 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QLabel>
+#include <QSizePolicy>
 #include <QVBoxLayout>
 
 namespace nlsi::gui {
 namespace {
 
-QString ProviderText(telemetry::ProviderState state) {
-    return QString::fromStdWString(telemetry::FormatStatus(state));
-}
-
 QString ConnectionText(const telemetry::TelemetryUiState& state) {
-    if (state.fast.values.connected) {
-        return QStringLiteral("CONNECTED");
-    }
-    return ProviderText(state.providers.nlsi);
+    return state.fast.values.connected
+        ? QStringLiteral("CONNECTED")
+        : QStringLiteral("NOT CONNECTED");
 }
 
 QString RouteText(
@@ -77,13 +73,12 @@ DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
     grid->setColumnStretch(2, 1);
     AddCard(QStringLiteral("game"), QStringLiteral("GAME"), 0, 0, grid);
     AddCard(QStringLiteral("connection"), QStringLiteral("CONNECTION"), 0, 1, grid);
-    AddCard(QStringLiteral("providers"), QStringLiteral("PROVIDER STATUS"), 0, 2, grid);
-    AddCard(QStringLiteral("speed"), QStringLiteral("SPEED"), 1, 0, grid);
-    AddCard(QStringLiteral("engine"), QStringLiteral("RPM / GEAR"), 1, 1, grid);
-    AddCard(QStringLiteral("fuel"), QStringLiteral("FUEL / RANGE"), 1, 2, grid);
-    AddCard(QStringLiteral("cargo"), QStringLiteral("CURRENT JOB"), 2, 0, grid);
-    AddCard(QStringLiteral("route"), QStringLiteral("ROUTE"), 2, 1, grid);
-    AddCard(QStringLiteral("session"), QStringLiteral("SESSION SUMMARY"), 2, 2, grid);
+    AddCard(QStringLiteral("speed"), QStringLiteral("SPEED"), 0, 2, grid);
+    AddCard(QStringLiteral("engine"), QStringLiteral("RPM / GEAR"), 1, 0, grid);
+    AddCard(QStringLiteral("fuel"), QStringLiteral("FUEL / RANGE"), 1, 1, grid);
+    AddCard(QStringLiteral("cargo"), QStringLiteral("CURRENT JOB"), 1, 2, grid);
+    AddCard(QStringLiteral("route"), QStringLiteral("ROUTE"), 2, 0, grid);
+    AddCard(QStringLiteral("session"), QStringLiteral("SESSION SUMMARY"), 2, 1, grid);
     page_layout->addLayout(grid);
     page_layout->addStretch(1);
 }
@@ -97,6 +92,7 @@ QLabel* DashboardPage::AddCard(
     auto* card = new QFrame(this);
     card->setObjectName(QStringLiteral("telemetryCard"));
     card->setMinimumHeight(108);
+    card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto* layout = new QVBoxLayout(card);
     layout->setContentsMargins(18, 14, 18, 14);
     layout->setSpacing(8);
@@ -125,9 +121,6 @@ void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
     const auto& snapshot = state.fast.values;
     SetValue(QStringLiteral("game"), FieldText(snapshot.game_name));
     SetValue(QStringLiteral("connection"), ConnectionText(state));
-    SetValue(QStringLiteral("providers"),
-        QStringLiteral("NLSI  %1\nRenCloud  %2")
-            .arg(ProviderText(state.providers.nlsi), ProviderText(state.providers.rencloud)));
     SetValue(QStringLiteral("speed"), NumberText(snapshot.speed_kmh, 1, QStringLiteral(" km/h")));
     SetValue(QStringLiteral("engine"),
         NumberText(snapshot.rpm, 0) + QStringLiteral(" RPM\nGear ") + NumberText(snapshot.gear, 0));

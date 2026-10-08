@@ -5,6 +5,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QStandardItemModel>
+#include <QSizePolicy>
 #include <QTabWidget>
 #include <QTableView>
 #include <QVBoxLayout>
@@ -17,6 +18,8 @@ void ConfigureTable(QTableView* table, QStandardItemModel* model) {
     table->setAlternatingRowColors(true);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     table->verticalHeader()->hide();
     table->horizontalHeader()->setStretchLastSection(true);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
@@ -157,6 +160,7 @@ JobsPage::JobsPage(QWidget* parent) : StatePage(parent) {
         QStringLiteral("Current delivery details and a completed-jobs view. Native job history is not persisted."),
         this);
     description->setObjectName(QStringLiteral("pageDescription"));
+    description->setWordWrap(true);
     layout->addWidget(description);
 
     tabs_ = new QTabWidget(this);
