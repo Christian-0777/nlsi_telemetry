@@ -8,9 +8,9 @@ publish or upload anything.
 
 ## Build and verify
 
-Use the existing Visual Studio 2022 x64 CMake configuration at `build\cmake`.
-Do not configure over the repository-root `build\` directory: it may contain a
-Ninja cache belonging to another toolchain.
+Configure a version-specific Visual Studio 2022 x64 CMake directory such as
+`build\cmake-v1.4.2-beta`. Do not reuse or reconfigure the existing
+`build\cmake` cache or overwrite the completed v1.4.1 release outputs.
 
 ```bat
 build-release.bat
@@ -23,14 +23,18 @@ metadata, official TruckSim GPS x64/x86 plugin hashes, license notices, and the
 automatic safe-install policy before staging Qt/MSVC dependencies and
 compiling the Inno Setup definition.
 
-Expected outputs for v1.4.0-alpha:
+Expected outputs for v1.4.2-beta:
 
-- `build\releases\v1.4.0-alpha\NLSI-Exclusive-Logbook.exe`
-- `build\releases\v1.4.0-alpha\NLSI-Exclusive-Logbook-v1.4.0-alpha-Setup.exe`
+- `build\releases\v1.4.2-beta\NLSI-Exclusive-Logbook.exe`
+- `build\releases\v1.4.2-beta\NLSI-Exclusive-Logbook-v1.4.2-beta-Setup.exe`
+- `build\intermediate\v1.4.2-beta\installer-payload-v1.4.2-beta`
 
-The v1.4.0 alpha records revision-13 raw samples locally. No authenticated
-backend or upload endpoint is implemented; release notes and the installer
-must continue to describe synchronization as local Pending only.
+The previously built v1.4.1-alpha release artifacts remain unchanged. The
+v1.4.2 Beta build retains revision-13 raw sample capture locally. No
+authenticated backend or gameplay upload endpoint is implemented; release
+notes and the installer must continue to describe synchronization as local
+Pending only. The updater reads public release metadata but does not download or
+install updates.
 
 Fresh Alpha and Beta installers default to
 `C:\Program Files (x86)\NLSI Exclusive Logbook`; Stable defaults to

@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Svg)
 
 file(READ "${CMAKE_SOURCE_DIR}/version.json" NLSI_VERSION_JSON)
 if(NOT NLSI_VERSION_JSON)
@@ -32,11 +32,12 @@ if(NLSI_CHANNEL AND NOT NLSI_CHANNEL STREQUAL "public")
 endif()
 
 set(NLSI_BUILD_OUTPUT_ROOT "${CMAKE_SOURCE_DIR}/build")
-set(NLSI_DEBUG_OUTPUT_DIR "${NLSI_BUILD_OUTPUT_ROOT}/debug")
-set(NLSI_INTERMEDIATE_DEBUG_DIR "${NLSI_BUILD_OUTPUT_ROOT}/intermediate/debug")
-set(NLSI_INTERMEDIATE_RELEASE_DIR "${NLSI_BUILD_OUTPUT_ROOT}/intermediate/release")
+set(NLSI_DEBUG_OUTPUT_DIR "${NLSI_BUILD_OUTPUT_ROOT}/debug/${NLSI_RELEASE_TAG}")
+set(NLSI_INTERMEDIATE_ROOT "${NLSI_BUILD_OUTPUT_ROOT}/intermediate/${NLSI_RELEASE_TAG}")
+set(NLSI_INTERMEDIATE_DEBUG_DIR "${NLSI_INTERMEDIATE_ROOT}/debug")
+set(NLSI_INTERMEDIATE_RELEASE_DIR "${NLSI_INTERMEDIATE_ROOT}/release")
 set(NLSI_RELEASE_OUTPUT_DIR "${NLSI_BUILD_OUTPUT_ROOT}/releases/${NLSI_RELEASE_TAG}")
-set(NLSI_TEST_OUTPUT_DIR "${NLSI_BUILD_OUTPUT_ROOT}/tests")
+set(NLSI_TEST_OUTPUT_DIR "${NLSI_BUILD_OUTPUT_ROOT}/tests/${NLSI_RELEASE_TAG}")
 
 file(MAKE_DIRECTORY
     "${NLSI_DEBUG_OUTPUT_DIR}"
@@ -81,7 +82,9 @@ enable_testing()
 qt_add_executable(NLSI-Exclusive-Logbook MANUAL_FINALIZATION
     app/main.cpp
     app/App.cpp
+    app/SingleInstance.cpp
     gui/MainWindow.cpp
+    gui/IconTheme.cpp
     gui/PageSupport.cpp
     gui/JobPdfExporter.cpp
     gui/DashboardPage.cpp
@@ -138,7 +141,9 @@ target_include_directories(NLSI-Exclusive-Logbook PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/updater
 )
 
-target_link_libraries(NLSI-Exclusive-Logbook PRIVATE Qt6::Widgets shell32)
+target_link_libraries(NLSI-Exclusive-Logbook PRIVATE
+    Qt6::Widgets Qt6::Network Qt6::Svg shell32
+)
 target_compile_definitions(NLSI-Exclusive-Logbook PRIVATE
     NLSI_VERSION="${NLSI_VERSION}"
     NLSI_CHANNEL="${NLSI_CHANNEL}"
@@ -175,6 +180,7 @@ if(BUILD_TESTING)
         logging/Logger.cpp
         logging/TelemetryRecorder.cpp
         updater/GitHubUpdater.cpp
+        app/SingleInstance.cpp
     )
 
     set_target_properties(nlsi_core_tests PROPERTIES
@@ -205,7 +211,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/logging
         ${CMAKE_CURRENT_SOURCE_DIR}/updater
     )
-    target_link_libraries(nlsi_core_tests PRIVATE Qt6::Core ws2_32)
+    target_link_libraries(nlsi_core_tests PRIVATE Qt6::Core Qt6::Network ws2_32)
 
     if(MSVC)
         target_compile_options(nlsi_core_tests PRIVATE /W4)
@@ -213,12 +219,13 @@ if(BUILD_TESTING)
 
     add_test(NAME nlsi_core_tests COMMAND nlsi_core_tests)
     set_tests_properties(nlsi_core_tests PROPERTIES
-        ENVIRONMENT "PATH=${NLSI_QT_ROOT}/bin"
+        ENVIRONMENT "PATH=${NLSI_QT_ROOT}/bin;NLSI_DISABLE_UPDATE_CHECK=1"
     )
 
     add_executable(nlsi_gui_tests
         tests/main_window_tests.cpp
         gui/MainWindow.cpp
+        gui/IconTheme.cpp
         gui/PageSupport.cpp
         gui/JobPdfExporter.cpp
         gui/DashboardPage.cpp
@@ -234,6 +241,7 @@ if(BUILD_TESTING)
         logging/Logger.cpp
         logging/TelemetryRecorder.cpp
         updater/GitHubUpdater.cpp
+        app/SingleInstance.cpp
         resources/resources.qrc
     )
 
@@ -255,7 +263,9 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/logging
         ${CMAKE_CURRENT_SOURCE_DIR}/updater
     )
-    target_link_libraries(nlsi_gui_tests PRIVATE Qt6::Widgets shell32)
+    target_link_libraries(nlsi_gui_tests PRIVATE
+        Qt6::Widgets Qt6::Network Qt6::Svg shell32
+    )
 
     if(MSVC)
         target_compile_options(nlsi_gui_tests PRIVATE /W4)
@@ -264,6 +274,6 @@ if(BUILD_TESTING)
     add_test(NAME nlsi_gui_tests COMMAND nlsi_gui_tests)
     set_tests_properties(nlsi_gui_tests PROPERTIES
         ENVIRONMENT
-            "PATH=${NLSI_QT_ROOT}/bin;QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${NLSI_QT_ROOT}/plugins/platforms"
+            "PATH=${NLSI_QT_ROOT}/bin;QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${NLSI_QT_ROOT}/plugins/platforms;NLSI_DISABLE_UPDATE_CHECK=1"
     )
 endif()

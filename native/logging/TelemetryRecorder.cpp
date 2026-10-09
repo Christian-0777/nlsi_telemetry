@@ -164,6 +164,15 @@ bool TelemetryRecorder::Flush() {
     return LastError().empty();
 }
 
+bool TelemetryRecorder::FlushFor(std::chrono::milliseconds timeout) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    const bool drained = condition_.wait_for(lock, timeout, [this] {
+        return (ready_ && queue_.empty() && !writing_) || !running_;
+    });
+    lock.unlock();
+    return drained && LastError().empty();
+}
+
 void TelemetryRecorder::Stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);

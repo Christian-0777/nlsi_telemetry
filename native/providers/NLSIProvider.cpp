@@ -529,8 +529,7 @@ bool BuildSnapshot(
     SetNumber(snapshot.input_brake, FindNormalized(truck, {"input_brake"}), timestamp);
     SetNumber(snapshot.effective_brake, FindNormalized(truck, {"effective_brake", "brake"}), timestamp);
     SetNumber(snapshot.retarder_level, FindNormalized(truck, {"retarder_level", "retarder"}), timestamp, true);
-    SetBoolean(snapshot.retarder_active, FindNormalized(truck, {"retarder_active"}), timestamp);
-    if (!snapshot.retarder_active.available && snapshot.retarder_level.available) {
+    if (snapshot.retarder_level.available) {
         snapshot.retarder_active.Set(snapshot.retarder_level.value > 0.0, L"NLSI", timestamp);
     }
     SetNumber(snapshot.cruise_control_speed,

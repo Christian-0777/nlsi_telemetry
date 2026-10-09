@@ -6,6 +6,7 @@
 
 class QLabel;
 class QGridLayout;
+class QFrame;
 
 namespace nlsi::gui {
 
@@ -16,10 +17,12 @@ public:
 
 private:
     QLabel* AddCard(const QString& key, const QString& title, int row, int column,
-        QGridLayout* grid);
+        QGridLayout* grid, int column_span = 1);
     void SetValue(const QString& key, const QString& value);
+    void SetCardVisible(const QString& key, bool visible);
 
     QHash<QString, QLabel*> values_;
+    QHash<QString, QFrame*> cards_;
 };
 
 } // namespace nlsi::gui

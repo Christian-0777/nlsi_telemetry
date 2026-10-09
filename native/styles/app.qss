@@ -116,6 +116,10 @@ QToolButton#navigationButton:focus {
     font-weight: 600;
 }
 
+#dashboardPage #cardValue {
+    font-size: 10pt;
+}
+
 #detailRow {
     background-color: #FFF7FA;
     border: 0;

@@ -30,6 +30,7 @@ public:
     TelemetrySnapshot Snapshot() const;
     TelemetryUiState UiState() const;
     session::HistorySnapshot History() const;
+    bool FlushLocalWrites(std::chrono::milliseconds timeout) const;
     bool IsFreshEnough() const;
 
 private:

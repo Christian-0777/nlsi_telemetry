@@ -1,11 +1,13 @@
 #pragma once
 
 #include <QByteArray>
+#include <QHash>
 #include <QJsonObject>
 #include <QSet>
 #include <QVector>
 
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 
@@ -42,6 +44,7 @@ struct JobRecord {
     QString status;
     QString timestamp;
     QJsonObject details;
+    QString nlsi_job_id;
 };
 
 struct HistorySnapshot {
@@ -54,7 +57,9 @@ struct HistorySnapshot {
 
 class HistoryStore {
 public:
-    explicit HistoryStore(nlsi::logging::Logger& logger);
+    explicit HistoryStore(
+        nlsi::logging::Logger& logger,
+        std::function<std::uint32_t()> job_id_number_source = {});
 
     bool Initialize(
         const QString& user_data_directory,
@@ -75,6 +80,7 @@ public:
         const QString& event_type,
         const QString& timestamp,
         const QJsonObject& event_details);
+    QString EnsureNlsiJobId(const QString& game_job_identity);
     HistorySnapshot Snapshot() const;
 
 private:
@@ -83,6 +89,9 @@ private:
     bool LoadEvents();
     bool LoadSessions();
     bool LoadJobs();
+    bool LoadJobIds();
+    bool SaveJobIds();
+    QString AllocateNlsiJobId();
     bool AppendJsonLine(const QString& path, const QJsonObject& object);
     bool AppendTextLine(const QString& path, const QString& line);
     void SetError(const QString& error);
@@ -92,9 +101,13 @@ private:
     QString events_path_;
     QString sessions_path_;
     QString jobs_path_;
+    QString job_ids_path_;
+    std::function<std::uint32_t()> job_id_number_source_;
     mutable std::mutex mutex_;
     HistorySnapshot snapshot_;
     QSet<QString> recorded_job_events_;
+    QSet<QString> used_job_ids_;
+    QHash<QString, QString> job_ids_;
 };
 
 } // namespace nlsi::session

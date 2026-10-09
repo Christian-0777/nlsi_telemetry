@@ -3,5 +3,12 @@
         <file alias="styles/app.qss">../styles/app.qss</file>
         <file alias="images/logo.png">../../img/logo.png</file>
         <file alias="icons/logo.ico">../../img/logo.ico</file>
+        <file alias="icons/dashboard.svg">../../assets/icons/dashboard.svg</file>
+        <file alias="icons/jobs.svg">../../assets/icons/jobs.svg</file>
+        <file alias="icons/history.svg">../../assets/icons/history.svg</file>
+        <file alias="icons/events.svg">../../assets/icons/events.svg</file>
+        <file alias="icons/settings.svg">../../assets/icons/settings.svg</file>
+        <file alias="icons/about.svg">../../assets/icons/about.svg</file>
+        <file alias="icons/close.svg">../../assets/icons/close.svg</file>
     </qresource>
 </RCC>

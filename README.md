@@ -1,17 +1,18 @@
-
 # NLSI Exclusive Logbook
 
-NLSI Exclusive Logbook is a native Windows desktop telemetry and logging application for Euro Truck Simulator 2 (ETS2) and American Truck Simulator (ATS). The v1.4.0-alpha native application is built with C++ and Qt 6 Widgets. The existing Python implementation is retained as reference-only code and is not the active native telemetry pipeline.
+NLSI Exclusive Logbook is a native Windows desktop telemetry and logging application for Euro Truck Simulator 2 (ETS2) and American Truck Simulator (ATS). Version 1.4.2-beta is built with C++ and Qt 6 Widgets. The existing Python implementation is retained as reference-only code and is not part of the active native telemetry pipeline.
 
 ## What It Does
 
-- Displays vehicle, navigation, job, driving-session, and telemetry-provider information supported by the active native telemetry decoder.
-- Reads the official TruckSim GPS plugin's revision-13 shared-memory map directly.
-- Records telemetry samples, source metadata, normalized values, and the complete shared-memory mapping in separate versioned v2 `.nlsi` telemetry files.
+- Displays vehicle, navigation, job, driving-session, and telemetry-provider information supported by the native telemetry decoder.
+- Reads the TruckSim GPS plugin's revision-13 shared-memory mapping directly.
+- Provides a unified Dashboard for driving telemetry and current-job information.
+- Records telemetry samples, source metadata, normalized values, and the complete shared-memory mapping in versioned v2 `.nlsi` telemetry files.
 - Preserves application logs, events, session history, and job history locally.
-- Represents unsupported or invalid telemetry values as unavailable instead of inventing data.
-- Supports offline recording without requiring a remote server or an internet connection.
+- Uses explicit unavailable states for unsupported or invalid telemetry values.
+- Supports offline recording without requiring a remote server or internet connection.
 - Provides local history, event inspection, and PDF export for completed jobs.
+- Checks GitHub releases for newer application versions when an internet connection is available.
 
 ## Supported Games
 
@@ -22,31 +23,37 @@ The native application reads the TruckSim GPS plugin's `Local\TSGPTelemetry` sha
 
 TruckSim GPS is the only active game telemetry provider in the native application. The separate TruckSim GPS Telemetry Server GUI is not required and is not included.
 
-The installer installs the official TruckSim GPS plugin into compatible x64/x86 folders for detected supported Steam game installations. Existing game plugins are handled according to the installer’s backup and replacement logic; a replaced installer-managed plugin is retained as a recovery backup.
+The installer installs the official TruckSim GPS plugin into compatible x64/x86 folders for detected supported Steam game installations. Existing game plugins are handled according to the installer's backup and replacement logic. A replaced installer-managed plugin is retained as a recovery backup.
 
 The official plugin binaries are distributed with their applicable notices. The SCS SDK and other third-party components remain subject to their respective licenses. The separate GPL-3.0 TruckSim GPS Telemetry Server application and its code are not redistributed.
 
 ## Current Release
 
-The current source version is **v1.4.0-alpha**.
+- **Product:** NLSI Exclusive Logbook
+- **Version:** v1.4.2-beta
+- **Release channel:** Beta
+- **Supported games:** ETS2 and ATS
+- **Technology:** C++, Qt 6 Widgets, CMake
 
-The native application can be configured and built with CMake and Qt 6.12. Debug and Release build locations are documented in [Development Setup](docs/DEVELOPMENT.md).
+The native application can be configured and built with Qt 6.12 and CMake. Build locations and development requirements are documented in [Development Setup](docs/DEVELOPMENT.md).
 
-Published installers and other available release assets can be found here:
+Published installers and other available release assets can be found on GitHub:
 
 **[Download NLSI release assets](https://github.com/Christian-0777/nlsi_telemetry/releases)**
 
-This is an alpha release. Live ETS2/ATS gameplay telemetry has **not been validated for v1.4.0-alpha**. Successful compilation or installation does not establish that every telemetry field works correctly in a live game session.
+This is a beta release intended for testing and evaluation. Compilation or installation alone does not establish that every telemetry field works correctly during live gameplay.
 
 ## Installation
 
 1. Download the appropriate installer from the GitHub Releases page.
 2. Close ETS2 and ATS before installing or updating.
 3. Run the installer and follow the setup instructions.
-4. Launch NLSI Exclusive Logbook and verify the provider status under Settings → Providers.
+4. Launch NLSI Exclusive Logbook and review the provider status under Settings → Providers.
 5. Launch a supported game with the required telemetry plugin installed.
 
-The installer places application files under Program Files and creates Desktop and Start Menu shortcuts. Existing user configuration, logs, telemetry files, and history are retained during upgrades. Per-user data is stored separately under:
+The installer places application files under Program Files and creates Desktop and Start Menu shortcuts. Existing user configuration, logs, telemetry files, and history are retained during upgrades.
+
+Per-user application data is stored separately under:
 
 `%LOCALAPPDATA%\NLSI\Exclusive Logbook`
 
@@ -58,43 +65,69 @@ See the [Installation Guide](docs/INSTALLATION.md) for detailed instructions and
 
 Start NLSI Exclusive Logbook before launching ETS2 or ATS.
 
-The application provides seven sidebar destinations:
+The application provides the following sidebar destinations:
 
-- Dashboard
-- Live Drive
-- Jobs
-- History
-- Events
-- Settings
-- About
-
-Settings includes Application, Providers, Telemetry, and Active Mods subsections.
+- **Dashboard** — Unified driving workspace for connection status, vehicle telemetry, navigation, and current-job information.
+- **Jobs** — Recorded job information and available job actions.
+- **History** — Locally recorded driving sessions and job history.
+- **Events** — Persisted application and telemetry-related events.
+- **Settings** — Application preferences, provider diagnostics, and telemetry-related settings.
+- **About** — Product information, version details, and available update checks.
 
 ### Dashboard
 
-Displays connection status and current vehicle and driving-session information based on the values available from the active provider.
+The Dashboard combines the driving workspace and supported live telemetry into one view.
 
-### Live Drive
+Depending on source availability, it displays:
 
-Displays supported live telemetry, including speed, RPM, gear, throttle, brake, fuel, navigation information, cruise-control values, and retarder information when their source values are available and valid.
+- Connection, game, and telemetry-provider status.
+- Vehicle speed, RPM, selected gear, throttle, brake, and fuel.
+- Current-job identification, cargo, source, destination, and job status.
+- Navigation distance and estimated travel time when valid source data is available.
+- Cruise-control and retarder information when the corresponding source values are available and valid.
 
-Retarder-active status is derived from a positive SDK retarder level because the documented revision-13 mapping does not provide a separate active boolean. Cruise-control enabled state must not be inferred solely from a set speed.
+The application must not infer cruise-control activation solely from a configured speed. Retarder-active status is derived from a positive SDK retarder level because the documented revision-13 mapping does not provide a separate active boolean.
+
+Disconnected, stale, unsupported, or invalid telemetry must not be presented as current driving data.
 
 ### Jobs, History, and Events
 
-Displays locally recorded job information, completed or cancelled job history, driving sessions, and persisted events.
+These sections display locally recorded job information, completed or cancelled job history, driving sessions, and persisted events.
 
-Delivery and cancellation events are generated from the documented source flags and event-detection rules. Job fields that are absent or invalid remain unavailable rather than being fabricated.
+Completed jobs can be exported to PDF without modifying their original source records.
 
-Completed jobs can be exported to PDF without modifying the original source records.
+Toll fees and ferry or train crossing information must only be displayed when actual recorded source data is available. These values are not fabricated when the active telemetry provider does not expose them.
 
-### Settings → Providers
+### Settings and Provider Diagnostics
 
-Displays provider status, shared-memory mapping and revision information, source freshness, and applicable storage, synchronization, and shared-memory errors.
+Settings provides access to application preferences and provider and telemetry diagnostics.
 
-Active mod detection is unavailable through the supported telemetry interface and is not presented as verified game telemetry.
+Provider diagnostics include applicable shared-memory mapping and revision information, source freshness, and relevant storage or provider errors.
+
+Active mod enumeration is not available through the supported telemetry interface and is not presented as verified telemetry.
 
 See the [User Guide](docs/USER-GUIDE.md) for operating instructions.
+
+## GitHub Update Checker
+
+The application can check GitHub Releases for newer versions of NLSI Exclusive Logbook.
+
+Repository:
+
+https://github.com/Christian-0777/nlsi_telemetry
+
+Release API:
+
+https://api.github.com/repos/Christian-0777/nlsi_telemetry/releases
+
+The update checker is intended to identify newer applicable releases, including prerelease versions where supported by the application.
+
+- Update checks require an internet connection.
+- Network failures and unavailable release information must not prevent offline application use.
+- Release notes and the corresponding GitHub release page can be presented to the user.
+- The update checker does not automatically download or install a new version.
+
+Availability and behavior depend on the update-checking implementation included in the build.
 
 ## Telemetry and Local Data
 
@@ -106,11 +139,11 @@ The application maintains separate formats for application logs and telemetry sa
 
 ### Application Logs — `.txt` and `.nlsi` Schema Version 1
 
-The existing UTF-8 TXT log and versioned `.nlsi` application log continue to record human-readable application messages.
+The existing UTF-8 TXT log and versioned `.nlsi` application log record human-readable application messages.
 
 The v1 `.nlsi` format uses newline-delimited JSON (JSON Lines). It begins with a format header followed by timestamped application entries.
 
-The existing v1 reader does not reinterpret v2 telemetry records as application logs. Invalid or unknown v1 records are reported instead of being silently replaced.
+The v1 application-log reader does not reinterpret v2 telemetry records as application logs. Invalid or unknown records are reported rather than silently replaced.
 
 ### Telemetry Logs — `.nlsi` Schema Version 2
 
@@ -126,26 +159,29 @@ Each telemetry record includes:
 - The associated driving-session ID, when available.
 - A UTC capture timestamp.
 - Provider and mapping-revision metadata.
-- Source timestamps, preserved without assuming undocumented counter units.
+- Source timestamps preserved without assuming undocumented counter units.
 - Named raw source fields and their availability.
 - A compressed, Base64-encoded copy of the complete 32 KiB shared-memory mapping.
 - Normalized application fields and their availability and freshness metadata.
 
-The raw mapping preserves bytes beyond the named fields currently understood by NLSI. The named-field inventory describes what the current decoder can verify; it does not claim that the mapping contains no other fields.
+The raw mapping preserves bytes beyond the named fields currently understood by NLSI. The named-field inventory describes what the current decoder can verify and does not claim that the mapping contains no other fields.
 
-The application writes telemetry through a background writer. Incomplete trailing records are handled through the documented recovery procedure, while malformed complete records and unsupported schemas are preserved and reported. Pending queue entries can be reconstructed from valid local records after an interrupted write sequence.
+The application writes telemetry through a background writer. Incomplete trailing records are handled through the documented recovery procedure. Malformed complete records and unsupported schemas are preserved and reported. Pending queue entries can be reconstructed from valid local records after an interrupted write sequence.
 
-The existing application log format is not changed by telemetry capture. TXT logs, application logs, sessions, jobs, and telemetry files remain separate.
+The existing application-log format is not changed by telemetry capture. TXT logs, application logs, sessions, jobs, and telemetry files remain separate.
 
-For the exact record structures, recovery rules, and inspection instructions, see [Native Log Formats](docs/NLSI-LOG-FORMAT.md) and [Telemetry Mapping](docs/TELEMETRY-MAPPING.md).
+For record structures, recovery rules, and inspection instructions, see:
+
+- [Native Log Formats](docs/NLSI-LOG-FORMAT.md)
+- [Telemetry Mapping](docs/TELEMETRY-MAPPING.md)
 
 ## Offline Operation and Synchronization Status
 
-**Remote synchronization is not implemented in v1.4.0-alpha.**
+**Remote synchronization is not implemented unless a separate, verified implementation is added to the application.**
 
-The application does not upload telemetry to a website or cloud service, connect directly to MySQL, or mark records as remotely synchronized. Local queue entries remain pending until a future authenticated synchronization service is implemented.
+The local application does not upload telemetry to a website or cloud service, connect directly to MySQL, or mark records as remotely synchronized merely because they are queued.
 
-The repository currently contains a proposed versioned SQL migration at `db/migrations/001_telemetry_sync.sql`. It is a database design artifact and has not been applied. There is no implemented remote backend, authentication provider, migration runner, or telemetry upload API.
+The repository contains a proposed SQL migration at `db/migrations/001_telemetry_sync.sql`. This is a database design artifact and has not been applied. A proposed schema does not constitute a working backend, authentication provider, migration runner, or telemetry upload API.
 
 A future synchronization service must use authenticated HTTPS, enforce record ownership and authorization, validate payloads, support idempotent uploads, and acknowledge records only after durable server-side acceptance.
 
@@ -163,7 +199,8 @@ Other limitations include:
 - Active mod enumeration is unavailable through the supported telemetry interface.
 - Retarder-active state is derived from retarder level rather than a separate source boolean.
 - Source timestamp counters are preserved without assigning undocumented time units.
-- Live ETS2/ATS telemetry has not been validated for v1.4.0-alpha.
+- Toll fees and ferry/train crossing data are unavailable when the active source does not record them.
+- Live gameplay behavior must be verified against the actual game, plugin, and application build.
 
 The application version is separate from the telemetry API or mapping revision reported by the provider.
 
@@ -182,7 +219,8 @@ The application version is separate from the telemetry API or mapping revision r
 
 ## Release History
 
-- **v1.4.0-alpha** — Native Qt telemetry and logging release. Introduces the revision-13 TruckSim GPS shared-memory reader, separate v2 telemetry logs, raw mapping preservation, local pending synchronization records, and updated provider diagnostics. Live gameplay telemetry is not yet validated for this release.
+- **v1.4.2-beta** — Beta release focused on the unified driving Dashboard, interface refinements, single-instance behavior, exit confirmation, and GitHub release checking. Confirm the included build and changelog for the exact implemented features.
+- **v1.4.0-alpha** — Native Qt telemetry and logging release. Introduced the revision-13 TruckSim GPS shared-memory reader, separate v2 telemetry logs, raw mapping preservation, local pending synchronization records, and updated provider diagnostics. Live gameplay telemetry was not validated for this release.
 - **v1.0.0** — Baseline stability and production-readiness milestone for the telemetry application, with clearer session lifecycle behavior and explicit unavailable telemetry states.
 - **v0.3.4** — Corrections to trailer display, time formatting, gameplay-session timing, job and cruise telemetry mappings, and installer/runtime dependency validation.
 - **v0.3.3** — Stability fixes for gameplay sessions, reconnect handling, and version metadata.
@@ -195,9 +233,9 @@ See the [Changelog](docs/CHANGELOG.md) for release-specific changes.
 
 ## Disclaimer
 
-NLSI Exclusive Logbook is provided as an alpha release for testing and evaluation. It has not been validated in live gameplay across every supported game version. Telemetry availability depends on the game, plugin, mapping revision, and validity of source data.
+NLSI Exclusive Logbook is provided as a beta release for testing and evaluation. Telemetry availability depends on the game, plugin, mapping revision, and validity of source data.
 
-Keep backups of important local records. The application does not currently provide remote synchronization or an automatic telemetry retention policy.
+Keep backups of important local records. The application does not currently provide a general-purpose remote synchronization service or an automatic telemetry retention policy.
 
 ## Company and Third-Party Acknowledgements
 

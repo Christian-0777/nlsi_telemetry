@@ -44,6 +44,8 @@ OUTPUT_EXE = RELEASE_DIR / f"NLSI-Exclusive-Logbook-{RELEASE_TAG}-Setup.exe"
 REQUIRED_RUNTIME_FILES = (
     "Qt6Core.dll",
     "Qt6Gui.dll",
+    "Qt6Network.dll",
+    "Qt6Svg.dll",
     "Qt6Widgets.dll",
     "msvcp140.dll",
     "vcruntime140.dll",
@@ -144,7 +146,7 @@ def locate_iscc() -> Path:
 
 
 def locate_windeployqt() -> Path:
-    cache = ROOT / "build" / "cmake" / "CMakeCache.txt"
+    cache = ROOT / "build" / f"cmake-{RELEASE_TAG}" / "CMakeCache.txt"
     if not cache.is_file():
         raise FileNotFoundError(f"Missing configured native CMake build: {cache}")
     match = re.search(
@@ -220,6 +222,10 @@ def copy_runtime_payload(app_exe: Path) -> None:
         ROOT / "includes" / "trucksim-gps-plugin" / "SCS-SDK-LICENSE.txt",
         license_payload / "SCS-SDK-MIT.txt",
     )
+    shutil.copy2(
+        ROOT / "assets" / "icons" / "LICENSE.txt",
+        license_payload / "Lucide-ISC.txt",
+    )
     tools_payload = PAYLOAD_DIR / "tools"
     tools_payload.mkdir(parents=True, exist_ok=True)
     shutil.copy2(
@@ -284,6 +290,9 @@ def prepare_runtime(app_exe: Path) -> None:
         )
     if not (PAYLOAD_DIR / "platforms" / "qwindows.dll").is_file():
         raise FileNotFoundError("The staged Qt Windows platform plugin is missing.")
+    if not any((PAYLOAD_DIR / "tls" / name).is_file()
+               for name in ("qschannelbackend.dll", "qopensslbackend.dll")):
+        raise FileNotFoundError("The staged Qt TLS backend required for HTTPS is missing.")
 
 
 def prepare_wizard_assets() -> None:

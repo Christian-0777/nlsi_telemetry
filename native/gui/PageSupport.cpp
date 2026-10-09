@@ -83,36 +83,38 @@ QString TimestampText(const QString& value) {
 
 DetailPage::DetailPage(QWidget* parent)
     : StatePage(parent) {
-    auto* page_layout = new QVBoxLayout(this);
-    page_layout->setContentsMargins(4, 4, 4, 4);
-    page_layout->setSpacing(14);
+    page_layout_ = new QVBoxLayout(this);
+    page_layout_->setContentsMargins(4, 4, 4, 4);
+    page_layout_->setSpacing(14);
 
     auto* fields_frame = new QFrame(this);
     fields_frame->setObjectName(QStringLiteral("contentCard"));
     fields_layout_ = new QVBoxLayout(fields_frame);
     fields_layout_->setContentsMargins(20, 12, 20, 12);
     fields_layout_->setSpacing(0);
-    page_layout->addWidget(fields_frame);
-    page_layout->addStretch(1);
+    page_layout_->addWidget(fields_frame);
+    page_layout_->addStretch(1);
 }
 
 void DetailPage::AddField(const QString& key, const QString& label) {
     auto* row = new QFrame(this);
     row->setObjectName(QStringLiteral("detailRow"));
     auto* row_layout = new QHBoxLayout(row);
-    row_layout->setContentsMargins(0, 11, 0, 11);
+    row_layout->setContentsMargins(0, 8, 0, 8);
+    row_layout->setSpacing(16);
     auto* name = new QLabel(label, row);
     name->setObjectName(QStringLiteral("detailLabel"));
-    name->setWordWrap(true);
-    name->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    name->setWordWrap(false);
+    name->setFixedWidth(190);
+    name->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     auto* value = new QLabel(QStringLiteral("--"), row);
     value->setObjectName(QStringLiteral("detailValue"));
-    value->setWordWrap(true);
+    value->setWordWrap(false);
+    value->setMinimumWidth(0);
     value->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     value->setTextInteractionFlags(Qt::TextSelectableByMouse);
     row_layout->addWidget(name);
-    row_layout->addStretch(1);
-    row_layout->addWidget(value);
+    row_layout->addWidget(value, 1);
     if (fields_layout_->count() > 0) {
         auto* divider = new QFrame(fields_layout_->parentWidget());
         divider->setObjectName(QStringLiteral("divider"));
@@ -121,6 +123,12 @@ void DetailPage::AddField(const QString& key, const QString& label) {
     }
     fields_layout_->addWidget(row);
     values_.insert(key, value);
+}
+
+void DetailPage::AddContentWidget(QWidget* widget) {
+    if (page_layout_ && widget) {
+        page_layout_->insertWidget(page_layout_->count() - 1, widget);
+    }
 }
 
 void DetailPage::SetExternalLink(const QString& key, const QString& label, const QUrl& url) {
@@ -140,6 +148,7 @@ void DetailPage::SetValue(const QString& key, const QString& value) {
     QLabel* label = values_.value(key, nullptr);
     if (label && label->text() != value) {
         label->setText(value);
+        label->setToolTip(value);
     }
 }
 

@@ -53,6 +53,18 @@ private:
     std::uint64_t history_revision_ = static_cast<std::uint64_t>(-1);
 };
 
+class TripEventsPage final : public StatePage {
+public:
+    explicit TripEventsPage(QWidget* parent = nullptr);
+    void UpdateState(const telemetry::TelemetryUiState& state) override;
+    void UpdateHistory(const session::HistorySnapshot& history) override;
+
+private:
+    QLabel* message_ = nullptr;
+    QStandardItemModel* model_ = nullptr;
+    std::uint64_t history_revision_ = static_cast<std::uint64_t>(-1);
+};
+
 class ActiveModsPage final : public StatePage {
 public:
     explicit ActiveModsPage(QWidget* parent = nullptr);
@@ -84,6 +96,7 @@ private:
     QTabWidget* tabs_ = nullptr;
     SessionsPage* sessions_ = nullptr;
     JobHistoryPage* completed_jobs_ = nullptr;
+    TripEventsPage* trip_events_ = nullptr;
 };
 
 } // namespace nlsi::gui

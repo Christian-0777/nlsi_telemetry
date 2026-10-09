@@ -18,14 +18,16 @@ if not defined APP_CHANNEL (
     exit /b 2
 )
 
-set "BUILD_DIR=%CD%\build\cmake"
-set "RELEASE_DIR=%CD%\build\releases\v%APP_VERSION%-%APP_CHANNEL%"
-set "INSTALLER_PATH=%RELEASE_DIR%\NLSI-Exclusive-Logbook-v%APP_VERSION%-%APP_CHANNEL%-Setup.exe"
+set "RELEASE_TAG=v%APP_VERSION%"
+if /i not "%APP_CHANNEL%"=="stable" set "RELEASE_TAG=v%APP_VERSION%-%APP_CHANNEL%"
+set "BUILD_DIR=%CD%\build\cmake-%RELEASE_TAG%"
+set "RELEASE_DIR=%CD%\build\releases\%RELEASE_TAG%"
+set "INSTALLER_PATH=%RELEASE_DIR%\NLSI-Exclusive-Logbook-%RELEASE_TAG%-Setup.exe"
 
 if not exist "%BUILD_DIR%\CMakeCache.txt" (
     echo [ERROR] Native CMake build directory is not configured:
     echo         "%BUILD_DIR%"
-    echo Configure the existing VS 2022 x64 CMake build without reusing build\.
+    echo Configure the version-specific VS 2022 x64 CMake build without reusing v1.4.1 outputs.
     exit /b 2
 )
 

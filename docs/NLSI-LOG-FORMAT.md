@@ -20,7 +20,7 @@ The first line is a required format header:
 Subsequent lines are log entries:
 
 ```json
-{"record_type":"entry","timestamp":"2026-10-09T04:45:37.198Z","message":"[startup] NLSI Exclusive Logbook v1.4.0-alpha"}
+{"record_type":"entry","timestamp":"2026-10-09T04:45:37.198Z","message":"[startup] NLSI Exclusive Logbook v1.4.2-beta"}
 ```
 
 `timestamp` is an ISO 8601 UTC timestamp with millisecond precision. `message`

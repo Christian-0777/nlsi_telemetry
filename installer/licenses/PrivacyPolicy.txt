@@ -1,4 +1,4 @@
-NLSI EXCLUSIVE LOGBOOK v1.4.0-ALPHA
+NLSI EXCLUSIVE LOGBOOK v1.4.2-BETA
 PRIVACY POLICY
 
 1. INFORMATION PROCESSED BY THE APPLICATION
@@ -60,5 +60,5 @@ files; it does not recreate C:\nlsi-tem.
 Project information is available at:
 https://github.com/Christian-0777/nlsi_telemetry
 
-This policy describes the v1.4.0-alpha native Application and installer.
+This policy describes the v1.4.2-beta native Application and installer.
 Update it if data handling changes.

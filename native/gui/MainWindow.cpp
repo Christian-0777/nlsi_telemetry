@@ -2,24 +2,26 @@
 
 #include <QFrame>
 #include <QDateTime>
+#include <QCloseEvent>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QMessageBox>
 #include <QVBoxLayout>
 #include <QPixmap>
+#include <QPushButton>
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStatusBar>
-#include <QStyle>
 #include <QToolButton>
 #include <QTimer>
 #include <QVBoxLayout>
 
 #include "AboutPage.h"
 #include "DashboardPage.h"
+#include "IconTheme.h"
 #include "JobHistoryPage.h"
-#include "LiveDrivePage.h"
 #include "SettingsPage.h"
 
 namespace nlsi::gui {
@@ -92,7 +94,7 @@ MainWindow::MainWindow(
     active_page_title_ = new QLabel(QStringLiteral("Dashboard"), header);
     active_page_title_->setObjectName(QStringLiteral("headerTitle"));
     active_page_subtitle_ = new QLabel(
-        QStringLiteral("Live telemetry and current driving status."), header);
+        QStringLiteral("Driving telemetry, current job, and navigation status."), header);
     active_page_subtitle_->setObjectName(QStringLiteral("headerSubtitle"));
     header_text->addWidget(active_page_title_);
     header_text->addWidget(active_page_subtitle_);
@@ -116,37 +118,35 @@ MainWindow::MainWindow(
         QString key;
         QString title;
         QString subtitle;
-        QStyle::StandardPixmap icon;
+        QString icon;
         StatePage* page;
     };
     const QList<NavigationEntry> workspace_entries = {
         {QStringLiteral("dashboard"), QStringLiteral("Dashboard"),
-            QStringLiteral("Live telemetry and current driving status."), QStyle::SP_ComputerIcon,
+            QStringLiteral("Driving telemetry, current job, and navigation status."),
+            QStringLiteral("dashboard"),
             new DashboardPage(this)},
-        {QStringLiteral("liveDrive"), QStringLiteral("Live Drive"),
-            QStringLiteral("Detailed vehicle telemetry while you drive."), QStyle::SP_MediaPlay,
-            new LiveDrivePage(this)},
         {QStringLiteral("jobs"), QStringLiteral("Jobs"),
             QStringLiteral("Current delivery details and completed job records."),
-            QStyle::SP_FileDialogDetailedView,
+            QStringLiteral("jobs"),
             new JobsPage(this)},
         {QStringLiteral("history"), QStringLiteral("History"),
             QStringLiteral("Recorded sessions, trips, and completed deliveries."),
-            QStyle::SP_BrowserReload,
+            QStringLiteral("history"),
             new HistoryPage(this)},
         {QStringLiteral("events"), QStringLiteral("Events"),
             QStringLiteral("Provider events and recorded event details."),
-            QStyle::SP_MessageBoxInformation,
+            QStringLiteral("events"),
             new EventsPage(this)},
     };
     const QList<NavigationEntry> system_entries = {
         {QStringLiteral("settings"), QStringLiteral("Settings"),
             QStringLiteral("Application preferences and provider diagnostics."),
-            QStyle::SP_FileDialogContentsView,
+            QStringLiteral("settings"),
             new SettingsPage(this)},
         {QStringLiteral("about"), QStringLiteral("About"),
             QStringLiteral("Product information, release details, and acknowledgements."),
-            QStyle::SP_MessageBoxQuestion,
+            QStringLiteral("about"),
             new AboutPage(version_label, this)},
     };
 
@@ -159,8 +159,10 @@ MainWindow::MainWindow(
         auto* button = new QToolButton(sidebar);
         button->setObjectName(QStringLiteral("navigationButton"));
         button->setText(entry.title);
-        button->setIcon(style()->standardIcon(entry.icon));
+        button->setIcon(NavigationIcon(entry.icon, false));
         button->setIconSize(QSize(18, 18));
+        button->setToolTip(entry.title);
+        button->setAccessibleName(entry.title);
         button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         button->setCheckable(true);
         button->setAutoRaise(true);
@@ -201,8 +203,10 @@ MainWindow::MainWindow(
     auto* close_button = new QToolButton(sidebar);
     close_button->setObjectName(QStringLiteral("navigationButton"));
     close_button->setText(QStringLiteral("Close"));
-    close_button->setIcon(style()->standardIcon(QStyle::SP_DialogCloseButton));
+    close_button->setIcon(NavigationIcon(QStringLiteral("close"), false));
     close_button->setIconSize(QSize(18, 18));
+    close_button->setToolTip(QStringLiteral("Close NLSI Exclusive Logbook"));
+    close_button->setAccessibleName(QStringLiteral("Close NLSI Exclusive Logbook"));
     close_button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     close_button->setAutoRaise(true);
     close_button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -242,8 +246,38 @@ void MainWindow::ActivatePage(const QString& key) {
     active_page_title_->setText(navigation_buttons_.value(key)->text());
     active_page_subtitle_->setText(page_subtitles_.value(key));
     for (auto it = navigation_buttons_.cbegin(); it != navigation_buttons_.cend(); ++it) {
-        it.value()->setChecked(it.key() == key);
+        const bool selected = it.key() == key;
+        it.value()->setChecked(selected);
+        it.value()->setIcon(NavigationIcon(it.key(), selected));
     }
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    QMessageBox confirmation(QMessageBox::Question,
+        QStringLiteral("Exit NLSI Exclusive Logbook"),
+        QStringLiteral("Are you sure you want to exit NLSI Exclusive Logbook?"),
+        QMessageBox::NoButton,
+        this);
+    QPushButton* exit_button = confirmation.addButton(
+        QStringLiteral("Exit"), QMessageBox::AcceptRole);
+    QPushButton* cancel_button = confirmation.addButton(
+        QStringLiteral("Cancel"), QMessageBox::RejectRole);
+    confirmation.setDefaultButton(cancel_button);
+    confirmation.setEscapeButton(cancel_button);
+    confirmation.exec();
+    if (confirmation.clickedButton() != exit_button) {
+        event->ignore();
+        return;
+    }
+    if (!telemetry_core_.FlushLocalWrites(std::chrono::seconds(5))) {
+        QMessageBox::warning(this,
+            QStringLiteral("Local data is still being written"),
+            QStringLiteral("The application is still writing local telemetry. "
+                "No data was discarded; please try exiting again shortly."));
+        event->ignore();
+        return;
+    }
+    event->accept();
 }
 
 void MainWindow::RefreshClock() {

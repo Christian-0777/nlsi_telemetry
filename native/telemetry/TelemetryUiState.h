@@ -14,6 +14,7 @@ struct FastTelemetryState {
 struct JobSnapshot {
     bool available = false;
     std::wstring identity;
+    std::wstring nlsi_job_id;
     TelemetryField<std::wstring> cargo;
     TelemetryField<std::wstring> cargo_id;
     TelemetryField<std::wstring> source_company;

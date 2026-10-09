@@ -4,9 +4,12 @@
 #include <QFrame>
 #include <QFileDialog>
 #include <QHeaderView>
+#include <QJsonDocument>
 #include <QLabel>
 #include <QLocale>
 #include <QMessageBox>
+#include <QJsonParseError>
+#include <QJsonValue>
 #include <QPushButton>
 #include <QStandardItem>
 #include <QStandardItemModel>
@@ -19,6 +22,82 @@
 
 namespace nlsi::gui {
 namespace {
+
+QString GameJobId(const QJsonObject& details) {
+    const QJsonValue direct = details.value(QStringLiteral("job_id"));
+    if (direct.isString()) {
+        return direct.toString();
+    }
+    const QJsonValue job = details.value(QStringLiteral("job"));
+    return job.isObject()
+        ? job.toObject().value(QStringLiteral("id")).toString()
+        : QString();
+}
+
+QString EventFieldText(const QJsonObject& details, const QStringList& keys) {
+    for (const QString& key : keys) {
+        QJsonValue value = details.value(key);
+        if (key.contains(QLatin1Char('.'))) {
+            const QStringList path = key.split(QLatin1Char('.'));
+            value = details.value(path.front());
+            for (qsizetype index = 1; index < path.size() && value.isObject(); ++index) {
+                value = value.toObject().value(path[index]);
+            }
+        }
+        if (value.isString() && !value.toString().trimmed().isEmpty()) {
+            return value.toString().trimmed();
+        }
+        if (value.isDouble()) {
+            return value.toVariant().toString();
+        }
+    }
+    return {};
+}
+
+QString TripEventCategory(const session::EventRecord& event, const QJsonObject& details) {
+    const QString type = event.type.trimmed().toLower();
+    const QString transport = EventFieldText(
+        details, {QStringLiteral("transport_type")}).toLower();
+    const auto has_prefix = [](const QString& value, const QString& name) {
+        return value == name || value.startsWith(name + QLatin1Char('.'))
+            || value.startsWith(name + QLatin1Char('_'))
+            || value.startsWith(name + QLatin1Char('-'));
+    };
+    if (has_prefix(type, QStringLiteral("toll"))
+        || type == QStringLiteral("tollgate")
+        || type.startsWith(QStringLiteral("tollgate."))) {
+        return QStringLiteral("Toll gate");
+    }
+    if (has_prefix(type, QStringLiteral("ferry"))
+        || (type == QStringLiteral("transport") && transport == QStringLiteral("ferry"))) {
+        return QStringLiteral("Ferry");
+    }
+    if (has_prefix(type, QStringLiteral("train"))
+        || (type == QStringLiteral("transport") && transport == QStringLiteral("train"))) {
+        return QStringLiteral("Train");
+    }
+    return {};
+}
+
+QString TripJobAssociation(
+    const QJsonObject& details,
+    const QVector<session::JobRecord>& jobs) {
+    const QString job_id = EventFieldText(details, {
+        QStringLiteral("nlsi_job_id"), QStringLiteral("job_id"),
+        QStringLiteral("job.id"), QStringLiteral("game_job_id")});
+    if (!job_id.isEmpty()) {
+        for (const auto& job : jobs) {
+            const QString stored_game_id = GameJobId(job.details);
+            if (job.nlsi_job_id == job_id || job.identity == job_id
+                || stored_game_id == job_id) {
+                return job.nlsi_job_id.isEmpty() ? job.identity : job.nlsi_job_id;
+            }
+        }
+        return job_id;
+    }
+    return EventFieldText(details, {
+        QStringLiteral("trip_id"), QStringLiteral("session_id")});
+}
 
 void ConfigureTable(QTableView* table, QStandardItemModel* model) {
     table->setModel(model);
@@ -62,7 +141,8 @@ QWidget* MakeHistoryPage(
 
 JobHistoryPage::JobHistoryPage(QWidget* parent) : StatePage(parent) {
     auto* content = MakeHistoryPage(
-        {QStringLiteral("Timestamp"), QStringLiteral("Cargo"), QStringLiteral("Source"),
+        {QStringLiteral("Job ID"), QStringLiteral("Game job ID"),
+            QStringLiteral("Timestamp"), QStringLiteral("Cargo"), QStringLiteral("Source"),
             QStringLiteral("Destination"), QStringLiteral("Earnings"),
             QStringLiteral("Planned distance"), QStringLiteral("Status")},
         message_,
@@ -110,22 +190,25 @@ void JobHistoryPage::UpdateHistory(const session::HistorySnapshot& history) {
         for (const auto& job : history.jobs) {
             const int row = model_->rowCount();
             model_->insertRow(row);
-            model_->setItem(row, 0, new QStandardItem(TimestampText(job.timestamp)));
-            model_->setItem(row, 1, new QStandardItem(job.cargo));
-            model_->setItem(row, 2, new QStandardItem(job.source));
-            model_->setItem(row, 3, new QStandardItem(job.destination));
+            model_->setItem(row, 0, new QStandardItem(
+                job.nlsi_job_id.isEmpty() ? job.identity : job.nlsi_job_id));
+            model_->setItem(row, 1, new QStandardItem(GameJobId(job.details)));
+            model_->setItem(row, 2, new QStandardItem(TimestampText(job.timestamp)));
+            model_->setItem(row, 3, new QStandardItem(job.cargo));
+            model_->setItem(row, 4, new QStandardItem(job.source));
+            model_->setItem(row, 5, new QStandardItem(job.destination));
             const QJsonValue income = job.details.value(QStringLiteral("income"));
             const QJsonValue planned_distance =
                 job.details.value(QStringLiteral("planned_distance_km"));
-            model_->setItem(row, 4, new QStandardItem(
+            model_->setItem(row, 6, new QStandardItem(
                 income.isUndefined() || income.isNull()
                     ? QStringLiteral("--")
                     : NumericText(income.toVariant().toString())));
             const QString planned_text = planned_distance.isUndefined() || planned_distance.isNull()
                 ? QStringLiteral("--")
                 : NumericText(planned_distance.toVariant().toString()) + QStringLiteral(" km");
-            model_->setItem(row, 5, new QStandardItem(planned_text));
-            model_->setItem(row, 6, new QStandardItem(job.status));
+            model_->setItem(row, 7, new QStandardItem(planned_text));
+            model_->setItem(row, 8, new QStandardItem(job.status));
         }
         history_revision_ = history.revision;
     }
@@ -220,7 +303,10 @@ ActiveModsPage::ActiveModsPage(QWidget* parent) : StatePage(parent) {
     auto* card = new QFrame(this);
     card->setObjectName(QStringLiteral("contentCard"));
     auto* card_layout = new QVBoxLayout(card);
-    message_ = new QLabel(QStringLiteral("Unavailable from the active telemetry API."), card);
+    message_ = new QLabel(
+        QStringLiteral("Active mods are unavailable: supported telemetry does not expose a "
+            "verifiable complete mod list."),
+        card);
     message_->setObjectName(QStringLiteral("detailLabel"));
     message_->setWordWrap(true);
     card_layout->addWidget(message_);
@@ -263,19 +349,84 @@ HistoryPage::HistoryPage(QWidget* parent) : StatePage(parent) {
     tabs_->setObjectName(QStringLiteral("contentTabs"));
     sessions_ = new SessionsPage(tabs_);
     completed_jobs_ = new JobHistoryPage(tabs_);
+    trip_events_ = new TripEventsPage(tabs_);
     tabs_->addTab(sessions_, QStringLiteral("Sessions & trips"));
     tabs_->addTab(completed_jobs_, QStringLiteral("Completed jobs"));
+    tabs_->addTab(trip_events_, QStringLiteral("Tolls & transport"));
     layout->addWidget(tabs_, 1);
 }
 
 void HistoryPage::UpdateState(const telemetry::TelemetryUiState& state) {
     sessions_->UpdateState(state);
     completed_jobs_->UpdateState(state);
+    trip_events_->UpdateState(state);
 }
 
 void HistoryPage::UpdateHistory(const session::HistorySnapshot& history) {
     sessions_->UpdateHistory(history);
     completed_jobs_->UpdateHistory(history);
+    trip_events_->UpdateHistory(history);
+}
+
+TripEventsPage::TripEventsPage(QWidget* parent) : StatePage(parent) {
+    auto* content = MakeHistoryPage(
+        {QStringLiteral("Event type"), QStringLiteral("Recorded fee"),
+            QStringLiteral("Currency"), QStringLiteral("Trip/job association")},
+        message_,
+        model_,
+        this);
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(content);
+}
+
+void TripEventsPage::UpdateState(const telemetry::TelemetryUiState&) {
+}
+
+void TripEventsPage::UpdateHistory(const session::HistorySnapshot& history) {
+    if (history_revision_ != history.revision) {
+        model_->removeRows(0, model_->rowCount());
+        for (const auto& event : history.events) {
+            QJsonParseError parse_error;
+            const QJsonDocument document =
+                QJsonDocument::fromJson(event.details.toUtf8(), &parse_error);
+            if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+                continue;
+            }
+            const QJsonObject details = document.object();
+            const QString category = TripEventCategory(event, details);
+            if (category.isEmpty()) {
+                continue;
+            }
+            const QString fee = EventFieldText(details, {
+                QStringLiteral("toll_fee"), QStringLiteral("fee"),
+                QStringLiteral("amount"), QStringLiteral("price")});
+            const QString currency = EventFieldText(details, {
+                QStringLiteral("currency"), QStringLiteral("currency_code")});
+            const QString association = TripJobAssociation(details, history.jobs);
+            const int row = model_->rowCount();
+            model_->insertRow(row);
+            model_->setItem(row, 0, new QStandardItem(category));
+            model_->setItem(row, 1, new QStandardItem(
+                fee.isEmpty() ? QStringLiteral("Unavailable") : fee));
+            model_->setItem(row, 2, new QStandardItem(
+                currency.isEmpty() ? QStringLiteral("Unavailable") : currency));
+            model_->setItem(row, 3, new QStandardItem(
+                association.isEmpty() ? QStringLiteral("Unavailable") : association));
+        }
+        history_revision_ = history.revision;
+    }
+    const QString text = !history.error.isEmpty()
+        ? QStringLiteral("History error: %1").arg(history.error)
+        : model_->rowCount() == 0
+            ? QStringLiteral("No toll-gate, ferry or train events have been recorded. "
+                "TruckSim GPS revision 13 records job delivery/cancellation events but does "
+                "not expose verified toll fees or ferry/train crossings.")
+            : QStringLiteral("Only explicit provider events are shown; missing fees, currency "
+                "or trip/job identifiers are marked unavailable.");
+    if (message_->text() != text) {
+        message_->setText(text);
+    }
 }
 
 } // namespace nlsi::gui

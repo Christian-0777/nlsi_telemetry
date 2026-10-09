@@ -13,6 +13,7 @@ class QScrollArea;
 class QToolButton;
 class QTimer;
 class QLabel;
+class QCloseEvent;
 
 namespace nlsi::gui {
 
@@ -25,6 +26,7 @@ public:
         QWidget* parent = nullptr);
 
 private:
+    void closeEvent(QCloseEvent* event) override;
     void ActivatePage(const QString& key);
     void RefreshState();
     void RefreshClock();

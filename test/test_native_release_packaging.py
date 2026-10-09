@@ -14,10 +14,10 @@ SPEC.loader.exec_module(BUILDER)
 
 class NativeReleasePackagingTests(unittest.TestCase):
     def test_version_and_automatic_plugin_installation_policy(self) -> None:
-        self.assertEqual("1.4.0", BUILDER.VERSION)
-        self.assertEqual("alpha", BUILDER.CHANNEL)
-        self.assertEqual("alpha", BUILDER.INSTALL_CHANNEL)
-        self.assertEqual("v1.4.0-alpha", BUILDER.RELEASE_TAG)
+        self.assertEqual("1.4.2", BUILDER.VERSION)
+        self.assertEqual("beta", BUILDER.CHANNEL)
+        self.assertEqual("beta", BUILDER.INSTALL_CHANNEL)
+        self.assertEqual("v1.4.2-beta", BUILDER.RELEASE_TAG)
         self.assertEqual(
             r"{autopf32}\NLSI Exclusive Logbook",
             BUILDER.default_install_dir_for_channel("alpha"),
@@ -58,6 +58,16 @@ class NativeReleasePackagingTests(unittest.TestCase):
             self.assertIn(destination.parts[2], {"win_x64", "win_x86"})
             self.assertEqual("trucksim-gps-telemetry.dll", destination.name)
         self.assertFalse(any("server" in item.name.lower() for item in BUILDER.RELEASE_DIR.glob("*.exe")))
+
+    def test_bundled_lucide_icons_have_a_local_license_notice(self) -> None:
+        license_text = (ROOT / "assets" / "icons" / "LICENSE.txt").read_text(
+            encoding="utf-8"
+        )
+        builder_source = BUILDER_PATH.read_text(encoding="utf-8")
+        self.assertIn("Lucide Contributors", license_text)
+        self.assertIn("ISC License", license_text)
+        self.assertIn('"assets" / "icons" / "LICENSE.txt"', builder_source)
+        self.assertIn('"Lucide-ISC.txt"', builder_source)
 
 
 if __name__ == "__main__":

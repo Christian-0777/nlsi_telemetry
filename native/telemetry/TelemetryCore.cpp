@@ -141,7 +141,9 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
                 status_.storage_error = std::move(recorder_error);
             }
             std::wstring log_error;
-            if (!logger_->Log(L"[startup] NLSI Exclusive Logbook v1.4.0-alpha", &log_error)) {
+            const QString startup_message = QStringLiteral("[startup] NLSI Exclusive Logbook %1")
+                .arg(QCoreApplication::applicationVersion());
+            if (!logger_->Log(startup_message.toStdWString(), &log_error)) {
                 status_.storage_error = std::move(log_error);
             }
         }
@@ -216,12 +218,30 @@ TelemetrySnapshot TelemetryCore::Snapshot() const {
 
 TelemetryUiState TelemetryCore::UiState() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return ui_state_;
+    TelemetryUiState result = ui_state_;
+    if (history_store_ && result.fast.values.connected && result.job.available) {
+        const QString game_job_identity = result.job.cargo_id.available
+            && !result.job.cargo_id.value.empty()
+            ? QString::fromStdWString(result.job.cargo_id.value)
+            : QString::fromStdWString(result.job.identity);
+        result.job.nlsi_job_id =
+            history_store_->EnsureNlsiJobId(game_job_identity).toStdWString();
+        if (result.job.nlsi_job_id.empty()) {
+            result.providers.storage_error =
+                history_store_->Snapshot().error.toStdWString();
+        }
+    }
+    return result;
 }
 
 session::HistorySnapshot TelemetryCore::History() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return history_store_ ? history_store_->Snapshot() : session::HistorySnapshot{};
+}
+
+bool TelemetryCore::FlushLocalWrites(std::chrono::milliseconds timeout) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return !telemetry_recorder_ || telemetry_recorder_->FlushFor(timeout);
 }
 
 bool TelemetryCore::IsFreshEnough() const {

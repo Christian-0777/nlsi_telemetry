@@ -1,4 +1,3 @@
-#include "LiveDrivePage.h"
 #include "CurrentJobPage.h"
 #include "TelemetryPage.h"
 #include "ProvidersPage.h"
@@ -9,22 +8,57 @@
 #include <cmath>
 
 #include <QCoreApplication>
+#include <QDesktopServices>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QSizePolicy>
 #include <QUrl>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
+#include "updater/GitHubUpdater.h"
+
 namespace nlsi::gui {
+
+class UpdateControls final : public QWidget {
+public:
+    explicit UpdateControls(QWidget* parent = nullptr)
+        : QWidget(parent) {
+        auto* layout = new QHBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(14);
+        button = new QPushButton(QStringLiteral("Check for Updates"), this);
+        button->setObjectName(QStringLiteral("checkForUpdatesButton"));
+        button->setAccessibleName(QStringLiteral("Check for Updates"));
+        status = new QLabel(QStringLiteral("Checking for published releases…"), this);
+        status->setObjectName(QStringLiteral("updateCheckStatus"));
+        status->setWordWrap(false);
+        status->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        layout->addWidget(button);
+        layout->addWidget(status, 1);
+    }
+
+    QPushButton* button = nullptr;
+    QLabel* status = nullptr;
+};
+
 namespace {
+
+QString ReleaseChannelText() {
+    const QString version = QCoreApplication::applicationVersion();
+    const qsizetype separator = version.lastIndexOf(QLatin1Char('-'));
+    if (separator < 0 || separator == version.size() - 1) {
+        return QStringLiteral("Unavailable");
+    }
+    QString channel = version.mid(separator + 1);
+    channel[0] = channel[0].toUpper();
+    return channel;
+}
 
 QString StatusText(telemetry::ProviderState state) {
     return QString::fromStdWString(telemetry::FormatStatus(state));
-}
-
-QString GameConnection(const telemetry::TelemetryUiState& state) {
-    return state.fast.values.connected
-        ? QStringLiteral("CONNECTED")
-        : StatusText(state.providers.trucksim);
 }
 
 QString JobRoute(
@@ -54,7 +88,7 @@ public:
 
     void UpdateState(const telemetry::TelemetryUiState&) override {
         SetValue(QStringLiteral("version"), QCoreApplication::applicationVersion());
-        SetValue(QStringLiteral("channel"), QStringLiteral("Beta"));
+        SetValue(QStringLiteral("channel"), ReleaseChannelText());
         SetValue(QStringLiteral("refresh"), QStringLiteral("4 Hz (250 ms)"));
         SetValue(QStringLiteral("transport"), QStringLiteral("TruckSim GPS shared memory"));
         SetValue(QStringLiteral("display"), QStringLiteral("Hidden when not supplied"));
@@ -63,67 +97,10 @@ public:
 
 } // namespace
 
-LiveDrivePage::LiveDrivePage(QWidget* parent)
-    : DetailPage(parent) {
-    AddField(QStringLiteral("game"), QStringLiteral("Game"));
-    AddField(QStringLiteral("connection"), QStringLiteral("Connection"));
-    AddField(QStringLiteral("speed"), QStringLiteral("Speed"));
-    AddField(QStringLiteral("rpm"), QStringLiteral("Engine RPM"));
-    AddField(QStringLiteral("gear"), QStringLiteral("Gear"));
-    AddField(QStringLiteral("fuel"), QStringLiteral("Fuel"));
-    AddField(QStringLiteral("range"), QStringLiteral("Fuel range"));
-    AddField(QStringLiteral("odometer"), QStringLiteral("Odometer"));
-    AddField(QStringLiteral("navigation"), QStringLiteral("Navigation distance"));
-    AddField(QStringLiteral("navigationTime"), QStringLiteral("Navigation time"));
-    AddField(QStringLiteral("cruise"), QStringLiteral("Cruise control"));
-    AddField(QStringLiteral("retarder"), QStringLiteral("Retarder"));
-    AddField(QStringLiteral("session"), QStringLiteral("Session"));
-}
-
-void LiveDrivePage::UpdateState(const telemetry::TelemetryUiState& state) {
-    const auto& values = state.fast.values;
-    SetValue(QStringLiteral("game"), FieldText(values.game_name));
-    SetValue(QStringLiteral("connection"), GameConnection(state));
-    SetValue(QStringLiteral("speed"), NumberText(values.speed_kmh, 2, QStringLiteral(" km/h")));
-    SetValue(QStringLiteral("rpm"), NumberText(values.rpm, 0));
-    SetValue(QStringLiteral("gear"), NumberText(values.gear, 0));
-    SetValue(QStringLiteral("fuel"), NumberText(values.fuel_liters, 2, QStringLiteral(" L")));
-    SetValue(QStringLiteral("range"), NumberText(values.fuel_range_km, 2, QStringLiteral(" km")));
-    SetValue(QStringLiteral("odometer"), NumberText(values.odometer_km, 2, QStringLiteral(" km")));
-    SetValue(QStringLiteral("navigation"),
-        NumberText(values.navigation_distance_km, 2, QStringLiteral(" km")));
-    SetValue(QStringLiteral("navigationTime"),
-        values.navigation_time_s.available && !values.navigation_time_s.stale
-            ? DurationText(values.navigation_time_s.value)
-            : QStringLiteral("--"));
-    const QString cruise_status = !values.cruise_control_active.available
-        ? QStringLiteral("Unavailable")
-        : values.cruise_control_active.value
-            ? QStringLiteral("Enabled")
-            : QStringLiteral("Disabled");
-    const QString cruise_speed = NumberText(
-        values.cruise_control_speed, 2, QStringLiteral(" km/h"));
-    SetValue(QStringLiteral("cruise"),
-        cruise_speed == QStringLiteral("--")
-            ? cruise_status
-            : QStringLiteral("%1 · set to %2").arg(cruise_status, cruise_speed));
-    const QString retarder_status = !values.retarder_active.available
-        ? QStringLiteral("Unavailable")
-        : values.retarder_active.value
-            ? QStringLiteral("Enabled")
-            : QStringLiteral("Disabled");
-    const QString retarder_level = NumberText(values.retarder_level, 0);
-    SetValue(QStringLiteral("retarder"),
-        retarder_level == QStringLiteral("--")
-            ? retarder_status
-            : QStringLiteral("%1 · level %2").arg(retarder_status, retarder_level));
-    SetValue(QStringLiteral("session"),
-        QString::fromStdWString(telemetry::FormatSessionStatus(state.session.status)));
-}
-
 CurrentJobPage::CurrentJobPage(QWidget* parent)
     : DetailPage(parent) {
     AddField(QStringLiteral("status"), QStringLiteral("Status"));
+    AddField(QStringLiteral("nlsiJobId"), QStringLiteral("NLSI job ID"));
     AddField(QStringLiteral("cargo"), QStringLiteral("Cargo"));
     AddField(QStringLiteral("cargoId"), QStringLiteral("Cargo ID"));
     AddField(QStringLiteral("source"), QStringLiteral("Source"));
@@ -139,6 +116,9 @@ CurrentJobPage::CurrentJobPage(QWidget* parent)
 void CurrentJobPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("status"),
         QString::fromStdWString(telemetry::FormatJobStatus(state.job_status)));
+    SetValue(QStringLiteral("nlsiJobId"), state.job.nlsi_job_id.empty()
+        ? QStringLiteral("--")
+        : QString::fromStdWString(state.job.nlsi_job_id));
     SetValue(QStringLiteral("cargo"), FieldText(state.job.cargo));
     SetValue(QStringLiteral("cargoId"), FieldText(state.job.cargo_id));
     SetValue(QStringLiteral("source"), JobRoute(state.job.source_company, state.job.source_city));
@@ -321,14 +301,90 @@ AboutPage::AboutPage(const QString& version, QWidget* parent)
     AddField(QStringLiteral("developer"), QStringLiteral("Developer"));
     AddField(QStringLiteral("plugin"), QStringLiteral("Telemetry plugin attribution"));
     AddField(QStringLiteral("licenses"), QStringLiteral("Third-party notices"));
+    update_controls_ = new UpdateControls(this);
+    AddContentWidget(update_controls_);
+    updater_ = new nlsi::updater::GitHubUpdater(
+        QCoreApplication::applicationVersion(), this);
+    connect(update_controls_->button, &QPushButton::clicked, this, [this] {
+        update_controls_->button->setEnabled(false);
+        update_controls_->status->setText(QStringLiteral("Checking GitHub releases…"));
+        updater_->CheckForUpdates(true);
+    });
+    updater_->SetResultHandler([this](const nlsi::updater::UpdateCheckResult& result, bool) {
+        update_controls_->button->setEnabled(true);
+        const QString current = QCoreApplication::applicationVersion();
+        if (!result.succeeded) {
+            update_controls_->status->setText(
+                QStringLiteral("Update check failed: %1").arg(result.error));
+            update_controls_->status->setToolTip(update_controls_->status->text());
+            return;
+        }
+        if (result.release.version.isEmpty()) {
+            update_controls_->status->setText(
+                QStringLiteral("No published releases are available."));
+            update_controls_->status->setToolTip(update_controls_->status->text());
+            return;
+        }
+        if (!result.update_available) {
+            update_controls_->status->setText(
+                QStringLiteral("Current: %1 · no newer release found.")
+                    .arg(current));
+            update_controls_->status->setToolTip(result.from_cache
+                ? QStringLiteral("Showing the last successful cached check. Use Check for Updates "
+                    "to request a fresh result.")
+                : update_controls_->status->text());
+            return;
+        }
+
+        const QString available = QStringLiteral("v%1 · %2")
+            .arg(result.release.version, result.release.channel);
+        update_controls_->status->setText(
+            QStringLiteral("Update available: %1").arg(available));
+        update_controls_->status->setToolTip(result.from_cache
+            ? QStringLiteral("Showing cached release data; use Check for Updates to refresh.")
+            : available);
+        QString notes = result.release.notes.trimmed();
+        constexpr qsizetype kMaximumNotesCharacters = 6000;
+        if (notes.size() > kMaximumNotesCharacters) {
+            notes.truncate(kMaximumNotesCharacters);
+            notes += QStringLiteral("\n\n(Release notes truncated.)");
+        }
+        const QString release_name = result.release.name.isEmpty()
+            ? available : result.release.name;
+        auto* dialog = new QMessageBox(
+            QMessageBox::Information,
+            QStringLiteral("NLSI Exclusive Logbook update available"),
+            QStringLiteral("Current version: %1\nAvailable version: %2\nChannel: %3\n\n%4")
+                .arg(current, available, result.release.channel,
+                    notes.isEmpty() ? release_name : release_name + QStringLiteral("\n\n") + notes),
+            QMessageBox::NoButton,
+            this);
+        dialog->setTextFormat(Qt::PlainText);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        auto* open_release = dialog->addButton(
+            QStringLiteral("Open release page"), QMessageBox::ActionRole);
+        dialog->addButton(QStringLiteral("Later"), QMessageBox::RejectRole);
+        connect(open_release, &QPushButton::clicked, dialog, [dialog, url = result.release.url] {
+            if (!QDesktopServices::openUrl(url)) {
+                QMessageBox::warning(dialog, QStringLiteral("Could not open release page"),
+                    QStringLiteral("The default browser could not open %1.")
+                        .arg(url.toString()));
+            }
+            dialog->close();
+        });
+        dialog->open();
+    });
+    updater_->CheckForUpdates(false);
 }
+
+AboutPage::~AboutPage() = default;
 
 void AboutPage::UpdateState(const telemetry::TelemetryUiState&) {
     SetValue(QStringLiteral("product"), QStringLiteral("NLSI Exclusive Logbook"));
     SetValue(QStringLiteral("company"), QStringLiteral("Nabski Logistics and Solutions Inc."));
     const QString app_version = QCoreApplication::applicationVersion();
     SetValue(QStringLiteral("version"), app_version.isEmpty() ? version_ : app_version);
-    SetValue(QStringLiteral("channel"), QStringLiteral("Beta"));
+    SetValue(QStringLiteral("channel"), ReleaseChannelText());
     SetValue(QStringLiteral("framework"),
         QStringLiteral("Qt %1 Widgets").arg(QString::fromLatin1(qVersion())));
     SetValue(QStringLiteral("backend"), QStringLiteral("TruckSim GPS shared-memory telemetry"));
@@ -342,7 +398,7 @@ void AboutPage::UpdateState(const telemetry::TelemetryUiState&) {
     SetExternalLink(QStringLiteral("plugin"), QStringLiteral("TruckSim GPS project (MIT license)"),
         QUrl(QStringLiteral("https://github.com/TruckSim-GPS/trucksim-gps-plugin")));
     SetValue(QStringLiteral("licenses"),
-        QStringLiteral("TruckSim GPS and SCS SDK notices are installed in the licenses folder."));
+        QStringLiteral("Third-party notices, including Lucide ISC, are in the licenses folder."));
 }
 
 } // namespace nlsi::gui

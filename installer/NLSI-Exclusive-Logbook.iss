@@ -1,12 +1,12 @@
 #define AppName "NLSI Exclusive Logbook"
 #ifndef AppChannel
-#define AppChannel "alpha"
+#define AppChannel "beta"
 #endif
 #ifndef AppFileVersion
-#define AppFileVersion 1.4.0.0
+#define AppFileVersion 1.4.2.0
 #endif
 #ifndef ReleaseLabel
-#define ReleaseLabel "1.4.0-alpha"
+#define ReleaseLabel "1.4.2-beta"
 #endif
 #if (AppChannel == "alpha") || (AppChannel == "beta")
 #define DefaultApplicationDir "{autopf32}\NLSI Exclusive Logbook"
@@ -14,10 +14,10 @@
 #define DefaultApplicationDir "{autopf64}\NLSI Exclusive Logbook"
 #endif
 #ifndef ReleaseTag
-#define ReleaseTag "v1.4.0-alpha"
+#define ReleaseTag "v1.4.2-beta"
 #endif
 #ifndef ReleasePayload
-#define ReleasePayload "build\intermediate\installer-payload-v1.4.0-alpha"
+#define ReleasePayload "build\intermediate\installer-payload-v1.4.2-beta"
 #endif
 #define AppPublisher "Nabski Logistics and Solutions Inc."
 #define AppURL "https://github.com/Christian-0777/nlsi_telemetry"

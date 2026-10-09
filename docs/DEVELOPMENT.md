@@ -5,7 +5,7 @@
 - Windows x64.
 - Visual Studio 2022 Build Tools with the **Desktop development with C++** workload and MSVC x64 tools.
 - CMake 3.20 or newer.
-- Qt 6.12 Widgets for MSVC 2022 x64. Set `CMAKE_PREFIX_PATH` to the Qt installation prefix when configuring.
+- Qt 6.12 Widgets, Network, and Svg modules for MSVC 2022 x64. Set `CMAKE_PREFIX_PATH` to the Qt installation prefix when configuring.
 - The native Qt application uses the verified TruckSim GPS revision-13 shared-memory map; the official x64/x86 game-plugin binaries and MIT notices are packaged by the installer builder. The TruckSim GPS Server GUI is not a build or runtime dependency.
 - The extracted official SCS Telemetry SDK 1.15 is needed only for the separate legacy native plugin target (`build.bat`), not for the Qt desktop application/release installer.
 - Inno Setup 6 to compile the installer.
@@ -17,15 +17,15 @@ The native desktop application uses Qt Widgets and does not require a Python run
 Configure and build with the Visual Studio 2022 x64 generator:
 
 ```bat
-cmake -S . -B build\cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:\Qt\6.12.0\msvc2022_64"
-cmake --build build\cmake --config Debug
-cmake --build build\cmake --config Release
-ctest --test-dir build\cmake -C Debug --output-on-failure
+cmake -S . -B build\cmake-v1.4.2-beta -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="C:\Qt\6.12.0\msvc2022_64"
+cmake --build build\cmake-v1.4.2-beta --config Debug
+cmake --build build\cmake-v1.4.2-beta --config Release
+ctest --test-dir build\cmake-v1.4.2-beta -C Debug --output-on-failure
 ```
 
-The VS Code CMake Tools workspace is configured to use `build\cmake`; the repository-root `build` directory may contain a cache from another generator and must not be reused for the native MSVC build.
+Use the version-specific build directory for this release; the repository-root `build` directory may contain a cache from another generator and v1.4.1 artifacts must not be reused or overwritten.
 
-Debug binaries are written to `build\debug`; Release binaries are written to `build\releases\v1.4.0-alpha`. CMake deploys the required Qt runtime and platform plugin beside each application executable when `windeployqt` is available in the selected Qt installation.
+Debug binaries are written to `build\debug\v1.4.2-beta`; Release binaries are written to `build\releases\v1.4.2-beta`, with version-scoped intermediate and test outputs. CMake deploys the Qt runtime, SVG/network dependencies, and platform plugin beside the application executable when `windeployqt` is available in the selected Qt installation.
 
 ## Tests
 
@@ -55,7 +55,7 @@ Use the existing Visual Studio CMake build and native installer script:
 build-release.bat
 ```
 
-The script builds the `NLSI-Exclusive-Logbook` Release application and native tests in `build\cmake`, runs Python compatibility tests and Release CTest, then calls `build-installer.bat` to stage Qt/MSVC, official TruckSim plugin files, notices, and release documentation before compiling `installer\NLSI-Exclusive-Logbook.iss`. It does not delete or reconfigure the existing CMake build directory. The expected installer output is `build\releases\v1.4.0-alpha\NLSI-Exclusive-Logbook-v1.4.0-alpha-Setup.exe`.
+The script builds the `NLSI-Exclusive-Logbook` Release application and native tests in `build\cmake-v1.4.2-beta`, runs Python compatibility tests and Release CTest, then calls `build-installer.bat` to stage Qt/MSVC, official TruckSim plugin files, notices, and release documentation before compiling `installer\NLSI-Exclusive-Logbook.iss`. All build and package output paths are version-specific. The expected installer output is `build\releases\v1.4.2-beta\NLSI-Exclusive-Logbook-v1.4.2-beta-Setup.exe`; the existing `v1.4.1-alpha` release folder is not modified.
 
 For the native installer alone, after building the Release application, run:
 

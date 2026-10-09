@@ -116,7 +116,12 @@ bool ExportJobsToPdf(
                     .arg(label.toHtmlEscaped(), value.toHtmlEscaped());
             }
         };
-        add_row(QStringLiteral("Job ID"), job.identity);
+        add_row(QStringLiteral("Job ID"),
+            job.nlsi_job_id.isEmpty() ? job.identity : job.nlsi_job_id);
+        const QJsonValue game_job_id = job.details.value(QStringLiteral("job_id"));
+        if (game_job_id.isString()) {
+            add_row(QStringLiteral("Game job ID"), game_job_id.toString());
+        }
         add_row(QStringLiteral("Cargo"), job.cargo);
         add_row(QStringLiteral("Origin"), job.source);
         add_row(QStringLiteral("Destination"), job.destination);

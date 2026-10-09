@@ -8,6 +8,7 @@
 #include <QTextStream>
 
 #include "gui/MainWindow.h"
+#include "SingleInstance.h"
 
 App::App()
     : version_label_([this] {
@@ -28,7 +29,46 @@ int App::Run() {
     application.setApplicationName(QStringLiteral("Exclusive Logbook"));
     application.setApplicationVersion(QString::fromStdWString(version_label_));
     application.setOrganizationName(QStringLiteral("NLSI"));
+    application.setApplicationDisplayName(QString::fromStdWString(product_name_));
     application.setWindowIcon(QIcon(QStringLiteral(":/icons/logo.ico")));
+
+    const QString user_data_path = QStandardPaths::writableLocation(
+        QStandardPaths::AppLocalDataLocation);
+    if (user_data_path.isEmpty()) {
+        QMessageBox::critical(nullptr, QStringLiteral("Startup error"),
+            QStringLiteral("Windows did not provide a writable application data directory."));
+        return 1;
+    }
+    nlsi::gui::MainWindow* existing_window = nullptr;
+    nlsi::app::SingleInstance instance(user_data_path, [&existing_window] {
+        if (!existing_window) {
+            return;
+        }
+        if (existing_window->isMinimized()) {
+            existing_window->showNormal();
+        }
+        existing_window->show();
+        existing_window->raise();
+        existing_window->activateWindow();
+    }, &application);
+    QString instance_error;
+    const auto instance_result = instance.Start(&instance_error);
+    if (instance_result == nlsi::app::SingleInstance::StartResult::AlreadyRunning) {
+        QString activation_error;
+        const bool activated = instance.NotifyExistingInstance(&activation_error);
+        QMessageBox::information(nullptr,
+            QStringLiteral("NLSI Exclusive Logbook is already running"),
+            activated
+                ? QStringLiteral("The existing NLSI Exclusive Logbook window has been notified.")
+                : QStringLiteral("The existing application is running, but its window could not "
+                    "be activated automatically. Please switch to it manually. %1")
+                    .arg(activation_error));
+        return 0;
+    }
+    if (instance_result == nlsi::app::SingleInstance::StartResult::Failed) {
+        QMessageBox::critical(nullptr, QStringLiteral("Startup error"), instance_error);
+        return 1;
+    }
 
     QFile stylesheet(QStringLiteral(":/styles/app.qss"));
     if (!stylesheet.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -42,6 +82,7 @@ int App::Run() {
 
     Initialize();
     nlsi::gui::MainWindow main_window(product_name_, version_label_, telemetry_core_);
+    existing_window = &main_window;
     main_window.show();
 
     const int result = application.exec();

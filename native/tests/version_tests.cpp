@@ -12,6 +12,8 @@
 #include <QByteArray>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -191,6 +193,9 @@ void TestTruckSimGpsRevision13LayoutAndUnits() {
         && snapshot.navigation_distance_km.value == 60.0
         && snapshot.planned_distance.value == L"1200",
         "TruckSim GPS navigation or planned distance was not normalized");
+    Check(snapshot.retarder_level.available && snapshot.retarder_level.value == 2.0
+        && snapshot.retarder_active.available && snapshot.retarder_active.value,
+        "revision-13 retarder uint32 at offset 108 was not decoded correctly");
     Check(raw_sample.mapping.size() == static_cast<qsizetype>(bytes.size())
         && raw_sample.revision == 13
         && raw_sample.source_timestamp == 101
@@ -206,6 +211,14 @@ void TestTruckSimGpsRevision13LayoutAndUnits() {
         && snapshot.source_city.value == L"Berlin"
         && snapshot.destination_city.value == L"Paris",
         "TruckSim GPS current-job data was not decoded");
+
+    const std::uint32_t inactive_retarder = 0;
+    put(108, inactive_retarder);
+    Check(nlsi::providers::TruckSimGpsProvider::DecodeRevision13(
+            bytes.data(), bytes.size(), snapshot, decoded_revision, error)
+        && snapshot.retarder_level.available && snapshot.retarder_level.value == 0.0
+        && snapshot.retarder_active.available && !snapshot.retarder_active.value,
+        "revision-13 retarder active state was not derived from a zero level");
 
     const std::uint32_t unsupported_revision = 14;
     put(40, unsupported_revision);
@@ -230,8 +243,21 @@ void TestThrottleBrakeCruiseAndJobParsing() {
     Check(snapshot.input_brake.available && snapshot.input_brake.value == 0.60
         && snapshot.effective_brake.available && snapshot.effective_brake.value == 0.14,
         "input/effective brake were not parsed independently");
-    Check(snapshot.retarder_active.available && snapshot.retarder_active.value,
-        "retarder active state did not parse");
+    Check(snapshot.retarder_level.available && snapshot.retarder_level.value == 2.0
+        && snapshot.retarder_active.available && snapshot.retarder_active.value,
+        "retarder level was not authoritative for active state");
+    std::string contradictory_retarder = kValidPacket;
+    const std::string active_level = "\"retarder_level\":2";
+    const std::size_t retarder_level_position = contradictory_retarder.find(active_level);
+    Check(retarder_level_position != std::string::npos,
+        "retarder level fixture could not be located");
+    contradictory_retarder.replace(
+        retarder_level_position, active_level.size(), "\"retarder_level\":0");
+    Check(nlsi::providers::NLSIProvider::ParseTelemetryPacket(
+            contradictory_retarder, snapshot)
+        && snapshot.retarder_level.available && snapshot.retarder_level.value == 0.0
+        && snapshot.retarder_active.available && !snapshot.retarder_active.value,
+        "a separate retarder boolean overrode the reported level");
     Check(snapshot.cruise_control_speed.available && snapshot.cruise_control_speed.value == 67.5
         && snapshot.cruise_control_active.available && snapshot.cruise_control_active.value,
         "cruise control state did not parse");
@@ -475,6 +501,8 @@ void TestHistoryAndTxtLogPersistence() {
         "completed session was missing from history");
     Check(snapshot.jobs.size() == 1 && snapshot.jobs.front().status == QStringLiteral("Delivered")
         && snapshot.jobs.front().identity == QStringLiteral("job-test")
+        && snapshot.jobs.front().nlsi_job_id.startsWith(QStringLiteral("JOB-NLSI-"))
+        && snapshot.jobs.front().nlsi_job_id.size() == 13
         && snapshot.jobs.front().cargo == QStringLiteral("Furniture")
         && snapshot.jobs.front().source == QStringLiteral("Berlin")
         && snapshot.jobs.front().destination == QStringLiteral("Paris")
@@ -499,6 +527,9 @@ void TestHistoryAndTxtLogPersistence() {
         && reloaded_history.Snapshot().jobs.front().details
             .value(QStringLiteral("planned_distance_km")).toString() == QStringLiteral("1200"),
         "completed-job history did not survive a reload");
+    Check(reloaded_history.Snapshot().jobs.front().nlsi_job_id
+            == snapshot.jobs.front().nlsi_job_id,
+        "the generated NLSI job ID did not survive a reload");
     Check(reloaded_history.RecordJob(
             job,
             QStringLiteral("job.delivered"),
@@ -509,14 +540,145 @@ void TestHistoryAndTxtLogPersistence() {
         "a duplicate completed-job event was recorded after reloading history");
 }
 
+void TestStableNlsiJobIdsAndCollisionHandling() {
+    QTemporaryDir temporary_directory;
+    Check(temporary_directory.isValid(), "temporary job-ID directory could not be created");
+    const QString root = temporary_directory.path();
+    const QString jobs_path = QDir(root).filePath(QStringLiteral("session_logs/jobs.jsonl"));
+    Check(QDir().mkpath(QFileInfo(jobs_path).absolutePath()),
+        "legacy job-history directory could not be created");
+    QFile legacy_jobs(jobs_path);
+    const QByteArray legacy_record = R"json({"event_key":"legacy","identity":"JOB-NLSI-0007","cargo":"Old cargo","source":"Old source","destination":"Old destination","status":"Delivered","timestamp":"2026-10-01T00:00:00Z","details":{"job_id":"old-game-job"}})json" "\n";
+    Check(legacy_jobs.open(QIODevice::WriteOnly | QIODevice::Text)
+        && legacy_jobs.write(legacy_record) == legacy_record.size(),
+        "legacy job-history record could not be written");
+    legacy_jobs.close();
+
+    nlsi::logging::Logger logger(
+        QDir(root).filePath(QStringLiteral("logs/application.txt")).toStdWString());
+    nlsi::telemetry::JobSnapshot job;
+    std::vector<std::uint32_t> initial_numbers{42};
+    std::size_t initial_index = 0;
+    nlsi::session::HistoryStore initial_history(logger, [&] {
+        return initial_numbers.at(initial_index++);
+    });
+    Check(initial_history.Initialize(root), "initial job history could not be initialized");
+    Check(initial_history.RecordJob(
+            job,
+            QStringLiteral("job.delivered"),
+            QStringLiteral("2026-10-07T08:00:00Z"),
+            {{QStringLiteral("job_id"), QStringLiteral("game-job-1")}}),
+        "first completed job could not be stored");
+    const auto first_snapshot = initial_history.Snapshot();
+    Check(first_snapshot.jobs.size() == 2
+        && first_snapshot.jobs.front().identity == QStringLiteral("game-job-1")
+        && first_snapshot.jobs.front().nlsi_job_id == QStringLiteral("JOB-NLSI-0042")
+        && first_snapshot.jobs.front().details.value(QStringLiteral("job_id")).toString()
+            == QStringLiteral("game-job-1")
+        && first_snapshot.jobs.front().details.value(QStringLiteral("nlsi_job_id")).toString()
+            == QStringLiteral("JOB-NLSI-0042"),
+        "the generated ID was not kept separate from the game-provided job ID");
+
+    std::vector<std::uint32_t> retry_numbers{42, 7, 1234};
+    std::size_t retry_index = 0;
+    nlsi::session::HistoryStore reloaded_history(logger, [&] {
+        return retry_numbers.at(retry_index++);
+    });
+    Check(reloaded_history.Initialize(root), "persisted job history could not be reloaded");
+    Check(reloaded_history.RecordJob(
+            job,
+            QStringLiteral("job.delivered"),
+            QStringLiteral("2026-10-08T08:00:00Z"),
+            {{QStringLiteral("job_id"), QStringLiteral("game-job-2")}}),
+        "second completed job could not be stored after collision checks");
+    const auto reloaded_snapshot = reloaded_history.Snapshot();
+    Check(reloaded_snapshot.jobs.size() == 3
+        && reloaded_snapshot.jobs[0].identity == QStringLiteral("game-job-2")
+        && reloaded_snapshot.jobs[0].nlsi_job_id == QStringLiteral("JOB-NLSI-1234")
+        && reloaded_snapshot.jobs[1].nlsi_job_id == QStringLiteral("JOB-NLSI-0042")
+        && reloaded_snapshot.jobs[2].identity == QStringLiteral("JOB-NLSI-0007")
+        && reloaded_snapshot.jobs[2].nlsi_job_id.isEmpty(),
+        "ID collision retries or historical job IDs were not preserved");
+
+    nlsi::session::HistoryStore restarted_history(logger);
+    Check(restarted_history.Initialize(root),
+        "job history could not be reopened after a simulated restart");
+    const auto restarted_snapshot = restarted_history.Snapshot();
+    Check(restarted_snapshot.jobs.size() == 3
+        && restarted_snapshot.jobs[0].nlsi_job_id == QStringLiteral("JOB-NLSI-1234")
+        && restarted_snapshot.jobs[1].nlsi_job_id == QStringLiteral("JOB-NLSI-0042")
+        && restarted_snapshot.jobs[2].identity == QStringLiteral("JOB-NLSI-0007")
+        && restarted_snapshot.jobs[2].nlsi_job_id.isEmpty(),
+        "generated or historical IDs changed across restart");
+}
+
 void TestVersionComparison() {
-    const nlsi::updater::GitHubUpdater updater;
-    Check(updater.LatestVersion() == L"1.4.0-alpha",
-        "the updater's default latest version is not current");
-    Check(nlsi::updater::GitHubUpdater::CompareVersions(L"1.3.0 Alpha", L"1.3.1") < 0,
-        "version comparison failed for newer release");
-    Check(nlsi::updater::GitHubUpdater::IsUpdateAvailable(L"1.3.1", L"1.3.0 Alpha") == false,
-        "older release was reported as an update");
+    using nlsi::updater::GitHubUpdater;
+    Check(GitHubUpdater::CompareVersions(QStringLiteral("1.4.2-beta.2"),
+              QStringLiteral("1.4.2-beta.10")) < 0,
+        "numeric prerelease identifiers were not compared numerically");
+    Check(GitHubUpdater::CompareVersions(QStringLiteral("1.4.2-alpha"),
+              QStringLiteral("1.4.2-beta")) < 0
+        && GitHubUpdater::CompareVersions(QStringLiteral("1.4.2-beta"),
+              QStringLiteral("1.4.2")) < 0
+        && GitHubUpdater::CompareVersions(QStringLiteral("1.4.2-beta"),
+              QStringLiteral("1.4.1-alpha")) > 0,
+        "semantic prerelease or core version ordering is incorrect");
+
+    const auto release = [](const QString& tag, bool draft, bool prerelease,
+                            const QString& published_at) {
+        return QJsonObject{
+            {QStringLiteral("tag_name"), tag},
+            {QStringLiteral("draft"), draft},
+            {QStringLiteral("prerelease"), prerelease},
+            {QStringLiteral("published_at"), published_at},
+            {QStringLiteral("html_url"),
+                QStringLiteral("https://github.com/Christian-0777/nlsi_telemetry/releases/tag/")
+                    + tag},
+            {QStringLiteral("name"), tag},
+            {QStringLiteral("body"), QStringLiteral("Verified release notes.")},
+        };
+    };
+    const QJsonArray releases{
+        release(QStringLiteral("v9.0.0"), true, true, QString()),
+        release(QStringLiteral("v8.0.0-beta"), false, true, QString()),
+        release(QStringLiteral("v1.4.1-alpha"), false, true,
+            QStringLiteral("2026-10-07T08:00:00.000Z")),
+        release(QStringLiteral("v1.4.2-beta"), false, true,
+            QStringLiteral("2026-10-08T08:00:00.000Z")),
+    };
+    const QByteArray payload = QJsonDocument(releases).toJson(QJsonDocument::Compact);
+    nlsi::updater::UpdateCheckResult result;
+    QString error;
+    Check(GitHubUpdater::ParsePublishedReleases(
+              payload, QStringLiteral("1.4.2-beta"), &result, &error)
+        && result.succeeded && !result.update_available
+        && result.release.version == QStringLiteral("1.4.2-beta")
+        && result.release.channel == QStringLiteral("Beta"),
+        "drafts, unpublished prereleases, or the current target version were mishandled");
+    Check(GitHubUpdater::ParsePublishedReleases(
+              payload, QStringLiteral("1.4.1-alpha"), &result, &error)
+        && result.update_available
+        && result.release.version == QStringLiteral("1.4.2-beta"),
+        "a newer published beta was not identified as an update");
+
+    const QJsonArray stable_release{
+        release(QStringLiteral("v1.4.2"), false, false,
+            QStringLiteral("2026-10-09T08:00:00.000Z")),
+    };
+    Check(GitHubUpdater::ParsePublishedReleases(
+              QJsonDocument(stable_release).toJson(QJsonDocument::Compact),
+              QStringLiteral("1.4.2-beta"), &result, &error)
+        && result.update_available && result.release.channel == QStringLiteral("Stable"),
+        "a stable release was not ranked above the same-core beta");
+    Check(GitHubUpdater::ParsePublishedReleases(
+              QByteArrayLiteral("[]"), QStringLiteral("1.4.2-beta"), &result, &error)
+        && result.succeeded && !result.update_available && result.release.version.isEmpty(),
+        "an empty published-release list did not complete gracefully");
+    Check(!GitHubUpdater::ParsePublishedReleases(
+              QByteArrayLiteral("{not json"), QStringLiteral("1.4.2-beta"), &result, &error)
+        && !error.isEmpty(),
+        "a malformed GitHub response did not return an explicit parse error");
 }
 
 void TestTelemetryRecorderOfflineRecovery() {
@@ -610,6 +772,7 @@ int main() {
         {"stale telemetry", TestStaleTelemetryStopsDriving},
         {"UI job identity, progress, and session states", TestUiJobIdentityProgressAndSessionStates},
         {"history and TXT log persistence", TestHistoryAndTxtLogPersistence},
+        {"stable NLSI job IDs and collision handling", TestStableNlsiJobIdsAndCollisionHandling},
         {"offline telemetry queue and interrupted-write recovery", TestTelemetryRecorderOfflineRecovery},
         {"version comparison", TestVersionComparison},
     };

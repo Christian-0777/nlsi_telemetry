@@ -2,6 +2,23 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.4.2-beta
+
+- Refined Dashboard as the unified driving workspace and removed the obsolete Live Drive navigation item.
+- Added locally bundled Lucide SVG navigation icons with consistent NLSI-pink and selected-white colors.
+- Added persisted stable NLSI job IDs for active deliveries and new job-history entries without rewriting past records.
+- Added a toll/transport history view that renders only explicit recorded event fields and explains the current provider limitation.
+- Added a close confirmation with bounded local-write flushing, per-user single-instance activation, and asynchronous published-release checks.
+- Updated application, installer, and version-specific build metadata to v1.4.2-beta / Beta without changing the SCS SDK or TruckSim mapping versions.
+
+## v1.4.1-alpha
+
+- Consolidated live driving telemetry and current-job details in Dashboard and removed the separate Live Drive destination.
+- Made retarder display status derive from the revision-13 uint32 level at offset 108, with stale/disconnected values shown as unavailable.
+- Added stable, collision-checked `JOB-NLSI-####` IDs to newly persisted completed-job records without changing legacy or game-provided identifiers.
+- Kept active mods explicitly unavailable because supported telemetry cannot verify a complete mod list.
+- Updated application, Windows resource, installer, CMake project, and current release documentation metadata to v1.4.1-alpha / Alpha.
+
 ## v1.4.0-alpha
 
 - Added asynchronous daily v2 `.nlsi` capture for changed TruckSim GPS revision-13 source samples, including the exact compressed 32 KiB map, named raw fields, source timestamps, validity, normalized values, stable record IDs, sequence numbers, and driving-session association.

@@ -1,3 +1,50 @@
+# NLSI Exclusive Logbook v1.4.2-beta
+
+This Beta maintenance release refines the unified driving workspace and
+history UI while keeping existing telemetry, event, session, job, and local
+queue records in place.
+
+## What's changed
+
+- Consolidates driving telemetry in Dashboard and removes the Live Drive navigation destination.
+- Adds a locally bundled Lucide SVG navigation icon set, consistent selected colors, and fixed two-column About/Settings rows.
+- Shows stable NLSI job IDs during active deliveries and carries the same IDs into newly recorded job history.
+- Adds a trip-event history view that displays only explicit recorded toll/ferry/train event values; the current revision-13 provider does not expose those events or toll amounts, so the UI reports them unavailable.
+- Requires confirmation to exit, waits up to five seconds for accepted telemetry writes, and cancels exit if local writes have not drained.
+- Prevents a second application process with a per-user interprocess lock and local activation message.
+- Checks published GitHub releases asynchronously at startup and on demand in About, with semantic-version comparison and cached results.
+- Updates current application metadata to **v1.4.2-beta / Beta** and places all release build outputs in version-specific directories.
+
+GitHub update checks have not been live-tested, and live ETS2/ATS gameplay has
+not been tested for this release. The update checker never downloads or installs
+software. Existing v1.4.1-alpha release artifacts and historical records remain
+unchanged.
+
+Expected installer target:
+`build/releases/v1.4.2-beta/NLSI-Exclusive-Logbook-v1.4.2-beta-Setup.exe`.
+
+---
+
+# NLSI Exclusive Logbook v1.4.1-alpha
+
+This Alpha maintenance update unifies live driving, current-job details, and
+navigation progress in Dashboard while preserving the existing Qt architecture,
+telemetry providers, local storage format, and user-data location.
+
+## Maintenance changes
+
+- Moves the existing driving telemetry and control displays from Live Drive into Dashboard; removes the obsolete navigation destination and page.
+- Displays retarder state from the revision-13 uint32 level at offset 108 and treats stale or disconnected readings as unavailable.
+- Adds stable, collision-checked `JOB-NLSI-####` identifiers to new completed-job history records while keeping game-provided identifiers separate and leaving historical records unchanged.
+- Keeps Active Mods explicitly unavailable because the supported telemetry cannot verify a complete active-mod list.
+- Sets the application and release channel to **1.4.1-alpha / Alpha**.
+
+Live ETS2/ATS gameplay validation has not been performed for this update.
+Expected installer target:
+`build/releases/v1.4.1-alpha/NLSI-Exclusive-Logbook-v1.4.1-alpha-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.4.0-alpha
 
 This alpha adds local raw telemetry capture and a durable local queue while

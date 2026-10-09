@@ -10,6 +10,7 @@
 class QLabel;
 class QUrl;
 class QVBoxLayout;
+class QWidget;
 
 namespace nlsi::gui {
 
@@ -35,11 +36,13 @@ public:
     explicit DetailPage(QWidget* parent = nullptr);
     void AddField(const QString& key, const QString& label);
     void SetExternalLink(const QString& key, const QString& label, const QUrl& url);
+    void AddContentWidget(QWidget* widget);
 
 protected:
     void SetValue(const QString& key, const QString& value);
 
 private:
+    QVBoxLayout* page_layout_ = nullptr;
     QVBoxLayout* fields_layout_ = nullptr;
     QHash<QString, QLabel*> values_;
 };

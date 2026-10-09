@@ -76,8 +76,7 @@ def app_version() -> str:
 def app_release_label() -> str:
     labels = {"alpha": "Alpha", "beta": "Beta", "public": "Public"}
     channel = app_channel()
-    version = app_version().split(".")[:2]
-    return f"{labels.get(channel, 'Public')} v{'.'.join(version)}"
+    return f"{labels.get(channel, 'Public')} v{app_version()}"
 
 
 def normalize_release_channel(channel: str | None) -> str:

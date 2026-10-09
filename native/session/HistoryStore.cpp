@@ -8,9 +8,12 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QMap>
+#include <QRandomGenerator>
+#include <QSaveFile>
 
 #include <algorithm>
 #include <initializer_list>
+#include <utility>
 
 #include "logging/Logger.h"
 #include "telemetry/TelemetryUiState.h"
@@ -101,7 +104,11 @@ void SortNewestFirst(QVector<JobRecord>& jobs) {
 
 } // namespace
 
-HistoryStore::HistoryStore(nlsi::logging::Logger& logger) : logger_(logger) {
+HistoryStore::HistoryStore(
+    nlsi::logging::Logger& logger,
+    std::function<std::uint32_t()> job_id_number_source)
+    : logger_(logger),
+      job_id_number_source_(std::move(job_id_number_source)) {
 }
 
 bool HistoryStore::Initialize(
@@ -113,6 +120,7 @@ bool HistoryStore::Initialize(
     events_path_ = QDir(root_).filePath(QStringLiteral("logs/events.jsonl"));
     sessions_path_ = QDir(root_).filePath(QStringLiteral("session_logs/sessions.jsonl"));
     jobs_path_ = QDir(root_).filePath(QStringLiteral("session_logs/jobs.jsonl"));
+    job_ids_path_ = QDir(root_).filePath(QStringLiteral("session_logs/job_ids.json"));
     if (!QDir().mkpath(QDir(root_).filePath(QStringLiteral("logs")))
         || !QDir().mkpath(QDir(root_).filePath(QStringLiteral("session_logs")))) {
         SetError(QStringLiteral("Could not create logs or session_logs under %1.").arg(root_));
@@ -173,13 +181,16 @@ bool HistoryStore::MigrateLegacyDirectory(
 bool HistoryStore::Load() {
     snapshot_ = {};
     recorded_job_events_.clear();
+    used_job_ids_.clear();
+    job_ids_.clear();
     const bool events_loaded = LoadEvents();
     const bool sessions_loaded = LoadSessions();
     const bool jobs_loaded = LoadJobs();
+    const bool job_ids_loaded = LoadJobIds();
     SortNewestFirst(snapshot_.events);
     SortNewestFirst(snapshot_.sessions);
     SortNewestFirst(snapshot_.jobs);
-    return events_loaded && sessions_loaded && jobs_loaded;
+    return events_loaded && sessions_loaded && jobs_loaded && job_ids_loaded;
 }
 
 bool HistoryStore::LoadEvents() {
@@ -292,17 +303,114 @@ bool HistoryStore::LoadJobs() {
         } else if (!key.isEmpty()) {
             recorded_job_events_.insert(key);
         }
+        const QString identity = object.value(QStringLiteral("identity")).toString();
+        const QString nlsi_job_id = object.value(QStringLiteral("nlsi_job_id")).toString();
+        if (!identity.isEmpty()) {
+            used_job_ids_.insert(identity);
+        }
+        if (!nlsi_job_id.isEmpty()) {
+            used_job_ids_.insert(nlsi_job_id);
+        }
         snapshot_.jobs.push_back({
-            object.value(QStringLiteral("identity")).toString(),
+            identity,
             object.value(QStringLiteral("cargo")).toString(),
             object.value(QStringLiteral("source")).toString(),
             object.value(QStringLiteral("destination")).toString(),
             object.value(QStringLiteral("status")).toString(),
             object.value(QStringLiteral("timestamp")).toString(),
             details,
+            nlsi_job_id,
         });
     }
     return true;
+}
+
+bool HistoryStore::LoadJobIds() {
+    QFile file(job_ids_path_);
+    if (!file.exists()) {
+        return true;
+    }
+    if (!file.open(QIODevice::ReadOnly)) {
+        SetError(QStringLiteral("Could not read %1: %2").arg(job_ids_path_, file.errorString()));
+        return false;
+    }
+    QJsonParseError parse_error;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parse_error);
+    if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+        SetError(QStringLiteral("Invalid NLSI job ID mapping in %1: %2")
+            .arg(job_ids_path_, parse_error.errorString()));
+        return false;
+    }
+    const QJsonObject mappings = document.object();
+    for (auto it = mappings.constBegin(); it != mappings.constEnd(); ++it) {
+        const QString id = it.value().toString();
+        if (it.key().isEmpty() || !id.startsWith(QStringLiteral("JOB-NLSI-"))
+            || job_ids_.values().contains(id)) {
+            SetError(QStringLiteral("Invalid or duplicate NLSI job ID mapping in %1.")
+                .arg(job_ids_path_));
+            return false;
+        }
+        job_ids_.insert(it.key(), id);
+        used_job_ids_.insert(id);
+    }
+    return true;
+}
+
+bool HistoryStore::SaveJobIds() {
+    QJsonObject mappings;
+    for (auto it = job_ids_.constBegin(); it != job_ids_.constEnd(); ++it) {
+        mappings.insert(it.key(), it.value());
+    }
+    QSaveFile file(job_ids_path_);
+    const QByteArray contents = QJsonDocument(mappings).toJson(QJsonDocument::Compact);
+    if (!file.open(QIODevice::WriteOnly)
+        || file.write(contents) != contents.size()
+        || !file.commit()) {
+        SetError(QStringLiteral("Could not persist NLSI job ID mappings in %1: %2")
+            .arg(job_ids_path_, file.errorString()));
+        return false;
+    }
+    return true;
+}
+
+QString HistoryStore::AllocateNlsiJobId() {
+    for (int attempt = 0; attempt < 10000; ++attempt) {
+        const std::uint32_t number = job_id_number_source_
+            ? job_id_number_source_()
+            : QRandomGenerator::global()->bounded(10000U);
+        const QString candidate = QStringLiteral("JOB-NLSI-%1")
+            .arg(number % 10000U, 4, 10, QLatin1Char('0'));
+        if (!used_job_ids_.contains(candidate)) {
+            return candidate;
+        }
+    }
+    return {};
+}
+
+QString HistoryStore::EnsureNlsiJobId(const QString& game_job_identity) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (game_job_identity.isEmpty()) {
+        return {};
+    }
+    const auto existing = job_ids_.constFind(game_job_identity);
+    if (existing != job_ids_.cend()) {
+        return existing.value();
+    }
+    const QString nlsi_job_id = AllocateNlsiJobId();
+    if (nlsi_job_id.isEmpty()) {
+        SetError(QStringLiteral("Could not allocate a unique NLSI job ID; all four-digit IDs are in use."));
+        return {};
+    }
+    job_ids_.insert(game_job_identity, nlsi_job_id);
+    used_job_ids_.insert(nlsi_job_id);
+    if (!SaveJobIds()) {
+        job_ids_.remove(game_job_identity);
+        used_job_ids_.remove(nlsi_job_id);
+        return {};
+    }
+    ++snapshot_.revision;
+    snapshot_.error.clear();
+    return nlsi_job_id;
 }
 
 bool HistoryStore::RecordProviderEvent(const QByteArray& raw_packet) {
@@ -484,6 +592,23 @@ bool HistoryStore::RecordJob(
     if (recorded_job_events_.contains(event_key)) {
         return true;
     }
+    QString nlsi_job_id = job_ids_.value(identity);
+    if (nlsi_job_id.isEmpty()) {
+        nlsi_job_id = AllocateNlsiJobId();
+        if (!nlsi_job_id.isEmpty()) {
+            job_ids_.insert(identity, nlsi_job_id);
+            used_job_ids_.insert(nlsi_job_id);
+            if (!SaveJobIds()) {
+                job_ids_.remove(identity);
+                used_job_ids_.remove(nlsi_job_id);
+                return false;
+            }
+        }
+    }
+    if (nlsi_job_id.isEmpty()) {
+        SetError(QStringLiteral("Could not allocate a unique NLSI job ID; all four-digit IDs are in use."));
+        return false;
+    }
     const QString cargo = FieldText(job.cargo).isEmpty()
         ? EventText(event_details, {
             QStringLiteral("cargo"), QStringLiteral("cargo_name"), QStringLiteral("cargo.id")})
@@ -512,21 +637,27 @@ bool HistoryStore::RecordJob(
                 : event_destination_company)
             : event_destination_company + QStringLiteral(" · ") + event_destination_city)
         : JobRoute(job.destination_company, job.destination_city);
+    QJsonObject persisted_details = event_details;
+    persisted_details.insert(QStringLiteral("nlsi_job_id"), nlsi_job_id);
     const QJsonObject record{
         {QStringLiteral("event_key"), event_key},
         {QStringLiteral("identity"), identity},
+        {QStringLiteral("nlsi_job_id"), nlsi_job_id},
         {QStringLiteral("cargo"), cargo},
         {QStringLiteral("source"), source},
         {QStringLiteral("destination"), destination},
         {QStringLiteral("status"), status},
         {QStringLiteral("timestamp"), timestamp},
-        {QStringLiteral("details"), event_details},
+        {QStringLiteral("details"), persisted_details},
     };
     if (!AppendJsonLine(jobs_path_, record)) {
         return false;
     }
     recorded_job_events_.insert(event_key);
-    snapshot_.jobs.prepend({identity, cargo, source, destination, status, timestamp, event_details});
+    used_job_ids_.insert(identity);
+    used_job_ids_.insert(nlsi_job_id);
+    snapshot_.jobs.prepend({
+        identity, cargo, source, destination, status, timestamp, persisted_details, nlsi_job_id});
     ++snapshot_.revision;
     snapshot_.error.clear();
     std::wstring log_error;

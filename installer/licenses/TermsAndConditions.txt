@@ -1,16 +1,16 @@
-NLSI EXCLUSIVE LOGBOOK v1.4.0-ALPHA
+NLSI EXCLUSIVE LOGBOOK v1.4.2-BETA
 TERMS AND CONDITIONS
 
 1. ACCEPTANCE
 
 By selecting “I accept the Terms and Conditions” and continuing, you agree to
-these terms for your use of NLSI Exclusive Logbook v1.4.0-alpha (“the
+these terms for your use of NLSI Exclusive Logbook v1.4.2-beta (“the
 Application”). If you do not agree, cancel the installer and do not use the
 Application.
 
 2. PURPOSE AND COMPATIBILITY
 
-The Application is a beta-stage desktop companion that displays telemetry
+The Application is an alpha-stage desktop companion that displays telemetry
 made available by Euro Truck Simulator 2 (ETS2), American Truck Simulator
 (ATS), and the installed SCS telemetry plugin. Available values depend on the
 game, plugin, and supported telemetry interface. The Application does not

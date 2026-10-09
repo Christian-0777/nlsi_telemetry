@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <mutex>
@@ -23,6 +24,7 @@ public:
     bool Start(const std::wstring& user_data_directory, std::wstring* error = nullptr);
     bool Enqueue(const QJsonObject& sample, std::wstring* error = nullptr);
     bool Flush();
+    bool FlushFor(std::chrono::milliseconds timeout);
     void Stop();
     std::wstring LastError() const;
     std::uint64_t PendingCount() const;
