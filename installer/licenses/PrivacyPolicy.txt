@@ -1,4 +1,4 @@
-NLSI EXCLUSIVE LOGBOOK v1.4.2-BETA
+NLSI EXCLUSIVE LOGBOOK v1.4.3-BETA
 PRIVACY POLICY
 
 1. INFORMATION PROCESSED BY THE APPLICATION
@@ -19,7 +19,13 @@ The current native Application does not send gameplay telemetry to Nabski
 Logistics and Solutions Inc. or another remote telemetry service. It does not
 require an online account.
 Unavailable telemetry values are not intentionally filled with invented
-values. The updater may contact GitHub to check for releases.
+values. The updater may contact GitHub to check for releases. The Active Mods
+page reads the ETS2 and ATS game.log.txt files from the current user's
+Documents directory. When a Workshop mod is active, the page may request that
+item's public Steam Workshop page and a preview image from an HTTPS Steam image
+host. Steam may receive the Workshop item ID, IP address, and standard request
+metadata. No game telemetry is included in those requests; thumbnails are
+optional and may be unavailable while offline.
 
 2. INSTALLATION AND LEGACY CLEANUP
 
@@ -46,7 +52,8 @@ Solutions Inc. community, CEO and
 developer TikTok accounts, and the TruckSim GPS project. If you open one,
 the corresponding third-party website may receive information such as your
 IP address and browser data under its own privacy policy. Setup does not open
-these links automatically.
+these links automatically. Workshop item source links on Active Mods open
+Steam only when selected; optional previews may load while viewing that page.
 
 4. RETENTION AND CONTROL
 
@@ -60,5 +67,5 @@ files; it does not recreate C:\nlsi-tem.
 Project information is available at:
 https://github.com/Christian-0777/nlsi_telemetry
 
-This policy describes the v1.4.2-beta native Application and installer.
+This policy describes the v1.4.3-beta native Application and installer.
 Update it if data handling changes.

@@ -1,0 +1,52 @@
+cmake_minimum_required(VERSION 3.20)
+project(NLSIScsPositionPlugin LANGUAGES CXX)
+
+get_filename_component(NLSI_REPOSITORY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+if(NOT NLSI_RELEASE_TAG)
+    file(READ "${NLSI_REPOSITORY_ROOT}/version.json" NLSI_PLUGIN_VERSION_JSON)
+    string(JSON NLSI_PLUGIN_VERSION GET "${NLSI_PLUGIN_VERSION_JSON}" version)
+    string(JSON NLSI_PLUGIN_CHANNEL GET "${NLSI_PLUGIN_VERSION_JSON}" channel)
+    set(NLSI_RELEASE_TAG "v${NLSI_PLUGIN_VERSION}")
+    if(NLSI_PLUGIN_CHANNEL AND NOT NLSI_PLUGIN_CHANNEL STREQUAL "public")
+        set(NLSI_RELEASE_TAG "${NLSI_RELEASE_TAG}-${NLSI_PLUGIN_CHANNEL}")
+    endif()
+endif()
+set(NLSI_PLUGIN_RELEASE_DIR "${NLSI_REPOSITORY_ROOT}/build/plugins/${NLSI_RELEASE_TAG}")
+
+add_library(nlsi MODULE nlsi.cpp)
+target_compile_features(nlsi PRIVATE cxx_std_17)
+target_include_directories(nlsi PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../includes/scs_sdk_1_15/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../native/providers"
+)
+target_compile_definitions(nlsi PRIVATE WINVER=0x0601 _WIN32_WINNT=0x0601)
+set_target_properties(nlsi PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "nlsi"
+    SUFFIX ".dll"
+)
+
+if(MSVC)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        target_sources(nlsi PRIVATE nlsi_x86.def)
+        set(NLSI_PLUGIN_ARCH_OUTPUT_DIR "${NLSI_PLUGIN_RELEASE_DIR}/win_x86")
+    else()
+        target_sources(nlsi PRIVATE nlsi_x64.def)
+        set(NLSI_PLUGIN_ARCH_OUTPUT_DIR "${NLSI_PLUGIN_RELEASE_DIR}/win_x64")
+    endif()
+    set_target_properties(nlsi PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_DEBUG "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_RELEASE "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_RELWITHDEBINFO "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_MINSIZEREL "${NLSI_PLUGIN_ARCH_OUTPUT_DIR}"
+    )
+    target_compile_options(nlsi PRIVATE /W4)
+else()
+    message(FATAL_ERROR "The SCS plugin exports require the supported MSVC ABI.")
+endif()

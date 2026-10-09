@@ -3,10 +3,10 @@
 #define AppChannel "beta"
 #endif
 #ifndef AppFileVersion
-#define AppFileVersion 1.4.2.0
+#define AppFileVersion 1.4.4.0
 #endif
 #ifndef ReleaseLabel
-#define ReleaseLabel "1.4.2-beta"
+#define ReleaseLabel "1.4.4-beta"
 #endif
 #if (AppChannel == "alpha") || (AppChannel == "beta")
 #define DefaultApplicationDir "{autopf32}\NLSI Exclusive Logbook"
@@ -14,10 +14,10 @@
 #define DefaultApplicationDir "{autopf64}\NLSI Exclusive Logbook"
 #endif
 #ifndef ReleaseTag
-#define ReleaseTag "v1.4.2-beta"
+#define ReleaseTag "v1.4.4-beta"
 #endif
 #ifndef ReleasePayload
-#define ReleasePayload "build\intermediate\installer-payload-v1.4.2-beta"
+#define ReleasePayload "build\intermediate\installer-payload-v1.4.4-beta"
 #endif
 #define AppPublisher "Nabski Logistics and Solutions Inc."
 #define AppURL "https://github.com/Christian-0777/nlsi_telemetry"
@@ -92,11 +92,13 @@ Name: "{userstartup}\NLSI Exclusive Logbook"; Filename: "{app}\NLSI-Exclusive-Lo
 
 [Run]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\InstallTruckSimPlugin.ps1"" -DllPath64 ""{app}\plugins\trucksim\win_x64\plugins\trucksim-gps-telemetry.dll"" -DllPath32 ""{app}\plugins\trucksim\win_x86\plugins\trucksim-gps-telemetry.dll"" -ManifestPath ""{app}\tools\installed-trucksim-plugins.json"" -StatusPath ""{app}\logs\trucksim-plugin-status.txt"""; WorkingDir: "{app}"; Flags: runhidden waituntilterminated
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\InstallScsPositionPlugin.ps1"" -DllPath64 ""{app}\plugins\scs-position\win_x64\nlsi.dll"" -DllPath32 ""{app}\plugins\scs-position\win_x86\nlsi.dll"" -ManifestPath ""{app}\tools\installed-scs-position-plugins.json"" -BackupDirectory ""{app}\plugin-backups\scs-position"" -StatusPath ""{app}\logs\scs-position-plugin-status.txt"""; WorkingDir: "{app}"; Flags: runhidden waituntilterminated
 Filename: "{app}\NLSI-Exclusive-Logbook.exe"; Description: "Launch NLSI Exclusive Logbook"; Flags: postinstall nowait skipifsilent unchecked
 Filename: "https://www.tiktok.com/@kape_073"; Description: "Follow @kape_073 on TikTok"; Flags: postinstall shellexec nowait skipifsilent unchecked
 Filename: "https://github.com/Christian-0777/nlsi_telemetry/releases/tag/{#ReleaseTag}"; Description: "View release notes"; Flags: postinstall shellexec nowait skipifsilent unchecked
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\InstallTruckSimPlugin.ps1"" -DllPath64 ""{app}\plugins\trucksim\win_x64\plugins\trucksim-gps-telemetry.dll"" -DllPath32 ""{app}\plugins\trucksim\win_x86\plugins\trucksim-gps-telemetry.dll"" -ManifestPath ""{app}\tools\installed-trucksim-plugins.json"" -StatusPath ""{app}\logs\trucksim-plugin-status.txt"" -RemoveManagedPlugin"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveManagedTruckSimPlugin"
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\InstallScsPositionPlugin.ps1"" -ManifestPath ""{app}\tools\installed-scs-position-plugins.json"" -BackupDirectory ""{app}\plugin-backups\scs-position"" -StatusPath ""{app}\logs\scs-position-plugin-status.txt"" -RestoreManagedPlugin"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreManagedScsPositionPlugin"
 
 [Code]
 const
@@ -177,12 +179,12 @@ begin
       'New version: v{#ReleaseLabel}' + #13#10 +
       'Installation directory: ' + ExistingInstallDir + #13#10#13#10 +
       'Existing configuration and log files will be preserved.' + #13#10#13#10 +
-      'Setup automatically detects supported Steam ETS2/ATS installations and installs the official TruckSim GPS plugin into matching x64 and x86 plugin folders. Different existing plugin DLLs are preserved.';
+      'Setup detects supported Steam ETS2/ATS installations and installs the TruckSim GPS plugin and the separate SCS position plugin where supported. Existing different plugin DLLs are preserved, and any existing nlsi.dll is backed up for restoration.';
   end else begin
     InstallationSummary :=
       'No existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
       'This setup will perform a fresh installation of v{#ReleaseLabel} under {#DefaultApplicationDir}.' + #13#10#13#10 +
-      'Setup automatically detects supported Steam ETS2/ATS installations and installs the official TruckSim GPS plugin into matching x64 and x86 plugin folders. Different existing plugin DLLs are preserved.';
+      'Setup detects supported Steam ETS2/ATS installations and installs the TruckSim GPS plugin and the separate SCS position plugin where supported. Existing different plugin DLLs are preserved, and any existing nlsi.dll is backed up for restoration.';
   end;
   if DirExists(ExpandConstant('{#LegacyDirectory}')) and
      LegacyContainsUserData(ExpandConstant('{#LegacyDirectory}')) then
@@ -258,7 +260,8 @@ begin
       '- Direct TruckSim GPS revision-13 telemetry; the separate server client is not required.' + #13#10 +
       '- Capture complete revision-13 raw samples with local-only, pending synchronization records; no online service is configured.' + #13#10 +
       '- Local events, jobs, sessions, existing .nlsi logs, and TXT logs remain supported.' + #13#10 +
-      '- Setup installs the verified official TruckSim GPS plugin for detected supported game folders.' + #13#10#13#10 +
+      '- Setup installs the verified TruckSim GPS plugin separately from the SCS SDK position-only nlsi.dll plugin.' + #13#10 +
+      '- The SCS plugin publishes only ETS2/ATS world coordinates over its own versioned IPC mapping.' + #13#10#13#10 +
       'The About page includes Nabski Logistics and Solutions Inc. community and creator links.';
   end;
 end;

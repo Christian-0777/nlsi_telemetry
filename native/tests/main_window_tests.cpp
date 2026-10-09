@@ -4,6 +4,7 @@
 #include <QColor>
 #include <QCloseEvent>
 #include <QDateTime>
+#include <QGridLayout>
 #include <QEventLoop>
 #include <QFile>
 #include <QFrame>
@@ -30,6 +31,7 @@
 #include <QDir>
 #include <QThread>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QWidget>
 
 #include <atomic>
@@ -40,10 +42,12 @@
 #include "gui/JobPdfExporter.h"
 #include "gui/DashboardPage.h"
 #include "gui/MainWindow.h"
+#include "gui/ModLogParser.h"
 #include "gui/PageSupport.h"
 #include "gui/ProvidersPage.h"
 #include "gui/AboutPage.h"
 #include "app/SingleInstance.h"
+#include "providers/ScsPositionIpc.h"
 #include "telemetry/TelemetryCore.h"
 #include "updater/GitHubUpdater.h"
 
@@ -108,12 +112,123 @@ QLabel* FindDashboardCardValue(
     nlsi::gui::DashboardPage& page,
     const QString& title) {
     for (QLabel* title_label : page.findChildren<QLabel*>(QStringLiteral("cardTitle"))) {
-        if (title_label->text() == title && title_label->parentWidget()) {
-            return title_label->parentWidget()->findChild<QLabel*>(
-                QStringLiteral("cardValue"));
+        if (title_label->text() == title) {
+            QWidget* card = title_label->parentWidget();
+            while (card && card->objectName() != QStringLiteral("telemetryCard")) {
+                card = card->parentWidget();
+            }
+            if (card) {
+                return card->findChild<QLabel*>(QStringLiteral("cardValue"));
+            }
         }
     }
     return nullptr;
+}
+
+bool WriteTextFile(const QString& path, const QByteArray& contents) {
+    const QFileInfo info(path);
+    if (!QDir().mkpath(info.absolutePath())) {
+        return false;
+    }
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly | QIODevice::Truncate)
+        && file.write(contents) == contents.size();
+}
+
+bool TestModLogParsingAndSourceLinks() {
+    QTemporaryDir directory;
+    if (!directory.isValid()) {
+        std::cerr << "A temporary Documents directory could not be created.\n";
+        return false;
+    }
+    const QString ets2_path = nlsi::gui::modlog::GameLogPath(
+        directory.path(), QStringLiteral("Euro Truck Simulator 2"));
+    const QString ats_path = nlsi::gui::modlog::GameLogPath(
+        directory.path(), QStringLiteral("American Truck Simulator"));
+    const QByteArray ets2_log = QByteArrayLiteral(
+        "00:00:01.000 : [mods] Subscribed workshop mod ID: 111111111\n"
+        "00:00:02.000 : [mods] Active workshop mod ID: 123456789, version: 1.2, "
+            "source: Steam Workshop, name: \"Pink Truck\", author: 'NLSI'\n"
+        "00:00:03.000 : [mods] Active workshop mod ID: 123456789, version: 1.3, "
+            "source: Steam Workshop\n"
+        "00:00:04.000 : [mods] Active local mod ID: 222222222, name: Local-only\n"
+        "00:00:05.000 : [mods] Active workshop mod ID: 18446744073709551616\n");
+    const QByteArray ats_log = QByteArrayLiteral(
+        "00:00:01.000 : [mods] Active workshop mod ID: 987654321, name: ATS skin, "
+            "version: 2.0\n");
+    if (!WriteTextFile(ets2_path, ets2_log) || !WriteTextFile(ats_path, ats_log)) {
+        std::cerr << "ETS2/ATS game-log fixtures could not be written.\n";
+        return false;
+    }
+
+    const auto ets2 = nlsi::gui::modlog::ReadGameLog(ets2_path);
+    const auto ats = nlsi::gui::modlog::ReadGameLog(ats_path);
+    const auto missing = nlsi::gui::modlog::ReadGameLog(
+        directory.filePath(QStringLiteral("missing/game.log.txt")));
+    if (!ets2.error.isEmpty() || ets2.mods.size() != 1
+        || ets2.mods.front().id != QStringLiteral("123456789")
+        || ets2.mods.front().name != QStringLiteral("Pink Truck")
+        || ets2.mods.front().version != QStringLiteral("1.3")
+        || ets2.mods.front().author != QStringLiteral("NLSI")
+        || !ats.error.isEmpty() || ats.mods.size() != 1
+        || ats.mods.front().id != QStringLiteral("987654321")
+        || ats.mods.front().name != QStringLiteral("ATS skin")
+        || ats.mods.front().version != QStringLiteral("2.0")
+        || !missing.mods.isEmpty()
+        || !missing.error.contains(QStringLiteral("not found"))) {
+        std::cerr << "The game-log parser did not isolate active ETS2/ATS Workshop mods "
+            "or handle a missing log correctly.\n";
+        return false;
+    }
+    QFile stale_fixture(ets2_path);
+    if (!stale_fixture.open(QIODevice::ReadWrite)
+        || !stale_fixture.setFileTime(
+            QDateTime::currentDateTime().addSecs(-660), QFileDevice::FileModificationTime)) {
+        std::cerr << "A stale game-log fixture could not be prepared.\n";
+        return false;
+    }
+    stale_fixture.close();
+    const auto stale = nlsi::gui::modlog::ReadGameLog(ets2_path);
+    if (!stale.error.isEmpty() || !stale.stale || stale.mods.size() != 1) {
+        std::cerr << "A stale log was not flagged while retaining its parsed active entries.\n";
+        return false;
+    }
+
+    const QUrl source = nlsi::gui::modlog::WorkshopSourceUrl(
+        ets2.mods.front().id);
+    const QUrl invalid_source = nlsi::gui::modlog::WorkshopSourceUrl(
+        QStringLiteral("../123"));
+    if (!source.isValid()
+        || source.host() != QStringLiteral("steamcommunity.com")
+        || QUrlQuery(source).queryItemValue(QStringLiteral("id"))
+            != QStringLiteral("123456789")
+        || invalid_source.isValid()) {
+        std::cerr << "A Workshop source link was invalid or accepted an unsafe ID.\n";
+        return false;
+    }
+
+    nlsi::gui::ActiveModsPage active_mods_page(nullptr, directory.path(), false);
+    active_mods_page.show();
+    QApplication::processEvents();
+    const auto links = active_mods_page.findChildren<QLabel*>(
+        QStringLiteral("modSourceLink"));
+    if (links.size() != 2
+        || !links.front()->text().contains(QStringLiteral("steamcommunity.com"))
+        || active_mods_page.findChildren<QLabel*>(
+            QStringLiteral("modThumbnail")).size() != 2) {
+        std::cerr << "The per-game mod cards did not display active mods with source links "
+            "and thumbnail slots.\n";
+        return false;
+    }
+    auto* tabs = active_mods_page.findChild<QTabWidget*>(
+        QStringLiteral("activeModsGames"));
+    if (!tabs || tabs->count() != 2
+        || !tabs->tabText(0).contains(QStringLiteral("Euro Truck"))
+        || !tabs->tabText(1).contains(QStringLiteral("American Truck"))) {
+        std::cerr << "The Active Mods page does not separate ETS2 and ATS game logs.\n";
+        return false;
+    }
+    return true;
 }
 
 bool TestHistoryPagesLoadPersistedRows() {
@@ -184,14 +299,44 @@ bool TestHistoryPagesLoadPersistedRows() {
     history.events.push_back({
         QStringLiteral("2026-10-07T08:25:00Z"),
         QStringLiteral("TruckSim GPS"),
-        QStringLiteral("toll_gate"),
+        QStringLiteral("player.tollgate.paid"),
         QStringLiteral("{\"job_id\":\"game-job-17\",\"toll_fee\":12.5,\"currency\":\"EUR\"}"),
     });
     history.events.push_back({
         QStringLiteral("2026-10-07T08:27:00Z"),
         QStringLiteral("TruckSim GPS"),
-        QStringLiteral("transport"),
-        QStringLiteral("{\"transport_type\":\"ferry\",\"trip_id\":\"trip-1\"}"),
+        QStringLiteral("player.use.ferry"),
+        QStringLiteral("{\"trip_id\":\"trip-1\"}"),
+    });
+    history.events.push_back({
+        QStringLiteral("2026-10-07T08:28:00Z"),
+        QStringLiteral("TruckSim GPS"),
+        QStringLiteral("player.use.train"),
+        QStringLiteral("{}"),
+    });
+    history.events.push_back({
+        QStringLiteral("2026-10-07T08:29:00Z"),
+        QStringLiteral("TruckSim GPS"),
+        QStringLiteral("startup"),
+        QStringLiteral("player.use.ferry"),
+    });
+    history.events.push_back({
+        QStringLiteral("2026-10-07T08:29:30Z"),
+        QStringLiteral("TruckSim GPS"),
+        QStringLiteral("traffic.train.count"),
+        QStringLiteral("{\"count\":3}"),
+    });
+    history.events.push_back({
+        QStringLiteral("2026-10-07T08:29:45Z"),
+        QStringLiteral("TruckSim GPS"),
+        QStringLiteral("player.use.train.trigger"),
+        QStringLiteral("{}"),
+    });
+    history.events.push_back({
+        QStringLiteral("2026-10-07T08:25:00Z"),
+        QStringLiteral("TruckSim GPS"),
+        QStringLiteral("player.tollgate.paid"),
+        QStringLiteral("{\"job_id\":\"game-job-17\",\"toll_fee\":12.5,\"currency\":\"EUR\"}"),
     });
     history.jobs.front().identity = QStringLiteral("game-job-17");
     history.jobs.front().nlsi_job_id = QStringLiteral("JOB-NLSI-0001");
@@ -202,7 +347,7 @@ bool TestHistoryPagesLoadPersistedRows() {
     const auto event_tables = events_page.findChildren<QTableView*>();
     if (event_tables.size() != 1
         || !event_tables.front()->model()
-        || event_tables.front()->model()->rowCount() != 2) {
+        || event_tables.front()->model()->rowCount() != 7) {
         std::cerr << "Persisted event details did not load into the Events table.\n";
         return false;
     }
@@ -218,7 +363,7 @@ bool TestHistoryPagesLoadPersistedRows() {
     auto* trip_model = trip_events_table
         ? qobject_cast<QStandardItemModel*>(trip_events_table->model())
         : nullptr;
-    if (!trip_model || trip_model->rowCount() != 2
+    if (!trip_model || trip_model->rowCount() != 3
         || trip_model->index(0, 0).data().toString() != QStringLiteral("Toll gate")
         || trip_model->index(0, 1).data().toString() != QStringLiteral("12.5")
         || trip_model->index(0, 2).data().toString() != QStringLiteral("EUR")
@@ -226,8 +371,10 @@ bool TestHistoryPagesLoadPersistedRows() {
         || trip_model->index(1, 0).data().toString() != QStringLiteral("Ferry")
         || trip_model->index(1, 1).data().toString() != QStringLiteral("Unavailable")
         || trip_model->index(1, 2).data().toString() != QStringLiteral("Unavailable")
-        || trip_model->index(1, 3).data().toString() != QStringLiteral("trip-1")) {
-        std::cerr << "Explicit toll-event details or their recorded job association were lost.\n";
+        || trip_model->index(1, 3).data().toString() != QStringLiteral("trip-1")
+        || trip_model->index(2, 0).data().toString() != QStringLiteral("Train")
+        || trip_model->index(2, 1).data().toString() != QStringLiteral("Unavailable")) {
+        std::cerr << "Exact supported trip events, fees, or associations were misreported.\n";
         return false;
     }
     return true;
@@ -267,19 +414,6 @@ bool TestProviderSurfaceSelectsTruckSimOnly() {
     }
     if (!found_trucksim) {
         std::cerr << "TruckSim GPS is not the active provider in Settings.\n";
-        return false;
-    }
-    nlsi::gui::ActiveModsPage active_mods_page;
-    active_mods_page.UpdateState(state);
-    bool mods_unavailable = false;
-    for (const QLabel* label : active_mods_page.findChildren<QLabel*>()) {
-        mods_unavailable = mods_unavailable
-            || (label->text().contains(QStringLiteral("unavailable"), Qt::CaseInsensitive)
-                && label->text().contains(QStringLiteral("complete mod list"),
-                    Qt::CaseInsensitive));
-    }
-    if (!mods_unavailable) {
-        std::cerr << "Active Mods does not clearly report its unsupported telemetry source.\n";
         return false;
     }
     return true;
@@ -365,6 +499,7 @@ bool TestDashboardContainsTransferredJobAndNavigationDetails() {
     values.effective_throttle.Set(0.25, L"TruckSim GPS", L"sample");
     values.effective_brake.Set(0.05, L"TruckSim GPS", L"sample");
     values.special_job.Set(L"true", L"TruckSim GPS", L"sample");
+    values.has_job.Set(true, L"TruckSim GPS", L"sample");
     state.job.available = true;
     state.job.nlsi_job_id = L"JOB-NLSI-0042";
     state.job.cargo.Set(L"Furniture", L"TruckSim GPS", L"sample");
@@ -383,7 +518,8 @@ bool TestDashboardContainsTransferredJobAndNavigationDetails() {
         QStringLiteral("CONNECTION / GAME / PROVIDER"), QStringLiteral("SPEED"),
         QStringLiteral("RPM / GEAR"), QStringLiteral("FUEL / RANGE / ODOMETER"),
         QStringLiteral("THROTTLE"), QStringLiteral("BRAKE"),
-        QStringLiteral("CURRENT JOB"), QStringLiteral("NAVIGATION"),
+        QStringLiteral("CURRENT JOB"), QStringLiteral("CURRENT POSITION"),
+        QStringLiteral("NAVIGATION"),
         QStringLiteral("VEHICLE CONTROLS"),
     };
     const auto titles = page.findChildren<QLabel*>(QStringLiteral("cardTitle"));
@@ -404,12 +540,14 @@ bool TestDashboardContainsTransferredJobAndNavigationDetails() {
         }
     }
     const QLabel* job = FindDashboardCardValue(page, QStringLiteral("CURRENT JOB"));
+    const QLabel* position = FindDashboardCardValue(page, QStringLiteral("CURRENT POSITION"));
     const QLabel* navigation = FindDashboardCardValue(page, QStringLiteral("NAVIGATION"));
-    if (!job || !navigation
+    if (!job || !position || !navigation
         || !job->text().contains(QStringLiteral("JOB-NLSI-0042"))
         || !job->text().contains(QStringLiteral("Furniture"))
         || !job->text().contains(QStringLiteral("Berlin"))
         || !job->text().contains(QStringLiteral("Paris"))
+        || position->text() != QStringLiteral("Unavailable\n→ Destination: Paris")
         || !job->text().contains(QStringLiteral("Special job: Yes"))
         || !navigation->text().contains(QStringLiteral("100.00 km"))
         || !navigation->text().contains(QStringLiteral("Navigation time: 01:00:00.000"))
@@ -421,6 +559,86 @@ bool TestDashboardContainsTransferredJobAndNavigationDetails() {
         || session_summary_present) {
         std::cerr << "Dashboard is missing current-job, delivery, or navigation progress details.\n";
         return false;
+    }
+
+    state.scs_position.state = nlsi::providers::ScsPositionState::Connected;
+    state.scs_position.available = true;
+    state.scs_position.game_id = nlsi::providers::kScsPositionGameEts2;
+    state.scs_position.x = -123.5;
+    state.scs_position.y = 87.25;
+    state.scs_position.z = 900.125;
+    page.UpdateState(state);
+    if (!position->text().startsWith(QStringLiteral("ETS2 · X -123.50 m · Y 87.25 m · Z 900.13 m"))
+        || !position->text().contains(QStringLiteral("Destination: Paris"))) {
+        std::cerr << "Dashboard did not show SCS world coordinates separately from the job destination.\n";
+        return false;
+    }
+    state.scs_position.state = nlsi::providers::ScsPositionState::Stale;
+    page.UpdateState(state);
+    if (!position->text().contains(QStringLiteral("· stale"))) {
+        std::cerr << "Dashboard did not mark old SCS position coordinates as stale.\n";
+        return false;
+    }
+    state.scs_position = {};
+    page.UpdateState(state);
+
+    state.job.destination_city.Set(
+        L"Very Long Destination City Name Used To Validate Responsive Dashboard Wrapping",
+        L"TruckSim GPS", L"sample");
+    page.UpdateState(state);
+    if (!position->wordWrap()
+        || !position->text().contains(QStringLiteral("Very Long Destination City Name"))) {
+        std::cerr << "A long active-job destination was truncated on Current Position.\n";
+        return false;
+    }
+    state.job.destination_city.MarkStale();
+    page.UpdateState(state);
+    if (position->text() != QStringLiteral("Unavailable\n→ Destination: Unavailable")) {
+        std::cerr << "A stale destination remained visible in Current Position.\n";
+        return false;
+    }
+    state.job.destination_city.Set(L"Paris", L"TruckSim GPS", L"sample");
+    values.has_job.MarkStale();
+    page.UpdateState(state);
+    if (position->text() != QStringLiteral("Unavailable")) {
+        std::cerr << "A destination remained visible after the active-job state went stale.\n";
+        return false;
+    }
+    values.has_job.Set(true, L"TruckSim GPS", L"sample");
+    state.job.available = false;
+    values.has_job.Set(false, L"TruckSim GPS", L"sample");
+    page.UpdateState(state);
+    if (position->text() != QStringLiteral("Unavailable")) {
+        std::cerr << "Current Position showed a destination during free driving.\n";
+        return false;
+    }
+
+    page.resize(480, 500);
+    page.show();
+    QApplication::processEvents();
+    auto* grid = page.findChild<QGridLayout*>(QStringLiteral("dashboardCardGrid"));
+    if (!grid || grid->itemAtPosition(0, 1)) {
+        std::cerr << "Dashboard cards did not auto-fit to one column at narrow width"
+                  << " (page width " << page.width()
+                  << ", grid columns " << (grid ? grid->columnCount() : -1)
+                  << ").\n";
+        return false;
+    }
+    page.resize(700, 500);
+    if (!grid->itemAtPosition(0, 1)) {
+        std::cerr << "Dashboard cards did not auto-fit to two columns at medium width.\n";
+        return false;
+    }
+    page.resize(900, 500);
+    if (!grid->itemAtPosition(0, 2)) {
+        std::cerr << "Dashboard cards did not auto-fit to three columns at wide width.\n";
+        return false;
+    }
+    for (const QLabel* value : page.findChildren<QLabel*>(QStringLiteral("cardValue"))) {
+        if (!value->wordWrap() || value->minimumWidth() != 0) {
+            std::cerr << "A dashboard card value does not wrap and shrink consistently.\n";
+            return false;
+        }
     }
     return true;
 }
@@ -545,7 +763,7 @@ bool TestSingleInstanceGuard(QApplication& application) {
 
 bool TestOfflineUpdateCheck() {
     nlsi::updater::GitHubUpdater updater(
-        QStringLiteral("1.4.2-beta"),
+        QStringLiteral("1.4.4-beta"),
         nullptr,
         QUrl(QStringLiteral("http://127.0.0.1:1/releases")));
     QEventLoop loop;
@@ -583,8 +801,9 @@ int main(int argc, char** argv) {
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.4.2-beta"));
-    if (!TestHistoryPagesLoadPersistedRows()) {
+    application.setApplicationVersion(QStringLiteral("v1.4.4-beta"));
+    if (!TestModLogParsingAndSourceLinks()
+        || !TestHistoryPagesLoadPersistedRows()) {
         return 1;
     }
     if (!TestNumberAndTimeFormatting()
@@ -595,7 +814,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.2-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.4-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -713,7 +932,7 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.4.2-beta");
+            || label->text() == QStringLiteral("v1.4.4-beta");
         found_beta_channel = found_beta_channel
             || label->text() == QStringLiteral("Beta");
         if (label->text() == QStringLiteral("Product") && label->parentWidget()) {

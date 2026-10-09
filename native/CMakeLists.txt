@@ -8,6 +8,8 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Svg)
 
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../scs_position_plugin" scs_position_plugin)
+
 file(READ "${CMAKE_SOURCE_DIR}/version.json" NLSI_VERSION_JSON)
 if(NOT NLSI_VERSION_JSON)
     message(FATAL_ERROR "Unable to read ${CMAKE_SOURCE_DIR}/version.json")
@@ -90,10 +92,12 @@ qt_add_executable(NLSI-Exclusive-Logbook MANUAL_FINALIZATION
     gui/DashboardPage.cpp
     gui/DetailPages.cpp
     gui/HistoryPages.cpp
+    gui/ModLogParser.cpp
     telemetry/TelemetryCore.cpp
     telemetry/TelemetryModel.cpp
     telemetry/TelemetryUiState.cpp
     providers/TruckSimGpsProvider.cpp
+    providers/ScsPositionProvider.cpp
     session/SessionManager.cpp
     session/JobManager.cpp
     session/HistoryStore.cpp
@@ -174,6 +178,7 @@ if(BUILD_TESTING)
         telemetry/TelemetryUiState.cpp
         providers/NLSIProvider.cpp
         providers/TruckSimGpsProvider.cpp
+        providers/ScsPositionProvider.cpp
         session/SessionManager.cpp
         session/JobManager.cpp
         session/HistoryStore.cpp
@@ -231,10 +236,12 @@ if(BUILD_TESTING)
         gui/DashboardPage.cpp
         gui/DetailPages.cpp
         gui/HistoryPages.cpp
+        gui/ModLogParser.cpp
         telemetry/TelemetryCore.cpp
         telemetry/TelemetryModel.cpp
         telemetry/TelemetryUiState.cpp
         providers/TruckSimGpsProvider.cpp
+        providers/ScsPositionProvider.cpp
         session/SessionManager.cpp
         session/JobManager.cpp
         session/HistoryStore.cpp

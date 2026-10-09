@@ -14,10 +14,10 @@ SPEC.loader.exec_module(BUILDER)
 
 class NativeReleasePackagingTests(unittest.TestCase):
     def test_version_and_automatic_plugin_installation_policy(self) -> None:
-        self.assertEqual("1.4.2", BUILDER.VERSION)
+        self.assertEqual("1.4.4", BUILDER.VERSION)
         self.assertEqual("beta", BUILDER.CHANNEL)
         self.assertEqual("beta", BUILDER.INSTALL_CHANNEL)
-        self.assertEqual("v1.4.2-beta", BUILDER.RELEASE_TAG)
+        self.assertEqual("v1.4.4-beta", BUILDER.RELEASE_TAG)
         self.assertEqual(
             r"{autopf32}\NLSI Exclusive Logbook",
             BUILDER.default_install_dir_for_channel("alpha"),
@@ -58,6 +58,39 @@ class NativeReleasePackagingTests(unittest.TestCase):
             self.assertIn(destination.parts[2], {"win_x64", "win_x86"})
             self.assertEqual("trucksim-gps-telemetry.dll", destination.name)
         self.assertFalse(any("server" in item.name.lower() for item in BUILDER.RELEASE_DIR.glob("*.exe")))
+
+    def test_scs_position_plugins_are_version_scoped_and_architecture_checked(self) -> None:
+        self.assertEqual(2, len(BUILDER.SCS_POSITION_PLUGIN_FILES))
+        self.assertEqual(
+            [
+                ROOT / "build" / "plugins" / "v1.4.4-beta" / "win_x64" / "nlsi.dll",
+                ROOT / "build" / "plugins" / "v1.4.4-beta" / "win_x86" / "nlsi.dll",
+            ],
+            [source for source, _, _ in BUILDER.SCS_POSITION_PLUGIN_FILES],
+        )
+        self.assertEqual(
+            [0x8664, 0x014C],
+            [machine for _, _, machine in BUILDER.SCS_POSITION_PLUGIN_FILES],
+        )
+        self.assertTrue(all(
+            destination.name == "nlsi.dll"
+            for _, destination, _ in BUILDER.SCS_POSITION_PLUGIN_FILES
+        ))
+        installer_text = (ROOT / "installer" / "NLSI-Exclusive-Logbook.iss").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("InstallScsPositionPlugin.ps1", installer_text)
+        self.assertIn("-RestoreManagedPlugin", installer_text)
+
+    def test_scs_plugin_subscribes_only_to_player_world_placement(self) -> None:
+        plugin_source = (ROOT / "scs_position_plugin" / "nlsi.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(1, plugin_source.count("register_for_channel("))
+        self.assertIn("SCS_TELEMETRY_TRUCK_CHANNEL_world_placement", plugin_source)
+        self.assertIn("SCS_VALUE_TYPE_dplacement", plugin_source)
+        self.assertNotIn("register_for_event(", plugin_source)
+        self.assertNotIn("TSGPSTelemetry", plugin_source)
 
     def test_bundled_lucide_icons_have_a_local_license_notice(self) -> None:
         license_text = (ROOT / "assets" / "icons" / "LICENSE.txt").read_text(

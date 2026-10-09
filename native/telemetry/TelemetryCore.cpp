@@ -159,6 +159,15 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
         [this](const providers::RawTelemetrySample& sample) {
             OnTruckSimSample(sample);
         });
+    const bool scs_position_started = scs_position_provider_.Start(
+        [this](const providers::ScsPositionSnapshot& snapshot) {
+            OnScsPositionUpdate(snapshot);
+        });
+    if (!scs_position_started) {
+        providers::ScsPositionSnapshot position_status;
+        position_status.error = L"Unable to start the SCS position provider thread.";
+        OnScsPositionUpdate(position_status);
+    }
     if (!trucksim_started) {
         std::lock_guard<std::mutex> lock(mutex_);
         status_.trucksim = ProviderState::Disconnected;
@@ -171,6 +180,7 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
 
 void TelemetryCore::Shutdown() {
     trucksim_provider_.Stop();
+    scs_position_provider_.Stop();
     if (telemetry_recorder_) {
         telemetry_recorder_->Stop();
     }
@@ -180,6 +190,8 @@ void TelemetryCore::Shutdown() {
     }
     trucksim_state_ = ProviderState::Disconnected;
     status_.trucksim = trucksim_state_;
+    scs_position_snapshot_ = {};
+    ui_state_.scs_position = scs_position_snapshot_;
     const std::uint64_t pending_records =
         telemetry_recorder_ ? telemetry_recorder_->PendingCount() : 0;
     const std::wstring recorder_error =
@@ -351,6 +363,13 @@ void TelemetryCore::OnTruckSimSample(const providers::RawTelemetrySample& sample
     }
 }
 
+void TelemetryCore::OnScsPositionUpdate(
+    const providers::ScsPositionSnapshot& snapshot) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    scs_position_snapshot_ = snapshot;
+    ui_state_.scs_position = snapshot;
+}
+
 void TelemetryCore::RebuildStateLocked() {
     if (telemetry_recorder_) {
         const std::wstring recorder_error = telemetry_recorder_->LastError();
@@ -385,6 +404,7 @@ void TelemetryCore::RebuildStateLocked() {
         ? L"No telemetry sample received"
         : snapshot_.timestamp;
     ui_state_ = MakeTelemetryUiState(snapshot_, status_, previous_job_identity_);
+    ui_state_.scs_position = scs_position_snapshot_;
     if (ui_state_.job.available && !ui_state_.job.identity.empty()) {
         previous_job_identity_ = ui_state_.job.identity;
         job_manager_.SetCurrentJob(ui_state_.job.identity);

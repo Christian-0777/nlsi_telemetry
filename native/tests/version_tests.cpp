@@ -22,6 +22,7 @@
 #include "logging/TelemetryRecorder.h"
 #include "providers/NLSIProvider.h"
 #include "providers/TruckSimGpsProvider.h"
+#include "providers/ScsPositionIpc.h"
 #include "session/HistoryStore.h"
 #include "telemetry/TelemetryModel.h"
 #include "telemetry/TelemetryUiState.h"
@@ -301,6 +302,46 @@ void TestStaleTelemetryStopsDriving() {
         "stale telemetry did not retain and mark last value");
     Check(!nlsi::telemetry::CalculateEtaSeconds(snapshot.navigation_distance_m, snapshot.speed_kmh),
         "ETA was calculated from stale data");
+}
+
+void TestScsPositionIpcDecodingAndFreshness() {
+    using namespace nlsi::providers;
+    ScsPositionIpcV1 sample{};
+    sample.flags = kScsPositionFlagValid;
+    sample.game_id = kScsPositionGameEts2;
+    sample.x = -1234.5;
+    sample.y = 87.25;
+    sample.z = 9000.125;
+    sample.timestamp_ms = 10000;
+    std::array<std::uint8_t, sizeof(sample)> bytes{};
+    std::memcpy(bytes.data(), &sample, sizeof(sample));
+
+    ScsPositionFrame frame;
+    std::wstring error;
+    Check(DecodeScsPositionMapping(bytes.data(), bytes.size(), 12000, frame, error),
+        "valid SCS position IPC sample did not decode");
+    Check(frame.game_id == kScsPositionGameEts2
+        && frame.x == -1234.5 && frame.y == 87.25 && frame.z == 9000.125
+        && frame.age_ms == 2000 && !frame.stale,
+        "SCS position IPC decoding changed coordinates or freshness");
+
+    Check(DecodeScsPositionMapping(
+            bytes.data(), bytes.size(), 14001, frame, error)
+        && frame.stale && frame.age_ms == 4001,
+        "old SCS position IPC data was not marked stale");
+    Check(!DecodeScsPositionMapping(nullptr, 0, 12000, frame, error)
+        && error.find(L"missing or truncated") != std::wstring::npos,
+        "missing SCS position plugin data was not reported");
+
+    sample.flags = 0;
+    std::memcpy(bytes.data(), &sample, sizeof(sample));
+    Check(!DecodeScsPositionMapping(bytes.data(), bytes.size(), 12000, frame, error),
+        "unavailable game position was accepted as live data");
+    sample.flags = kScsPositionFlagValid;
+    sample.version = kScsPositionIpcVersion + 1;
+    std::memcpy(bytes.data(), &sample, sizeof(sample));
+    Check(!DecodeScsPositionMapping(bytes.data(), bytes.size(), 12000, frame, error),
+        "unsupported SCS position IPC version was accepted");
 }
 
 void TestUiJobIdentityProgressAndSessionStates() {
@@ -770,6 +811,7 @@ int main() {
         {"throttle, brake, cruise, and job parsing", TestThrottleBrakeCruiseAndJobParsing},
         {"paused state and zero-speed ETA", TestPausedStateAndZeroSpeedEta},
         {"stale telemetry", TestStaleTelemetryStopsDriving},
+        {"SCS position IPC decoding and stale data", TestScsPositionIpcDecodingAndFreshness},
         {"UI job identity, progress, and session states", TestUiJobIdentityProgressAndSessionStates},
         {"history and TXT log persistence", TestHistoryAndTxtLogPersistence},
         {"stable NLSI job IDs and collision handling", TestStableNlsiJobIdsAndCollisionHandling},

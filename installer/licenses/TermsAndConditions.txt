@@ -1,10 +1,10 @@
-NLSI EXCLUSIVE LOGBOOK v1.4.2-BETA
+NLSI EXCLUSIVE LOGBOOK v1.4.3-BETA
 TERMS AND CONDITIONS
 
 1. ACCEPTANCE
 
 By selecting “I accept the Terms and Conditions” and continuing, you agree to
-these terms for your use of NLSI Exclusive Logbook v1.4.2-beta (“the
+these terms for your use of NLSI Exclusive Logbook v1.4.3-beta (“the
 Application”). If you do not agree, cancel the installer and do not use the
 Application.
 

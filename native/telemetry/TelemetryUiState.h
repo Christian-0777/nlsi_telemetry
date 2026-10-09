@@ -4,6 +4,7 @@
 #include <string>
 
 #include "TelemetryModel.h"
+#include "providers/ScsPositionProvider.h"
 
 namespace nlsi::telemetry {
 
@@ -60,6 +61,7 @@ struct SessionState {
 
 struct TelemetryUiState {
     FastTelemetryState fast;
+    providers::ScsPositionSnapshot scs_position;
     JobSnapshot job;
     JobStatus job_status = JobStatus::Unknown;
     JobProgress progress;

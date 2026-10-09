@@ -10,5 +10,6 @@
         <file alias="icons/settings.svg">../../assets/icons/settings.svg</file>
         <file alias="icons/about.svg">../../assets/icons/about.svg</file>
         <file alias="icons/close.svg">../../assets/icons/close.svg</file>
+        <file alias="icons/map-pin.svg">../../assets/icons/map-pin.svg</file>
     </qresource>
 </RCC>

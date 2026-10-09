@@ -199,6 +199,10 @@ void TelemetryPage::UpdateState(const telemetry::TelemetryUiState& state) {
 ProvidersPage::ProvidersPage(QWidget* parent)
     : DetailPage(parent) {
     AddField(QStringLiteral("trucksim"), QStringLiteral("TruckSim GPS"));
+    AddField(QStringLiteral("scsPosition"), QStringLiteral("SCS position provider"));
+    AddField(QStringLiteral("scsPositionMapping"), QStringLiteral("Position interface"));
+    AddField(QStringLiteral("scsPositionAge"), QStringLiteral("Position sample age"));
+    AddField(QStringLiteral("scsPositionError"), QStringLiteral("Position provider message"));
     AddField(QStringLiteral("combined"), QStringLiteral("Combined"));
     AddField(QStringLiteral("freshness"), QStringLiteral("Telemetry sample"));
     AddField(QStringLiteral("source"), QStringLiteral("Active telemetry source"));
@@ -218,6 +222,22 @@ ProvidersPage::ProvidersPage(QWidget* parent)
 
 void ProvidersPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("trucksim"), StatusText(state.providers.trucksim));
+    const auto& position = state.scs_position;
+    const QString position_status = position.state == providers::ScsPositionState::Connected
+        ? QStringLiteral("Connected")
+        : position.state == providers::ScsPositionState::Stale
+            ? QStringLiteral("Stale")
+            : QStringLiteral("Disconnected");
+    SetValue(QStringLiteral("scsPosition"), position_status);
+    SetValue(QStringLiteral("scsPositionMapping"),
+        QStringLiteral("Local\\NLSI.SCS.Position.v1"));
+    SetValue(QStringLiteral("scsPositionAge"),
+        position.available
+            ? QStringLiteral("%1 ms").arg(position.age_ms)
+            : QStringLiteral("Unavailable"));
+    SetValue(QStringLiteral("scsPositionError"),
+        position.error.empty() ? QStringLiteral("None")
+            : QString::fromStdWString(position.error));
     SetValue(QStringLiteral("combined"),
         QString::fromStdWString(telemetry::FormatCombinedStatus(state.providers.combined)));
     SetValue(QStringLiteral("freshness"),

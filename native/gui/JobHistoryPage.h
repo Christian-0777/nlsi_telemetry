@@ -1,14 +1,25 @@
 #pragma once
 
 #include "PageSupport.h"
+#include "ModLogParser.h"
 
 #include <cstdint>
+
+#include <QHash>
+#include <QPixmap>
+#include <QSet>
+#include <QVector>
 
 class QLabel;
 class QTableView;
 class QStandardItemModel;
 class QTabWidget;
 class QPushButton;
+class QNetworkAccessManager;
+class QTimer;
+class QVBoxLayout;
+class QShowEvent;
+class QHideEvent;
 
 namespace nlsi::gui {
 
@@ -67,11 +78,38 @@ private:
 
 class ActiveModsPage final : public StatePage {
 public:
-    explicit ActiveModsPage(QWidget* parent = nullptr);
+    explicit ActiveModsPage(
+        QWidget* parent = nullptr,
+        const QString& documents_directory = {},
+        bool load_workshop_previews = true);
     void UpdateState(const telemetry::TelemetryUiState& state) override;
 
+protected:
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+
 private:
-    QLabel* message_ = nullptr;
+    struct GamePanel {
+        QString title;
+        QWidget* page = nullptr;
+        QLabel* message = nullptr;
+        QVBoxLayout* mods_layout = nullptr;
+        modlog::GameLogResult result;
+        QString signature;
+        qint64 file_size = -1;
+    };
+
+    void RefreshLogs();
+    void RenderGamePanel(GamePanel& panel);
+    void LoadThumbnail(const QString& workshop_id);
+
+    QVector<GamePanel> game_panels_;
+    QNetworkAccessManager* network_ = nullptr;
+    QTimer* refresh_timer_ = nullptr;
+    QHash<QString, QPixmap> thumbnails_;
+    QSet<QString> checked_thumbnails_;
+    QString documents_directory_;
+    bool load_workshop_previews_ = true;
 };
 
 class JobsPage final : public StatePage {

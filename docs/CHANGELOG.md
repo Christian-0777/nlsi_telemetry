@@ -2,6 +2,24 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.4.4-beta
+
+- Adds the position-only SCS SDK 1.15 `nlsi.dll` plugin for x64 and x86; the plugin subscribes only to `truck.world.placement`.
+- Transfers XYZ world coordinates through the dedicated versioned `Local\\NLSI.SCS.Position.v1` interface without changing TruckSim GPS telemetry.
+- Adds a separate Qt position provider, explicit stale/disconnected state, and current world coordinates on Dashboard; city and country are not inferred without compatible local map data.
+- Adds separate ETS2/ATS plugin installation with backup and safe managed-file restoration/removal.
+- Uses version-isolated v1.4.4-beta application, plugin, and installer output directories.
+- Live gameplay was not validated; offline IPC and installer tests cover the new path.
+
+## v1.4.3-beta
+
+- Reflows every Dashboard card into responsive one-, two-, or three-column layouts, enables consistent wrapping, and adds Current Position with active-job destination state.
+- Reads the ETS2 and ATS Documents `game.log.txt` files for active Workshop entries only, with validated source links, optional Steam preview thumbnails, and explicit missing/stale log status.
+- Restricts trip history to `player.use.ferry`, `player.use.train`, and `player.tollgate.paid`; duplicate records are collapsed and absent fees remain unavailable.
+- Preserves the light NLSI theme, 900×600 minimum window, application identity, namespaces, telemetry, and local data formats.
+- Updates the native application and installer metadata and isolates all build outputs under v1.4.3-beta.
+- Current revision-13 telemetry contains no documented current coordinates or country value; the position card reports location as unavailable rather than guessing or retaining stale data.
+
 ## v1.4.2-beta
 
 - Refined Dashboard as the unified driving workspace and removed the obsolete Live Drive navigation item.

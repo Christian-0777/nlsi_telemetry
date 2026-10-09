@@ -3,20 +3,33 @@
 
 #include <QFrame>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHeaderView>
+#include <QHideEvent>
+#include <QImage>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QLocale>
 #include <QMessageBox>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QPixmap>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QRegularExpression>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QStandardPaths>
 #include <QStandardItem>
 #include <QStandardItemModel>
+#include <QShowEvent>
 #include <QSizePolicy>
 #include <QTabWidget>
 #include <QTableView>
+#include <QTimer>
 #include <QVBoxLayout>
+#include <QSet>
 
 #include "JobPdfExporter.h"
 
@@ -54,26 +67,15 @@ QString EventFieldText(const QJsonObject& details, const QStringList& keys) {
     return {};
 }
 
-QString TripEventCategory(const session::EventRecord& event, const QJsonObject& details) {
+QString TripEventCategory(const session::EventRecord& event) {
     const QString type = event.type.trimmed().toLower();
-    const QString transport = EventFieldText(
-        details, {QStringLiteral("transport_type")}).toLower();
-    const auto has_prefix = [](const QString& value, const QString& name) {
-        return value == name || value.startsWith(name + QLatin1Char('.'))
-            || value.startsWith(name + QLatin1Char('_'))
-            || value.startsWith(name + QLatin1Char('-'));
-    };
-    if (has_prefix(type, QStringLiteral("toll"))
-        || type == QStringLiteral("tollgate")
-        || type.startsWith(QStringLiteral("tollgate."))) {
+    if (type == QStringLiteral("player.tollgate.paid")) {
         return QStringLiteral("Toll gate");
     }
-    if (has_prefix(type, QStringLiteral("ferry"))
-        || (type == QStringLiteral("transport") && transport == QStringLiteral("ferry"))) {
+    if (type == QStringLiteral("player.use.ferry")) {
         return QStringLiteral("Ferry");
     }
-    if (has_prefix(type, QStringLiteral("train"))
-        || (type == QStringLiteral("transport") && transport == QStringLiteral("train"))) {
+    if (type == QStringLiteral("player.use.train")) {
         return QStringLiteral("Train");
     }
     return {};
@@ -296,22 +298,279 @@ void EventsPage::UpdateHistory(const session::HistorySnapshot& history) {
     if (message_->text() != text) message_->setText(text);
 }
 
-ActiveModsPage::ActiveModsPage(QWidget* parent) : StatePage(parent) {
+ActiveModsPage::ActiveModsPage(
+    QWidget* parent,
+    const QString& documents_directory,
+    bool load_workshop_previews)
+    : StatePage(parent),
+      documents_directory_(documents_directory),
+      load_workshop_previews_(load_workshop_previews) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
-    layout->setSpacing(14);
-    auto* card = new QFrame(this);
-    card->setObjectName(QStringLiteral("contentCard"));
-    auto* card_layout = new QVBoxLayout(card);
-    message_ = new QLabel(
-        QStringLiteral("Active mods are unavailable: supported telemetry does not expose a "
-            "verifiable complete mod list."),
-        card);
-    message_->setObjectName(QStringLiteral("detailLabel"));
-    message_->setWordWrap(true);
-    card_layout->addWidget(message_);
-    layout->addWidget(card);
-    layout->addStretch(1);
+    layout->setSpacing(8);
+    auto* tabs = new QTabWidget(this);
+    tabs->setObjectName(QStringLiteral("activeModsGames"));
+    layout->addWidget(tabs, 1);
+
+    const auto add_game_panel = [this, tabs](const QString& title) {
+        GamePanel panel;
+        panel.title = title;
+        panel.page = new QWidget(tabs);
+        auto* page_layout = new QVBoxLayout(panel.page);
+        page_layout->setContentsMargins(8, 8, 8, 8);
+        page_layout->setSpacing(8);
+        panel.message = new QLabel(panel.page);
+        panel.message->setObjectName(QStringLiteral("activeModsStatus"));
+        panel.message->setWordWrap(true);
+        page_layout->addWidget(panel.message);
+
+        auto* scroll = new QScrollArea(panel.page);
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        auto* list = new QWidget(scroll);
+        panel.mods_layout = new QVBoxLayout(list);
+        panel.mods_layout->setContentsMargins(0, 0, 0, 0);
+        panel.mods_layout->setSpacing(6);
+        scroll->setWidget(list);
+        page_layout->addWidget(scroll, 1);
+        tabs->addTab(panel.page, title);
+        game_panels_.push_back(panel);
+    };
+    add_game_panel(QStringLiteral("Euro Truck Simulator 2"));
+    add_game_panel(QStringLiteral("American Truck Simulator"));
+
+    network_ = new QNetworkAccessManager(this);
+    refresh_timer_ = new QTimer(this);
+    refresh_timer_->setInterval(5000);
+    connect(refresh_timer_, &QTimer::timeout, this, [this] { RefreshLogs(); });
+}
+
+void ActiveModsPage::showEvent(QShowEvent* event) {
+    StatePage::showEvent(event);
+    RefreshLogs();
+    refresh_timer_->start();
+}
+
+void ActiveModsPage::hideEvent(QHideEvent* event) {
+    refresh_timer_->stop();
+    StatePage::hideEvent(event);
+}
+
+void ActiveModsPage::RefreshLogs() {
+    const QString documents = documents_directory_.isEmpty()
+        ? QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+        : documents_directory_;
+    const QStringList directories = {
+        QStringLiteral("Euro Truck Simulator 2"),
+        QStringLiteral("American Truck Simulator"),
+    };
+    for (qsizetype index = 0; index < game_panels_.size(); ++index) {
+        GamePanel& panel = game_panels_[index];
+        modlog::GameLogResult result;
+        if (documents.isEmpty()) {
+            result.error = QStringLiteral("Windows did not provide a Documents directory.");
+        } else {
+            const QString path = modlog::GameLogPath(documents, directories[index]);
+            const QFileInfo file_info(path);
+            if (file_info.exists() && file_info.isFile() && file_info.isReadable()
+                && file_info.size() == panel.file_size
+                && file_info.lastModified() == panel.result.last_modified
+                && panel.result.error.isEmpty()) {
+                result = panel.result;
+                result.stale = result.last_modified.isValid()
+                    && result.last_modified.secsTo(QDateTime::currentDateTime()) > 600;
+            } else {
+                result = modlog::ReadGameLog(path);
+            }
+        }
+
+        QString signature = result.path + QLatin1Char('|') + result.error
+            + QLatin1Char('|') + result.last_modified.toString(Qt::ISODateWithMs)
+            + QLatin1Char('|') + QString::number(result.stale);
+        for (const auto& mod : result.mods) {
+            signature += QLatin1Char('|') + mod.id + QLatin1Char(':')
+                + mod.name + QLatin1Char(':') + mod.version + QLatin1Char(':') + mod.author;
+        }
+        if (signature == panel.signature) {
+            continue;
+        }
+        panel.signature = signature;
+        panel.file_size = result.error.isEmpty()
+            ? QFileInfo(result.path).size() : -1;
+        panel.result = std::move(result);
+        RenderGamePanel(panel);
+    }
+}
+
+void ActiveModsPage::RenderGamePanel(GamePanel& panel) {
+    panel.message->clear();
+    while (QLayoutItem* item = panel.mods_layout->takeAt(0)) {
+        if (QWidget* widget = item->widget()) {
+            widget->deleteLater();
+        }
+        delete item;
+    }
+
+    if (!panel.result.error.isEmpty()) {
+        panel.message->setText(QStringLiteral("%1 %2")
+            .arg(panel.result.error, panel.result.path));
+        return;
+    }
+
+    QString status;
+    if (panel.result.stale) {
+        status = QStringLiteral("This game log has not changed for over 10 minutes; "
+            "the active-mod list may be stale. ");
+    }
+    status += panel.result.mods.isEmpty()
+        ? QStringLiteral("No active Workshop mods were recorded in this game log.")
+        : QStringLiteral("%1 active Workshop mod%2 in the latest game log.")
+            .arg(panel.result.mods.size())
+            .arg(panel.result.mods.size() == 1 ? QString() : QStringLiteral("s"));
+    panel.message->setText(status);
+
+    for (const auto& mod : panel.result.mods) {
+        auto* card = new QFrame(panel.mods_layout->parentWidget());
+        card->setObjectName(QStringLiteral("contentCard"));
+        auto* row = new QHBoxLayout(card);
+        row->setContentsMargins(10, 8, 10, 8);
+        row->setSpacing(12);
+
+        auto* thumbnail = new QLabel(card);
+        thumbnail->setObjectName(QStringLiteral("modThumbnail"));
+        thumbnail->setFixedSize(96, 68);
+        thumbnail->setAlignment(Qt::AlignCenter);
+        thumbnail->setWordWrap(true);
+        if (thumbnails_.contains(mod.id)) {
+            thumbnail->setPixmap(thumbnails_.value(mod.id).scaled(
+                thumbnail->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        } else {
+            thumbnail->setText(QStringLiteral("Preview\nunavailable"));
+        }
+        row->addWidget(thumbnail);
+
+        auto* details = new QVBoxLayout();
+        details->setContentsMargins(0, 0, 0, 0);
+        details->setSpacing(3);
+        auto* name = new QLabel(mod.name, card);
+        name->setObjectName(QStringLiteral("modName"));
+        name->setWordWrap(true);
+        name->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        details->addWidget(name);
+        const QString version = mod.version.isEmpty()
+            ? QStringLiteral("Unavailable") : mod.version;
+        const QString author = mod.author.isEmpty()
+            ? QStringLiteral("Unavailable") : mod.author;
+        auto* metadata = new QLabel(
+            QStringLiteral("Version: %1 · Author: %2").arg(version, author), card);
+        metadata->setObjectName(QStringLiteral("modMetadata"));
+        metadata->setWordWrap(true);
+        details->addWidget(metadata);
+
+        const QUrl source = modlog::WorkshopSourceUrl(mod.id);
+        if (source.isValid()) {
+            auto* link = new QLabel(card);
+            link->setObjectName(QStringLiteral("modSourceLink"));
+            link->setTextFormat(Qt::RichText);
+            link->setTextInteractionFlags(
+                Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard);
+            link->setOpenExternalLinks(true);
+            link->setText(QStringLiteral("<a href=\"%1\">Open Workshop source page</a>")
+                .arg(source.toString(QUrl::FullyEncoded).toHtmlEscaped()));
+            link->setAccessibleName(QStringLiteral("Workshop source for %1").arg(mod.name));
+            details->addWidget(link);
+            if (load_workshop_previews_ && !checked_thumbnails_.contains(mod.id)) {
+                LoadThumbnail(mod.id);
+            }
+        } else {
+            auto* unavailable = new QLabel(QStringLiteral("Source page unavailable"), card);
+            unavailable->setObjectName(QStringLiteral("modSourceLink"));
+            details->addWidget(unavailable);
+        }
+        details->addStretch(1);
+        row->addLayout(details, 1);
+        panel.mods_layout->addWidget(card);
+    }
+    panel.mods_layout->addStretch(1);
+}
+
+void ActiveModsPage::LoadThumbnail(const QString& workshop_id) {
+    if (checked_thumbnails_.contains(workshop_id)) {
+        return;
+    }
+    checked_thumbnails_.insert(workshop_id);
+    const QUrl source = modlog::WorkshopSourceUrl(workshop_id);
+    if (!source.isValid()) {
+        return;
+    }
+
+    QNetworkRequest request(source);
+    request.setHeader(QNetworkRequest::UserAgentHeader,
+        QStringLiteral("NLSI-Exclusive-Logbook"));
+    request.setTransferTimeout(8000);
+    QNetworkReply* page_reply = network_->get(request);
+    connect(page_reply, &QIODevice::readyRead, this, [page_reply] {
+        if (page_reply->bytesAvailable() > 4 * 1024 * 1024) {
+            page_reply->abort();
+        }
+    });
+    connect(page_reply, &QNetworkReply::finished, this, [this, page_reply, workshop_id] {
+        const int status = page_reply->attribute(
+            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (page_reply->error() != QNetworkReply::NoError || status < 200 || status >= 300
+            || page_reply->size() > 4 * 1024 * 1024) {
+            page_reply->deleteLater();
+            return;
+        }
+        const QByteArray html = page_reply->readAll();
+        page_reply->deleteLater();
+        static const QRegularExpression preview_meta(
+            QStringLiteral("<meta\\b(?=[^>]*\\bproperty\\s*=\\s*[\"']og:image[\"'])"
+                "(?=[^>]*\\bcontent\\s*=\\s*[\"']([^\"']+)[\"'])[^>]*>"),
+            QRegularExpression::CaseInsensitiveOption
+                | QRegularExpression::DotMatchesEverythingOption);
+        const auto match = preview_meta.match(QString::fromUtf8(html));
+        if (!match.hasMatch()) {
+            return;
+        }
+        const QUrl preview(match.captured(1));
+        const QString host = preview.host().toLower();
+        if (preview.scheme() != QStringLiteral("https")
+            || !(host.endsWith(QStringLiteral(".steamusercontent.com"))
+                || host == QStringLiteral("steamusercontent.com")
+                || host.endsWith(QStringLiteral(".steamstatic.com"))
+                || host == QStringLiteral("steamstatic.com"))) {
+            return;
+        }
+
+        QNetworkRequest image_request(preview);
+        image_request.setHeader(QNetworkRequest::UserAgentHeader,
+            QStringLiteral("NLSI-Exclusive-Logbook"));
+        image_request.setTransferTimeout(8000);
+        QNetworkReply* image_reply = network_->get(image_request);
+        connect(image_reply, &QIODevice::readyRead, this, [image_reply] {
+            if (image_reply->bytesAvailable() > 5 * 1024 * 1024) {
+                image_reply->abort();
+            }
+        });
+        connect(image_reply, &QNetworkReply::finished, this,
+            [this, image_reply, workshop_id] {
+                const int image_status = image_reply->attribute(
+                    QNetworkRequest::HttpStatusCodeAttribute).toInt();
+                if (image_reply->error() == QNetworkReply::NoError
+                    && image_status >= 200 && image_status < 300
+                    && image_reply->size() <= 5 * 1024 * 1024) {
+                    QPixmap image;
+                    if (image.loadFromData(image_reply->readAll())) {
+                        thumbnails_.insert(workshop_id, image);
+                        for (GamePanel& panel : game_panels_) {
+                            RenderGamePanel(panel);
+                        }
+                    }
+                }
+                image_reply->deleteLater();
+            });
+    });
 }
 
 void ActiveModsPage::UpdateState(const telemetry::TelemetryUiState&) {
@@ -386,18 +645,25 @@ void TripEventsPage::UpdateState(const telemetry::TelemetryUiState&) {
 void TripEventsPage::UpdateHistory(const session::HistorySnapshot& history) {
     if (history_revision_ != history.revision) {
         model_->removeRows(0, model_->rowCount());
+        QSet<QString> seen_events;
         for (const auto& event : history.events) {
-            QJsonParseError parse_error;
-            const QJsonDocument document =
-                QJsonDocument::fromJson(event.details.toUtf8(), &parse_error);
-            if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
-                continue;
-            }
-            const QJsonObject details = document.object();
-            const QString category = TripEventCategory(event, details);
+            const QString category = TripEventCategory(event);
             if (category.isEmpty()) {
                 continue;
             }
+            const QString event_identity = event.timestamp + QLatin1Char('|')
+                + event.type.trimmed().toLower() + QLatin1Char('|') + event.details;
+            if (seen_events.contains(event_identity)) {
+                continue;
+            }
+            seen_events.insert(event_identity);
+
+            QJsonParseError parse_error;
+            const QJsonDocument document =
+                QJsonDocument::fromJson(event.details.toUtf8(), &parse_error);
+            const QJsonObject details = parse_error.error == QJsonParseError::NoError
+                    && document.isObject()
+                ? document.object() : QJsonObject();
             const QString fee = EventFieldText(details, {
                 QStringLiteral("toll_fee"), QStringLiteral("fee"),
                 QStringLiteral("amount"), QStringLiteral("price")});
@@ -419,11 +685,11 @@ void TripEventsPage::UpdateHistory(const session::HistorySnapshot& history) {
     const QString text = !history.error.isEmpty()
         ? QStringLiteral("History error: %1").arg(history.error)
         : model_->rowCount() == 0
-            ? QStringLiteral("No toll-gate, ferry or train events have been recorded. "
-                "TruckSim GPS revision 13 records job delivery/cancellation events but does "
-                "not expose verified toll fees or ferry/train crossings.")
-            : QStringLiteral("Only explicit provider events are shown; missing fees, currency "
-                "or trip/job identifiers are marked unavailable.");
+            ? QStringLiteral("No supported toll-gate, ferry, or train telemetry events have "
+                "been recorded. Only player.use.ferry, player.use.train, and "
+                "player.tollgate.paid are recognized.")
+            : QStringLiteral("Only explicit supported telemetry events are shown. Missing "
+                "fees, currency, and trip/job identifiers are marked unavailable.");
     if (message_->text() != text) {
         message_->setText(text);
     }

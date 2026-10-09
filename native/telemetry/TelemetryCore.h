@@ -10,6 +10,7 @@
 #include "logging/Logger.h"
 #include "logging/TelemetryRecorder.h"
 #include "providers/TruckSimGpsProvider.h"
+#include "providers/ScsPositionProvider.h"
 #include "session/HistoryStore.h"
 #include "session/JobManager.h"
 #include "session/SessionManager.h"
@@ -40,6 +41,7 @@ private:
         const ProviderStatus& diagnostics);
     void OnProviderEvent(const std::string& packet);
     void OnTruckSimSample(const providers::RawTelemetrySample& sample);
+    void OnScsPositionUpdate(const providers::ScsPositionSnapshot& snapshot);
     void RebuildStateLocked();
     void UpdateSessionLifecycleLocked();
     void EndSessionLocked(const std::wstring& reason, const std::wstring& timestamp);
@@ -63,6 +65,8 @@ private:
     session::SessionManager session_manager_;
     session::JobManager job_manager_;
     providers::TruckSimGpsProvider trucksim_provider_;
+    providers::ScsPositionProvider scs_position_provider_;
+    providers::ScsPositionSnapshot scs_position_snapshot_;
 };
 
 } // namespace nlsi::telemetry

@@ -1,3 +1,50 @@
+# NLSI Exclusive Logbook v1.4.4-beta
+
+This Beta maintenance release adds current in-game world coordinates through a
+dedicated position-only SCS Telemetry SDK plugin. Existing TruckSim GPS mapping,
+revision-13 fields, provider behavior, installation, and job/session pipeline
+remain unchanged.
+
+## What's changed
+
+- Builds the SCS SDK 1.15 `nlsi.dll` plugin for x64 and x86 using the documented `__stdcall` telemetry ABI and undecorated SDK exports.
+- Registers only the player's `truck.world.placement` (`dplacement`) channel and publishes its XYZ world coordinates over `Local\\NLSI.SCS.Position.v1`.
+- Adds a separate Qt position provider with consistent IPC decoding, explicit disconnected/stale reporting, and live coordinate display. No city/country name is fabricated; available local data does not provide a compatible world-coordinate lookup.
+- Installs `nlsi.dll` only into detected ETS2/ATS architecture-specific plugin folders, backs up preexisting files, and restores/removes only unchanged installer-managed copies.
+- Keeps application, plugin, installer-payload, and setup outputs under the version-specific v1.4.4-beta paths.
+
+Live ETS2/ATS gameplay validation has not been performed. Position IPC,
+stale-data handling, installer backup/restore, missing plugin, and missing game
+cases are covered by offline tests.
+
+Expected installer target:
+`build/releases/v1.4.4-beta/NLSI-Exclusive-Logbook-v1.4.4-beta-Setup.exe`.
+
+---
+
+# NLSI Exclusive Logbook v1.4.3-beta
+
+This Beta release adds active Workshop mod inspection, responsive dashboard
+cards, a Current Position card, and more precise telemetry event history while
+preserving existing app identity, local data, and telemetry compatibility.
+
+## What's changed
+
+- Reflows all Dashboard cards at narrow, medium, and wide page sizes; long and unavailable values wrap consistently. The minimum window remains 900×600.
+- Adds Current Position with active-job destination display and no stale location fallback. The current TruckSim GPS revision-13 map exposes no documented coordinates/country, so the location itself is shown as unavailable until a verified source exists.
+- Reads only ETS2 and ATS `game.log.txt` files under the current user's Documents directory. The Active Mods page displays active Workshop IDs, available names/version/authors, source links, and Steam preview images when obtainable; missing, unreadable, changing, and old logs are reported.
+- Limits trip history to `player.use.ferry`, `player.use.train`, and `player.tollgate.paid`; startup text, traffic train counts, trigger-like names, duplicate event records, and absent fees are not treated as completed trips or inferred charges.
+- Preserves the existing Qt6/C++ architecture, release identity, namespaces, data paths, telemetry mapping, and v1.4.2-beta artifacts.
+
+Steam Workshop preview thumbnails are optional; their retrieval contacts Steam
+using the active Workshop ID. No game telemetry is sent. Live ETS2/ATS gameplay
+and live Steam thumbnail delivery have not been tested for this release.
+
+Expected installer target:
+`build/releases/v1.4.3-beta/NLSI-Exclusive-Logbook-v1.4.3-beta-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.4.2-beta
 
 This Beta maintenance release refines the unified driving workspace and

@@ -1,12 +1,13 @@
 # NLSI Exclusive Logbook
 
-NLSI Exclusive Logbook is a native Windows desktop telemetry and logging application for Euro Truck Simulator 2 (ETS2) and American Truck Simulator (ATS). Version 1.4.2-beta is built with C++ and Qt 6 Widgets. The existing Python implementation is retained as reference-only code and is not part of the active native telemetry pipeline.
+NLSI Exclusive Logbook is a native Windows desktop telemetry and logging application for Euro Truck Simulator 2 (ETS2) and American Truck Simulator (ATS). Version 1.4.4-beta is built with C++ and Qt 6 Widgets. The existing Python implementation is retained as reference-only code and is not part of the active native telemetry pipeline.
 
 ## What It Does
 
 - Displays vehicle, navigation, job, driving-session, and telemetry-provider information supported by the native telemetry decoder.
 - Reads the TruckSim GPS plugin's revision-13 shared-memory mapping directly.
-- Provides a unified Dashboard for driving telemetry and current-job information.
+- Provides a responsive Dashboard for driving telemetry, current-job information, and verified current-position availability.
+- Reads active Workshop mods from ETS2/ATS game logs in Documents and links to valid Steam Workshop item pages.
 - Records telemetry samples, source metadata, normalized values, and the complete shared-memory mapping in versioned v2 `.nlsi` telemetry files.
 - Preserves application logs, events, session history, and job history locally.
 - Uses explicit unavailable states for unsupported or invalid telemetry values.
@@ -30,7 +31,7 @@ The official plugin binaries are distributed with their applicable notices. The 
 ## Current Release
 
 - **Product:** NLSI Exclusive Logbook
-- **Version:** v1.4.2-beta
+- **Version:** v1.4.4-beta
 - **Release channel:** Beta
 - **Supported games:** ETS2 and ATS
 - **Technology:** C++, Qt 6 Widgets, CMake
@@ -219,6 +220,8 @@ The application version is separate from the telemetry API or mapping revision r
 
 ## Release History
 
+- **v1.4.4-beta** — Adds an SCS SDK position-only plugin and a separately versioned IPC mapping for current ETS2/ATS world coordinates; preserves TruckSim GPS telemetry and existing job/session data.
+- **v1.4.3-beta** — Responsive Dashboard cards, Current Position/active-job destination, game-log-based active Workshop mods, and exact telemetry-event filtering. The revision-13 TruckSim map does not expose current coordinates; v1.4.4 adds a separate SCS SDK source.
 - **v1.4.2-beta** — Beta release focused on the unified driving Dashboard, interface refinements, single-instance behavior, exit confirmation, and GitHub release checking. Confirm the included build and changelog for the exact implemented features.
 - **v1.4.0-alpha** — Native Qt telemetry and logging release. Introduced the revision-13 TruckSim GPS shared-memory reader, separate v2 telemetry logs, raw mapping preservation, local pending synchronization records, and updated provider diagnostics. Live gameplay telemetry was not validated for this release.
 - **v1.0.0** — Baseline stability and production-readiness milestone for the telemetry application, with clearer session lifecycle behavior and explicit unavailable telemetry states.

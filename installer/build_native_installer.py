@@ -36,6 +36,18 @@ TRUCKSIM_PLUGIN_FILES = (
         Path("plugins/trucksim/win_x86/plugins/trucksim-gps-telemetry.dll"),
     ),
 )
+SCS_POSITION_PLUGIN_FILES = (
+    (
+        ROOT / "build" / "plugins" / RELEASE_TAG / "win_x64" / "nlsi.dll",
+        Path("plugins/scs-position/win_x64/nlsi.dll"),
+        0x8664,
+    ),
+    (
+        ROOT / "build" / "plugins" / RELEASE_TAG / "win_x86" / "nlsi.dll",
+        Path("plugins/scs-position/win_x86/nlsi.dll"),
+        0x014C,
+    ),
+)
 PAYLOAD_DIR = ROOT / "build" / "intermediate" / f"installer-payload-{RELEASE_TAG}"
 ISS_FILE = ROOT / "installer" / "NLSI-Exclusive-Logbook.iss"
 ASSET_SCRIPT = ROOT / "installer" / "prepare_native_installer_assets.ps1"
@@ -56,6 +68,24 @@ REQUIRED_RUNTIME_FILES = (
 def fail(message: str) -> int:
     print(f"ERROR: {message}", file=sys.stderr)
     return 1
+
+
+def read_pe_machine(path: Path) -> int:
+    with path.open("rb") as binary:
+        if binary.read(2) != b"MZ":
+            raise ValueError(f"Plugin is not a Windows PE file: {path}")
+        binary.seek(0x3C)
+        offset_data = binary.read(4)
+        if len(offset_data) != 4:
+            raise ValueError(f"Plugin has a truncated PE header: {path}")
+        pe_offset = int.from_bytes(offset_data, "little")
+        binary.seek(pe_offset)
+        if binary.read(4) != b"PE\0\0":
+            raise ValueError(f"Plugin has an invalid PE signature: {path}")
+        machine_data = binary.read(2)
+        if len(machine_data) != 2:
+            raise ValueError(f"Plugin has a truncated COFF header: {path}")
+        return int.from_bytes(machine_data, "little")
 
 
 def default_install_dir_for_channel(channel: str) -> str:
@@ -90,6 +120,14 @@ def verify_installer_policy() -> None:
         raise ValueError("The installer must handle both supported plugin architectures.")
     if "SCSSdkClient.Demo.exe" in script_text or "TruckSim GPS Telemetry Server" in installer_text:
         raise ValueError("The TruckSim GPS server GUI must not be included or launched.")
+    position_installer = ROOT / "installer" / "InstallScsPositionPlugin.ps1"
+    position_script = position_installer.read_text(encoding="utf-8")
+    if "InstallScsPositionPlugin.ps1" not in installer_text or "-RestoreManagedPlugin" not in installer_text:
+        raise ValueError("The SCS position plugin must install and restore independently of TruckSim GPS.")
+    if "BackupDirectory" not in position_script or "installed_sha256" not in position_script:
+        raise ValueError("The SCS position plugin installer must back up and track managed copies.")
+    if "TSGPSTelemetry" in position_script:
+        raise ValueError("The SCS position plugin installer must remain separate from TruckSim GPS.")
     required_installer_policy = (
         "DefaultDirName={#DefaultApplicationDir}",
         '#if (AppChannel == "alpha") || (AppChannel == "beta")',
@@ -212,6 +250,20 @@ def copy_runtime_payload(app_exe: Path) -> None:
         if hashlib.sha256(destination.read_bytes()).hexdigest().upper() != expected_hash:
             raise ValueError(f"The staged TruckSim GPS plugin failed hash verification: {destination}")
 
+    for source, relative_destination, expected_machine in SCS_POSITION_PLUGIN_FILES:
+        if not source.is_file():
+            raise FileNotFoundError(f"The SCS position plugin is missing: {source}")
+        if read_pe_machine(source) != expected_machine:
+            architecture = "x64" if expected_machine == 0x8664 else "x86"
+            raise ValueError(
+                f"The SCS position plugin for {architecture} has the wrong PE architecture: {source}"
+            )
+        destination = PAYLOAD_DIR / relative_destination
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        if read_pe_machine(destination) != expected_machine:
+            raise ValueError(f"The staged SCS position plugin has the wrong architecture: {destination}")
+
     license_payload = PAYLOAD_DIR / "licenses"
     license_payload.mkdir(parents=True, exist_ok=True)
     shutil.copy2(
@@ -223,6 +275,10 @@ def copy_runtime_payload(app_exe: Path) -> None:
         license_payload / "SCS-SDK-MIT.txt",
     )
     shutil.copy2(
+        ROOT / "includes" / "scs_sdk_1_15" / "sdk_license.txt",
+        license_payload / "SCS-SDK-1.15-MIT.txt",
+    )
+    shutil.copy2(
         ROOT / "assets" / "icons" / "LICENSE.txt",
         license_payload / "Lucide-ISC.txt",
     )
@@ -231,6 +287,10 @@ def copy_runtime_payload(app_exe: Path) -> None:
     shutil.copy2(
         ROOT / "installer" / "InstallTruckSimPlugin.ps1",
         tools_payload / "InstallTruckSimPlugin.ps1",
+    )
+    shutil.copy2(
+        ROOT / "installer" / "InstallScsPositionPlugin.ps1",
+        tools_payload / "InstallScsPositionPlugin.ps1",
     )
 
 

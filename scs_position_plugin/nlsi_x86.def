@@ -1,0 +1,4 @@
+LIBRARY nlsi
+EXPORTS
+scs_telemetry_init=_scs_telemetry_init@8
+scs_telemetry_shutdown=_scs_telemetry_shutdown@0
