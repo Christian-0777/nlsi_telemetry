@@ -279,7 +279,13 @@ bool TestCompletedJobsPdfExport() {
 
 int main(int argc, char** argv) {
     QApplication application(argc, argv);
-    application.setApplicationVersion(QStringLiteral("v1.3.8 Alpha"));
+    QFile stylesheet(QStringLiteral(":/styles/app.qss"));
+    if (!stylesheet.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        std::cerr << "The application stylesheet could not be loaded for UI tests.\n";
+        return 1;
+    }
+    application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
+    application.setApplicationVersion(QStringLiteral("v1.3.9-beta"));
     if (!TestHistoryPagesLoadPersistedRows()) {
         return 1;
     }
@@ -290,7 +296,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.3.8 Alpha",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.3.9-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -305,14 +311,18 @@ int main(int argc, char** argv) {
     auto* logo = window.findChild<QLabel*>(QStringLiteral("brandLogo"));
     auto* brand_title = window.findChild<QLabel*>(QStringLiteral("brandTitle"));
     auto* brand_subtitle = window.findChild<QLabel*>(QStringLiteral("brandSubtitle"));
-    auto* version_badge = window.findChild<QLabel*>(QStringLiteral("versionBadge"));
+    auto* sidebar = window.findChild<QFrame*>(QStringLiteral("sidebar"));
     auto* page_title = window.findChild<QLabel*>(QStringLiteral("headerTitle"));
     auto* page_subtitle = window.findChild<QLabel*>(QStringLiteral("headerSubtitle"));
     auto* page_stack = window.findChild<QStackedWidget*>(QStringLiteral("pageStack"));
     auto* header_clock = window.findChild<QLabel*>(QStringLiteral("headerClock"));
-    if (!logo || !brand_title || !brand_subtitle || !version_badge ||
+    if (!logo || !brand_title || !brand_subtitle || !sidebar ||
         !page_title || !page_subtitle || !page_stack || !header_clock) {
-        std::cerr << "The brand, Alpha version badge, or shared page stack is missing.\n";
+        std::cerr << "The brand or shared page stack is missing.\n";
+        return 1;
+    }
+    if (!window.findChildren<QLabel*>(QStringLiteral("versionBadge")).isEmpty()) {
+        std::cerr << "A version badge is still present in the page header.\n";
         return 1;
     }
     const QRegularExpression clock_pattern(
@@ -322,14 +332,30 @@ int main(int argc, char** argv) {
         std::cerr << "The Manila millisecond clock or unavailable ping display is incorrect.\n";
         return 1;
     }
-    if (brand_title->text() != QStringLiteral("NLSI") ||
-        brand_subtitle->text() != QStringLiteral("Exclusive Logbook") ||
-        version_badge->text() != QStringLiteral("v1.3.8 Alpha") ||
+    if (brand_title->text() != QStringLiteral("NABSKI") ||
+        brand_subtitle->text() != QStringLiteral("Logistics Solutions Inc.") ||
         logo->geometry().right() >= brand_title->geometry().left() ||
+        brand_subtitle->geometry().right() >= sidebar->width() ||
+        !brand_subtitle->wordWrap() ||
+        brand_subtitle->fontMetrics().horizontalAdvance(QStringLiteral("Logistics"))
+            > brand_subtitle->contentsRect().width() ||
+        brand_subtitle->fontMetrics().horizontalAdvance(QStringLiteral("Solutions"))
+            > brand_subtitle->contentsRect().width() ||
         brand_title->geometry().top() >= brand_subtitle->geometry().top() ||
         qAbs(logo->geometry().center().y() -
              (brand_title->geometry().top() + brand_subtitle->geometry().bottom()) / 2) > 3) {
-        std::cerr << "The horizontal brand header or Alpha identity is incorrect.\n";
+        std::cerr << "The sidebar branding or fit is incorrect: title="
+                  << brand_title->text().toStdString() << " subtitle="
+                  << brand_subtitle->text().toStdString() << " logo-right="
+                  << logo->geometry().right() << " title-left="
+                  << brand_title->geometry().left() << " subtitle-right="
+                  << brand_subtitle->geometry().right() << " sidebar-width="
+                  << sidebar->width() << " subtitle-label-width="
+                  << brand_subtitle->contentsRect().width() << " word-widths="
+                  << brand_subtitle->fontMetrics().horizontalAdvance(QStringLiteral("Logistics"))
+                  << ','
+                  << brand_subtitle->fontMetrics().horizontalAdvance(QStringLiteral("Solutions"))
+                  << '\n';
         return 1;
     }
     auto* about_button = FindButton(window, QStringLiteral("About"));
@@ -351,6 +377,18 @@ int main(int argc, char** argv) {
     }
     if (!found_discord || !found_ceo || !found_developer) {
         std::cerr << "The About page is missing a required social link.\n";
+        return 1;
+    }
+    bool found_company = false;
+    bool found_version = false;
+    for (const QLabel* label : window.findChildren<QLabel*>()) {
+        found_company = found_company
+            || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
+        found_version = found_version
+            || label->text() == QStringLiteral("v1.3.9-beta");
+    }
+    if (!found_company || !found_version) {
+        std::cerr << "The About page is missing its company name or current version.\n";
         return 1;
     }
 

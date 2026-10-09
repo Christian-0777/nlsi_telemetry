@@ -87,7 +87,7 @@ def verify_executable_version(app_exe: Path) -> None:
         capture_output=True,
         text=True,
     )
-    expected = f"{VERSION}.0|{VERSION} Alpha"
+    expected = f"{VERSION}.0|{VERSION}-{CHANNEL}"
     actual = result.stdout.strip()
     if actual != expected:
         raise ValueError(

@@ -14,7 +14,7 @@ public:
     std::wstring LatestVersion() const;
 
 private:
-    std::wstring latest_version_ = L"1.3.6 Alpha";
+    std::wstring latest_version_ = L"1.3.9-beta";
 };
 
 } // namespace nlsi::updater

@@ -12,9 +12,9 @@
 App::App()
     : version_label_([this] {
           const QString channel = QString::fromLatin1(NLSI_CHANNEL);
-          return QStringLiteral("v%1 %2")
+          return QStringLiteral("v%1-%2")
               .arg(QString::fromLatin1(NLSI_VERSION),
-                  channel.left(1).toUpper() + channel.mid(1))
+                  channel)
               .toStdWString();
       }()) {
 }

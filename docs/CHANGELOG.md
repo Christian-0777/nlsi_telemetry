@@ -2,6 +2,13 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.3.9-beta
+
+- Rebranded the sidebar as NABSKI / Logistics Solutions Inc. and identified Nabski Logistics and Solutions Inc. in the About page and installer publisher metadata.
+- Removed the version badge from the shared page header while preserving its current title, subtitle, date/time, and ping information.
+- Updated application, installer, and release version metadata to v1.3.9-beta while retaining the version on the About page.
+- Preserved the application name, Program Files installation location, `%LOCALAPPDATA%\NLSI\Exclusive Logbook` user data, telemetry, and third-party attribution.
+
 ## v1.3.8 — Alpha
 
 - Made TruckSim GPS the native app's sole active game telemetry provider; removed RenCloud and the NLSI UDP receiver from the native runtime/installer payload.

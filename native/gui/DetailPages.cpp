@@ -54,7 +54,7 @@ public:
 
     void UpdateState(const telemetry::TelemetryUiState&) override {
         SetValue(QStringLiteral("version"), QCoreApplication::applicationVersion());
-        SetValue(QStringLiteral("channel"), QStringLiteral("Alpha"));
+        SetValue(QStringLiteral("channel"), QStringLiteral("Beta"));
         SetValue(QStringLiteral("refresh"), QStringLiteral("4 Hz (250 ms)"));
         SetValue(QStringLiteral("transport"), QStringLiteral("TruckSim GPS shared memory"));
         SetValue(QStringLiteral("display"), QStringLiteral("Hidden when not supplied"));
@@ -309,6 +309,7 @@ AboutPage::AboutPage(const QString& version, QWidget* parent)
     : DetailPage(parent),
       version_(version) {
     AddField(QStringLiteral("product"), QStringLiteral("Product"));
+    AddField(QStringLiteral("company"), QStringLiteral("Company"));
     AddField(QStringLiteral("version"), QStringLiteral("Version"));
     AddField(QStringLiteral("channel"), QStringLiteral("Channel"));
     AddField(QStringLiteral("framework"), QStringLiteral("UI framework"));
@@ -322,13 +323,15 @@ AboutPage::AboutPage(const QString& version, QWidget* parent)
 
 void AboutPage::UpdateState(const telemetry::TelemetryUiState&) {
     SetValue(QStringLiteral("product"), QStringLiteral("NLSI Exclusive Logbook"));
+    SetValue(QStringLiteral("company"), QStringLiteral("Nabski Logistics and Solutions Inc."));
     const QString app_version = QCoreApplication::applicationVersion();
     SetValue(QStringLiteral("version"), app_version.isEmpty() ? version_ : app_version);
-    SetValue(QStringLiteral("channel"), QStringLiteral("Alpha"));
+    SetValue(QStringLiteral("channel"), QStringLiteral("Beta"));
     SetValue(QStringLiteral("framework"),
         QStringLiteral("Qt %1 Widgets").arg(QString::fromLatin1(qVersion())));
     SetValue(QStringLiteral("backend"), QStringLiteral("TruckSim GPS shared-memory telemetry"));
-    SetExternalLink(QStringLiteral("discord"), QStringLiteral("NLSI Discord Server"),
+    SetExternalLink(QStringLiteral("discord"),
+        QStringLiteral("Nabski Logistics and Solutions Inc. Community"),
         QUrl(QStringLiteral("https://discord.gg/gerAGTS6YB")));
     SetExternalLink(QStringLiteral("ceo"), QStringLiteral("Follow CEO on TikTok"),
         QUrl(QStringLiteral("https://www.tiktok.com/@nabskiplays")));

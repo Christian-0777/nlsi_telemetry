@@ -1,3 +1,24 @@
+# NLSI Exclusive Logbook v1.3.9-beta
+
+The v1.3.9-beta update refreshes the company branding and removes application
+version badges from the shared page header.
+
+## What's new
+
+- Show the shared header's current page title, existing subtitle, and existing Asia/Manila date/time and ping information without a version badge on every page.
+- Apply the NABSKI / Logistics Solutions Inc. sidebar identity without changing the existing logo, app name, installation folder, or user-data location.
+- Identify the company as Nabski Logistics and Solutions Inc. in the About page and installer metadata.
+- Update the app, executable, installer, About page, and release information to v1.3.9-beta; the About page retains the current app version.
+- Preserve telemetry, jobs, history, settings, existing installation paths, user data, and third-party notices.
+
+## Validation notes
+
+- Verified the MSVC/Qt/CMake Release build, passed both CTest targets, and compiled the v1.3.9-beta installer with Inno Setup.
+- Live ETS2/ATS telemetry and actual game-folder plugin installation remain runtime validations.
+- The installer target is `build/releases/v1.3.9-beta/NLSI-Exclusive-Logbook-v1.3.9-beta-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.3.8 Alpha
 
 The v1.3.8 Alpha update makes TruckSim GPS the native application's only active
@@ -11,7 +32,7 @@ export, and an automatically installed game plugin.
 - Add Asia/Manila live date/time with millisecond precision, actual ping only when available (N/A for the current local telemetry interface), thousands separators, and two-place decimal formatting.
 - Show cruise-control status/set speed and retarder status/level only when verified TruckSim fields are available.
 - Add completed-job PDF export with recorded route, earnings, dates, and available statistics. Export leaves the original records unchanged and paginates long content.
-- Add dynamic About version display, NLSI Discord/creator links, and TruckSim GPS/SCS attribution.
+- Add dynamic About version display, company community/creator links, and TruckSim GPS/SCS attribution.
 - Automatically install the hash-verified official x64/x86 plugin into matching architecture folders of detected Steam ETS2/ATS installations. Preserve conflicting DLLs and back up a previously managed DLL before replacing it.
 - Keep the 900×600 minimum/default window size, app files in Program Files, and all logs/history under `%LOCALAPPDATA%\NLSI\Exclusive Logbook`.
 - Package plugin/SCS license notices and omit GPL server implementation and GUI files.

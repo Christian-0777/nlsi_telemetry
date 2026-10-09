@@ -495,6 +495,9 @@ void TestHistoryAndTxtLogPersistence() {
 }
 
 void TestVersionComparison() {
+    const nlsi::updater::GitHubUpdater updater;
+    Check(updater.LatestVersion() == L"1.3.9-beta",
+        "the updater's default latest version is not current");
     Check(nlsi::updater::GitHubUpdater::CompareVersions(L"1.3.0 Alpha", L"1.3.1") < 0,
         "version comparison failed for newer release");
     Check(nlsi::updater::GitHubUpdater::IsUpdateAvailable(L"1.3.1", L"1.3.0 Alpha") == false,

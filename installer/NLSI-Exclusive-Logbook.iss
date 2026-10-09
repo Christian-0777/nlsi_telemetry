@@ -1,8 +1,8 @@
 #define AppName "NLSI Exclusive Logbook"
-#define AppVersion "1.3.8"
-#define ReleaseTag "v" + AppVersion + "-alpha"
+#define AppVersion "1.3.9-beta"
+#define ReleaseTag "v" + AppVersion
 #define ReleasePayload "build\intermediate\installer-payload-" + ReleaseTag
-#define AppPublisher "NLSI"
+#define AppPublisher "Nabski Logistics and Solutions Inc."
 #define AppURL "https://github.com/Christian-0777/nlsi_telemetry"
 #ifndef InstallPrivileges
 #define InstallPrivileges "admin"
@@ -14,7 +14,7 @@
 [Setup]
 AppId=NLSI Exclusive Logbook
 AppName={#AppName}
-AppVersion={#AppVersion} Alpha
+AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
@@ -47,9 +47,9 @@ UninstallDisplayIcon={app}\NLSI-Exclusive-Logbook.exe
 SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.3.8.0
-VersionInfoProductVersion=1.3.8.0
-VersionInfoCompany=NLSI
+VersionInfoVersion=1.3.9.0
+VersionInfoProductVersion=1.3.9.0
+VersionInfoCompany=Nabski Logistics and Solutions Inc.
 VersionInfoProductName={#AppName}
 
 [Languages]
@@ -157,14 +157,14 @@ begin
       'An existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
       'This setup will UPDATE the existing installation.' + #13#10 +
       'Installed version: ' + ExistingInstallVersion + #13#10 +
-      'New version: v{#AppVersion}-alpha' + #13#10 +
+      'New version: v{#AppVersion}' + #13#10 +
       'Installation directory: ' + ExistingInstallDir + #13#10#13#10 +
       'Existing configuration and log files will be preserved.' + #13#10#13#10 +
       'Setup automatically detects supported Steam ETS2/ATS installations and installs the official TruckSim GPS plugin into matching x64 and x86 plugin folders. Different existing plugin DLLs are preserved.';
   end else begin
     InstallationSummary :=
       'No existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
-      'This setup will perform a fresh installation of v{#AppVersion}-alpha under Program Files.' + #13#10#13#10 +
+      'This setup will perform a fresh installation of v{#AppVersion} under Program Files.' + #13#10#13#10 +
       'Setup automatically detects supported Steam ETS2/ATS installations and installs the official TruckSim GPS plugin into matching x64 and x86 plugin folders. Different existing plugin DLLs are preserved.';
   end;
   if DirExists(ExpandConstant('{#LegacyDirectory}')) and
@@ -236,11 +236,11 @@ begin
   if CurPageID = wpFinished then begin
     WizardForm.FinishedHeadingLabel.Caption := 'Installation complete';
     WizardForm.FinishedLabel.Caption :=
-      'NLSI Exclusive Logbook v1.3.8-alpha has been installed.' + #13#10#13#10 +
+      'NLSI Exclusive Logbook v1.3.9-beta has been installed.' + #13#10#13#10 +
       'What''s New' + #13#10 +
       '- Direct TruckSim GPS revision-13 telemetry; the separate server client is not required.' + #13#10 +
       '- TruckSim GPS is the only active game telemetry source; local events, jobs, sessions, and TXT logs remain supported.' + #13#10 +
       '- Setup installs the verified official TruckSim GPS plugin for detected supported game folders.' + #13#10#13#10 +
-      'The About page includes NLSI community and creator links.';
+      'The About page includes Nabski Logistics and Solutions Inc. community and creator links.';
   end;
 end;

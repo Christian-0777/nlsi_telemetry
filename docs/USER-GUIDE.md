@@ -2,7 +2,7 @@
 
 ## Installation and launch
 
-The native v1.3.8 Alpha application is built for Windows x64 with Qt 6.12 and MSVC 2022. It opens at the existing 900×600 minimum window size and can start without a game; live values remain unavailable until TruckSim GPS telemetry is available. The retained Python implementation is a separate legacy reference and is not bundled in the native application.
+The native v1.3.9-beta application is built for Windows x64 with Qt 6.12 and MSVC 2022. It opens at the existing 900×600 minimum window size and can start without a game; live values remain unavailable until TruckSim GPS telemetry is available. The retained Python implementation is a separate legacy reference and is not bundled in the native application.
 
 ## Navigation
 
@@ -12,7 +12,7 @@ The native v1.3.8 Alpha application is built for Windows x64 with Qt 6.12 and MS
 - **History** — session/trip and completed-job history views.
 - **Events** — application and telemetry event view.
 - **Settings** — Application, Providers, Telemetry, and Active Mods subsections. TruckSim GPS mapping and connection diagnostics are under **Providers**.
-- **About** — dynamic application version, clickable NLSI social links, and TruckSim GPS/SCS attribution and license notices.
+- **About** — company identity, current application version, clickable community and creator links, and TruckSim GPS/SCS attribution and license notices.
 
 The native application refreshes Qt controls on a timer from normalized state; the telemetry worker does not directly modify widgets. Missing or stale values are not treated as live values. Job metadata and progress are presented separately. The shared top header is the single source of page title and description.
 
@@ -26,7 +26,7 @@ The shared page header displays Asia/Manila date and live time to millisecond pr
 
 Dates use `MM/DD/YY`, decimal values use thousands separators and two decimal places, and integer values use thousands separators. Completed jobs can be exported to a paginated PDF; exports retain available earnings, route, dates, and recorded statistics without changing job history. TXT logs continue alongside versioned `.nlsi` JSON Lines logs. See [NLSI log format](NLSI-LOG-FORMAT.md).
 
-The native application version is **1.3.8 Alpha**, sourced from the build's version metadata. The SCS telemetry API version is separate and shown only when supplied by telemetry; the GUI does not substitute the application version.
+The current application version, **v1.3.9-beta**, is shown on the About page and comes from the build's version metadata. The SCS telemetry API version is separate and shown only when supplied by telemetry; the GUI does not substitute the application version.
 
 ## Configuration and privacy
 
@@ -36,7 +36,7 @@ Telemetry, event/session/job history, TXT logs, and `.nlsi` logs are handled loc
 
 ### Telemetry says disconnected
 
-Confirm the TruckSim GPS telemetry plugin is installed in the game's matching architecture plugin folder and that the game is running. Setup attempts this automatically for detected Steam game folders and records installation results under the application directory's `logs\trucksim-plugin-status.txt`. Check Settings → Providers for the exact shared-memory mapping, revision, freshness result, and Windows error. A missing map can mean that the plugin is not installed or the game/plugin has not initialized; unsupported revisions are rejected rather than decoded with guessed offsets. Live ETS2/ATS behavior has not been tested for v1.3.8-alpha.
+Confirm the TruckSim GPS telemetry plugin is installed in the game's matching architecture plugin folder and that the game is running. Setup attempts this automatically for detected Steam game folders and records installation results under the application directory's `logs\trucksim-plugin-status.txt`. Check Settings → Providers for the exact shared-memory mapping, revision, freshness result, and Windows error. A missing map can mean that the plugin is not installed or the game/plugin has not initialized; unsupported revisions are rejected rather than decoded with guessed offsets. Live ETS2/ATS behavior has not been tested for v1.3.9-beta.
 
 ### Known limitations
 

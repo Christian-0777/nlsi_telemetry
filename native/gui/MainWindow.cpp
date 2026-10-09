@@ -65,11 +65,12 @@ MainWindow::MainWindow(
     auto* brand_text = new QVBoxLayout();
     brand_text->setContentsMargins(0, 0, 0, 0);
     brand_text->setSpacing(0);
-    auto* brand_title = new QLabel(QStringLiteral("NLSI"), brand);
+    auto* brand_title = new QLabel(QStringLiteral("NABSKI"), brand);
     brand_title->setObjectName(QStringLiteral("brandTitle"));
     brand_text->addWidget(brand_title);
-    auto* product = new QLabel(QStringLiteral("Exclusive Logbook"), brand);
+    auto* product = new QLabel(QStringLiteral("Logistics Solutions Inc."), brand);
     product->setObjectName(QStringLiteral("brandSubtitle"));
+    product->setWordWrap(true);
     brand_text->addWidget(product);
     brand_layout->addLayout(brand_text, 1);
     sidebar_layout->addWidget(brand);
@@ -100,12 +101,9 @@ MainWindow::MainWindow(
     header_clock_->setObjectName(QStringLiteral("headerClock"));
     header_clock_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     header_clock_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    auto* header_version = new QLabel(version_label, header);
-    header_version->setObjectName(QStringLiteral("versionBadge"));
     header_layout->addLayout(header_text);
     header_layout->addStretch(1);
     header_layout->addWidget(header_clock_);
-    header_layout->addWidget(header_version);
     content_layout->addWidget(header);
 
     page_stack_ = new QStackedWidget(content);

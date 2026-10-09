@@ -1,10 +1,12 @@
-NLSI Exclusive Logbook v1.3.8-alpha has been installed.
+NLSI Exclusive Logbook v1.3.9-beta has been installed.
 
 What's New
 - TruckSim GPS is the sole active native game telemetry provider; the separate server GUI is not included or required.
 - Setup automatically installs the verified official plugin for detected supported game folders and preserves existing plugin files safely.
 - Added versioned .nlsi logging alongside TXT, consistent number/date formatting, and completed-job PDF export.
 - Preserved user logs, events, sessions, jobs, and offline operation.
+- Updated company branding and removed version badges from all page headers.
+- The About page shows the current application version: v1.3.9-beta.
 - Live ETS2/ATS telemetry and actual game-folder installation have not been tested for this release.
 
 WHAT'S NEW

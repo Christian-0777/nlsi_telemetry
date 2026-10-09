@@ -62,7 +62,7 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
                 status_.storage_error = history_store_->Snapshot().error.toStdWString();
             }
             std::wstring log_error;
-            if (!logger_->Log(L"[startup] NLSI Exclusive Logbook v1.3.8 Alpha", &log_error)) {
+            if (!logger_->Log(L"[startup] NLSI Exclusive Logbook v1.3.9-beta", &log_error)) {
                 status_.storage_error = std::move(log_error);
             }
         }
