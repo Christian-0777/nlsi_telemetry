@@ -9,6 +9,9 @@
 #include <vector>
 
 #include <array>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <QByteArray>
 #include <QDir>
 #include <QFile>
@@ -26,6 +29,7 @@
 #include "session/HistoryStore.h"
 #include "telemetry/TelemetryModel.h"
 #include "telemetry/TelemetryUiState.h"
+#include "time/ApplicationTime.h"
 #include "updater/GitHubUpdater.h"
 
 namespace {
@@ -562,6 +566,20 @@ void TestHistoryAndTxtLogPersistence() {
         && application_log.readAll().contains("test log entry"),
         "application TXT log did not contain the written entry");
 
+    Check(history.RecordProviderEvent(QByteArrayLiteral(
+            R"json({"type":"gameplay_event","event":"offset_earlier","timestamp":"2026-10-07T23:00:00+14:00","provider":"test"})json"))
+        && history.RecordProviderEvent(QByteArrayLiteral(
+            R"json({"type":"gameplay_event","event":"offset_later","timestamp":"2026-10-07T20:00:00Z","provider":"test"})json")),
+        "offset-bearing events could not be added to history");
+    const auto ordered_events = history.Snapshot().events;
+    const auto earlier = std::find_if(ordered_events.cbegin(), ordered_events.cend(),
+        [](const auto& event_record) { return event_record.type == QStringLiteral("offset_earlier"); });
+    const auto later = std::find_if(ordered_events.cbegin(), ordered_events.cend(),
+        [](const auto& event_record) { return event_record.type == QStringLiteral("offset_later"); });
+    Check(earlier != ordered_events.cend() && later != ordered_events.cend()
+        && later < earlier,
+        "history sorted offset-bearing timestamps by text instead of their represented instants");
+
     nlsi::session::HistoryStore reloaded_history(logger);
     Check(reloaded_history.Initialize(root)
         && reloaded_history.Snapshot().jobs.size() == 1
@@ -726,7 +744,7 @@ void TestTelemetryRecorderOfflineRecovery() {
     QTemporaryDir root;
     Check(root.isValid(), "telemetry recorder temporary directory could not be created");
     const QJsonObject sample{
-        {QStringLiteral("timestamp_utc"), QStringLiteral("2026-10-08T12:00:00.000Z")},
+        {QStringLiteral("timestamp_utc"), QStringLiteral("2026-10-07T16:30:00.000Z")},
         {QStringLiteral("session_id"), QJsonValue(QJsonValue::Null)},
         {QStringLiteral("provider"), QStringLiteral("TruckSim GPS")},
         {QStringLiteral("provider_revision"), 13},
@@ -760,6 +778,13 @@ void TestTelemetryRecorderOfflineRecovery() {
     Check(!malformed_recorder.Enqueue(malformed, &error) && !error.empty(),
         "malformed telemetry record was accepted without a validation error");
     malformed_recorder.Stop();
+    nlsi::logging::TelemetryRecorder empty_recorder;
+    Check(empty_recorder.Start(QDir(root.path()).filePath(QStringLiteral("empty"))
+            .toStdWString())
+        && empty_recorder.StopFor(std::chrono::seconds(5)),
+        "an empty telemetry queue did not shut down cleanly");
+    Check(empty_recorder.StopFor(std::chrono::milliseconds::zero()),
+        "repeated empty-queue shutdown was not idempotent");
 
     const QString store = QDir(root.path()).filePath(QStringLiteral("records"));
     nlsi::logging::TelemetryRecorder recorder;
@@ -769,7 +794,11 @@ void TestTelemetryRecorderOfflineRecovery() {
         "valid telemetry sample was not durably written offline");
     Check(recorder.PendingCount() == 1,
         "offline sample was not retained in the pending synchronization queue");
-    recorder.Stop();
+    Check(recorder.QueuedCount() == 0 && recorder.IsRunning(),
+        "the writer reported queued work or stopped before its flush completed");
+    Check(recorder.StopFor(std::chrono::seconds(5)) && !recorder.IsRunning()
+        && recorder.StopFor(std::chrono::milliseconds::zero()),
+        "recorder stop was not complete and idempotent");
 
     const QString telemetry_file = QDir(store).filePath(
         QStringLiteral("telemetry/2026-10-08.nlsi"));
@@ -794,11 +823,132 @@ void TestTelemetryRecorderOfflineRecovery() {
     Check(lines.size() == 3 && lines.at(1).contains("\"record_id\"")
         && lines.at(1).contains("\"sequence\":1"),
         "recovery did not retain exactly one complete sample with a stable ID and sequence");
+    const QJsonObject stored_sample = QJsonDocument::fromJson(lines.at(1)).object();
+    Check(stored_sample.value(QStringLiteral("timestamp_utc")).toString()
+            == sample.value(QStringLiteral("timestamp_utc")).toString()
+        && stored_sample.value(QStringLiteral("raw_fields"))
+            == sample.value(QStringLiteral("raw_fields"))
+        && stored_sample.value(QStringLiteral("raw_availability"))
+            == sample.value(QStringLiteral("raw_availability"))
+        && stored_sample.value(QStringLiteral("normalized_fields"))
+            == sample.value(QStringLiteral("normalized_fields"))
+        && stored_sample.value(QStringLiteral("raw_mapping_base64"))
+            == sample.value(QStringLiteral("raw_mapping_base64")),
+        "telemetry round-trip changed timestamp, field values, or mapping data");
     QFile sync_queue(QDir(store).filePath(QStringLiteral("sync/queue.jsonl")));
     Check(sync_queue.open(QIODevice::ReadOnly | QIODevice::Text)
         && sync_queue.readAll().count('\n') == 1,
         "restart recovery duplicated the durable pending-queue entry");
-    recovered.Stop();
+    Check(recovered.StopFor(std::chrono::seconds(5)),
+        "recovered telemetry writer did not stop cleanly");
+
+    QTemporaryDir slow_root;
+    Check(slow_root.isValid(), "slow-writer temporary directory could not be created");
+    std::mutex gate_mutex;
+    std::condition_variable gate;
+    bool write_started = false;
+    bool release_write = false;
+    nlsi::logging::TelemetryRecorder slow_recorder([&] {
+        std::unique_lock<std::mutex> lock(gate_mutex);
+        write_started = true;
+        gate.notify_all();
+        gate.wait(lock, [&] { return release_write; });
+    });
+    Check(slow_recorder.Start(slow_root.path().toStdWString())
+        && slow_recorder.Enqueue(sample),
+        "slow-writer sample was not accepted");
+    {
+        std::unique_lock<std::mutex> lock(gate_mutex);
+        Check(gate.wait_for(lock, std::chrono::seconds(5), [&] { return write_started; }),
+            "slow writer did not enter its controlled delay");
+    }
+    Check(!slow_recorder.StopFor(std::chrono::milliseconds(10))
+        && slow_recorder.QueuedCount() == 1,
+        "a slow in-flight write was reported complete or lost during a bounded stop");
+    {
+        std::lock_guard<std::mutex> lock(gate_mutex);
+        release_write = true;
+    }
+    gate.notify_all();
+    Check(slow_recorder.StopFor(std::chrono::seconds(5))
+        && !slow_recorder.IsRunning(),
+        "the writer did not drain after the slow write completed");
+
+    QTemporaryDir failure_root;
+    Check(failure_root.isValid(), "write-failure temporary directory could not be created");
+    const QString failure_store = QDir(failure_root.path()).filePath(QStringLiteral("records"));
+    nlsi::logging::TelemetryRecorder failing_recorder;
+    Check(failing_recorder.Start(failure_store.toStdWString()),
+        "write-failure recorder could not start");
+    const QString failed_target = QDir(failure_store).filePath(
+        QStringLiteral("telemetry/2026-10-08.nlsi"));
+    Check(QDir().mkpath(failed_target), "telemetry write-failure fixture could not be created");
+    Check(failing_recorder.Enqueue(sample),
+        "sample was not accepted into the durable recovery queue");
+    Check(!failing_recorder.StopFor(std::chrono::seconds(5))
+        && !failing_recorder.LastError().empty()
+        && failing_recorder.QueuedCount() == 1,
+        "a disk write failure was not surfaced with its accepted sample retained");
+    const QString pending_directory = QDir(failure_store)
+        .filePath(QStringLiteral("telemetry/pending"));
+    Check(QDir(pending_directory).entryList({QStringLiteral("*.json")}).size() == 1,
+        "failed telemetry was not retained in a recovery file");
+    Check(QDir(failed_target).removeRecursively(),
+        "failed telemetry fixture could not be removed for recovery");
+    nlsi::logging::TelemetryRecorder failure_recovery;
+    Check(failure_recovery.Start(failure_store.toStdWString())
+        && failure_recovery.Flush()
+        && failure_recovery.PendingCount() == 1
+        && QDir(pending_directory).entryList({QStringLiteral("*.json")}).isEmpty(),
+        "a retained failed write did not recover exactly once after restart");
+    Check(failure_recovery.StopFor(std::chrono::seconds(5)),
+        "recovered failed writer did not stop cleanly");
+
+    QTemporaryDir malformed_root;
+    Check(malformed_root.isValid(), "malformed-file temporary directory could not be created");
+    const QString malformed_path = QDir(malformed_root.path())
+        .filePath(QStringLiteral("telemetry/2026-10-08.nlsi"));
+    Check(QDir().mkpath(QFileInfo(malformed_path).absolutePath()),
+        "malformed-file telemetry directory could not be created");
+    QFile malformed_file(malformed_path);
+    const QByteArray malformed_contents =
+        "{\"format\":\"nlsi-telemetry\",\"schema_version\":2,\"record_type\":\"header\"}\n"
+        "not-json\n";
+    Check(malformed_file.open(QIODevice::WriteOnly)
+        && malformed_file.write(malformed_contents) == malformed_contents.size(),
+        "malformed complete telemetry fixture could not be written");
+    malformed_file.close();
+    nlsi::logging::TelemetryRecorder malformed_recovery;
+    Check(malformed_recovery.Start(malformed_root.path().toStdWString())
+        && !malformed_recovery.FlushFor(std::chrono::seconds(5))
+        && !malformed_recovery.LastError().empty(),
+        "a malformed complete telemetry record was not rejected");
+    QFile preserved_malformed(malformed_path);
+    Check(preserved_malformed.open(QIODevice::ReadOnly)
+        && preserved_malformed.readAll() == malformed_contents,
+        "malformed telemetry data was modified instead of preserved");
+    malformed_recovery.Stop();
+}
+
+void TestAsiaManilaTimeZone() {
+    using nlsi::time::ParseInstant;
+    using nlsi::time::Zone;
+    Check(Zone().isValid() && Zone().id() == QByteArrayLiteral("Asia/Manila"),
+        "the configured IANA Asia/Manila time zone is unavailable");
+    const QDateTime midnight = ParseInstant(QStringLiteral("2026-10-07T16:30:00.000Z"));
+    Check(midnight.isValid()
+        && midnight.toString(Qt::ISODateWithMs)
+            == QStringLiteral("2026-10-08T00:30:00.000+08:00"),
+        "UTC-to-Manila conversion did not cross the midnight date boundary correctly");
+    const QDateTime offset_timestamp =
+        ParseInstant(QStringLiteral("2026-10-07T23:30:00-05:00"));
+    Check(offset_timestamp.isValid()
+        && offset_timestamp.toString(Qt::ISODate)
+            == QStringLiteral("2026-10-08T12:30:00+08:00"),
+        "an explicit source offset did not preserve the instant in Manila time");
+    Check(!ParseInstant(QStringLiteral("2026-10-07T16:30:00.000")).isValid()
+        && !ParseInstant(QStringLiteral("not-a-time")).isValid(),
+        "missing-zone or invalid timestamps were silently reinterpreted");
 }
 
 } // namespace
@@ -816,6 +966,7 @@ int main() {
         {"history and TXT log persistence", TestHistoryAndTxtLogPersistence},
         {"stable NLSI job IDs and collision handling", TestStableNlsiJobIdsAndCollisionHandling},
         {"offline telemetry queue and interrupted-write recovery", TestTelemetryRecorderOfflineRecovery},
+        {"Asia/Manila timestamp conversion", TestAsiaManilaTimeZone},
         {"version comparison", TestVersionComparison},
     };
     try {

@@ -6,12 +6,17 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QSaveFile>
 #include <QSet>
+#include <QTimeZone>
 #include <QByteArray>
 #include <QtEndian>
 #include <QUuid>
 
 #include <algorithm>
+#include <utility>
+
+#include "time/ApplicationTime.h"
 
 namespace {
 
@@ -62,6 +67,19 @@ bool IsRawMappingValid(const QJsonObject& sample) {
     return qUncompress(compressed).size() == 32 * 1024;
 }
 
+bool IsRawSampleValid(const QJsonObject& sample) {
+    const QByteArray encoded = QJsonDocument(sample).toJson(QJsonDocument::Compact);
+    return !encoded.isEmpty() && encoded.size() <= kMaximumSampleBytes
+        && IsTimestamp(sample.value(QStringLiteral("timestamp_utc")).toString())
+        && sample.value(QStringLiteral("provider")).toString()
+            == QStringLiteral("TruckSim GPS")
+        && sample.value(QStringLiteral("provider_revision")).toInt() == 13
+        && !sample.value(QStringLiteral("raw_fields")).toObject().isEmpty()
+        && sample.value(QStringLiteral("raw_availability")).isObject()
+        && sample.value(QStringLiteral("normalized_fields")).isObject()
+        && IsRawMappingValid(sample);
+}
+
 bool IsStoredSampleValid(const QJsonObject& record) {
     const QString record_id = record.value(QStringLiteral("record_id")).toString();
     return record.value(QStringLiteral("record_type")).toString()
@@ -83,6 +101,10 @@ bool IsStoredSampleValid(const QJsonObject& record) {
 
 namespace nlsi::logging {
 
+TelemetryRecorder::TelemetryRecorder(std::function<void()> before_write)
+    : before_write_(std::move(before_write)) {
+}
+
 TelemetryRecorder::~TelemetryRecorder() {
     Stop();
 }
@@ -94,10 +116,21 @@ bool TelemetryRecorder::Start(
     if (running_) {
         return true;
     }
+    if (worker_.joinable()) {
+        const QString reason = QStringLiteral(
+            "The previous local telemetry writer has not been joined.");
+        if (error) {
+            *error = reason.toStdWString();
+        }
+        SetError(reason);
+        return false;
+    }
     root_ = QString::fromStdWString(user_data_directory);
     telemetry_directory_ = QDir(root_).filePath(QStringLiteral("telemetry"));
+    pending_directory_ = QDir(telemetry_directory_).filePath(QStringLiteral("pending"));
     sync_queue_path_ = QDir(root_).filePath(QStringLiteral("sync/queue.jsonl"));
     if (!QDir().mkpath(telemetry_directory_)
+        || !QDir().mkpath(pending_directory_)
         || !QDir().mkpath(QFileInfo(sync_queue_path_).absolutePath())) {
         const QString reason = QStringLiteral("Could not create local telemetry storage under %1.")
             .arg(root_);
@@ -115,16 +148,7 @@ bool TelemetryRecorder::Start(
 }
 
 bool TelemetryRecorder::Enqueue(const QJsonObject& sample, std::wstring* error) {
-    const QByteArray encoded = QJsonDocument(sample).toJson(QJsonDocument::Compact);
-    if (encoded.isEmpty() || encoded.size() > kMaximumSampleBytes
-        || !IsTimestamp(sample.value(QStringLiteral("timestamp_utc")).toString())
-        || sample.value(QStringLiteral("provider")).toString()
-            != QStringLiteral("TruckSim GPS")
-        || sample.value(QStringLiteral("provider_revision")).toInt() != 13
-        || sample.value(QStringLiteral("raw_fields")).toObject().isEmpty()
-        || !sample.value(QStringLiteral("raw_availability")).isObject()
-        || !sample.value(QStringLiteral("normalized_fields")).isObject()
-        || !IsRawMappingValid(sample)) {
+    if (!IsRawSampleValid(sample)) {
         const QString reason = QStringLiteral("Rejected malformed or oversized raw telemetry sample.");
         if (error) {
             *error = reason.toStdWString();
@@ -142,7 +166,7 @@ bool TelemetryRecorder::Enqueue(const QJsonObject& sample, std::wstring* error) 
         SetError(reason);
         return false;
     }
-    if (queue_.size() >= kMaximumQueuedSamples) {
+    if (queue_.size() + (writing_ ? 1U : 0U) >= kMaximumQueuedSamples) {
         const QString reason = QStringLiteral(
             "Local telemetry write queue is full; the sample was not accepted.");
         if (error) {
@@ -151,7 +175,11 @@ bool TelemetryRecorder::Enqueue(const QJsonObject& sample, std::wstring* error) 
         SetError(reason);
         return false;
     }
-    queue_.push_back(sample);
+    QJsonObject queued_sample = sample;
+    const QString record_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    queued_sample.insert(QStringLiteral("record_id"), record_id);
+    const QString pending_path = QDir(pending_directory_).filePath(record_id + QStringLiteral(".json"));
+    queue_.push_back({std::move(queued_sample), pending_path});
     condition_.notify_one();
     return true;
 }
@@ -173,12 +201,27 @@ bool TelemetryRecorder::FlushFor(std::chrono::milliseconds timeout) {
     return drained && LastError().empty();
 }
 
-void TelemetryRecorder::Stop() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        stopping_ = true;
-        condition_.notify_all();
+void TelemetryRecorder::RequestStop() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stopping_ = true;
+    condition_.notify_all();
+}
+
+bool TelemetryRecorder::StopFor(std::chrono::milliseconds timeout) {
+    RequestStop();
+    std::unique_lock<std::mutex> lock(mutex_);
+    const bool stopped = condition_.wait_for(lock, timeout, [this] {
+        return !running_;
+    });
+    lock.unlock();
+    if (stopped && worker_.joinable()) {
+        worker_.join();
     }
+    return stopped && LastError().empty();
+}
+
+void TelemetryRecorder::Stop() {
+    RequestStop();
     if (worker_.joinable()) {
         worker_.join();
     }
@@ -193,6 +236,16 @@ std::wstring TelemetryRecorder::LastError() const {
 
 std::uint64_t TelemetryRecorder::PendingCount() const {
     return pending_count_.load();
+}
+
+std::uint64_t TelemetryRecorder::QueuedCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return static_cast<std::uint64_t>(queue_.size()) + (writing_ ? 1U : 0U);
+}
+
+bool TelemetryRecorder::IsRunning() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return running_;
 }
 
 void TelemetryRecorder::WriteLoop() {
@@ -210,22 +263,33 @@ void TelemetryRecorder::WriteLoop() {
     }
 
     while (true) {
-        QJsonObject sample;
+        QueuedSample queued_sample;
         {
             std::unique_lock<std::mutex> lock(mutex_);
             condition_.wait(lock, [this] { return stopping_ || !queue_.empty(); });
             if (queue_.empty() && stopping_) {
                 break;
             }
-            sample = std::move(queue_.front());
+            queued_sample = std::move(queue_.front());
             queue_.pop_front();
             writing_ = true;
         }
-        const bool written = WriteSample(std::move(sample));
+        if (before_write_) {
+            before_write_();
+        }
+        bool written = PersistPendingSample(queued_sample)
+            && WriteSample(queued_sample.sample);
+        if (written && !QFile::remove(queued_sample.pending_path)) {
+            SetError(QStringLiteral(
+                "Telemetry was appended, but its local recovery copy could not be removed: %1")
+                .arg(queued_sample.pending_path));
+            written = false;
+        }
         {
             std::lock_guard<std::mutex> lock(mutex_);
             writing_ = false;
             if (!written) {
+                queue_.push_front(std::move(queued_sample));
                 stopping_ = true;
             }
             condition_.notify_all();
@@ -277,7 +341,83 @@ bool TelemetryRecorder::Recover() {
             }
         }
     }
-    return ReconcileSyncQueue(record_ids);
+    return ReconcileSyncQueue(record_ids) && RecoverPendingSamples(record_ids);
+}
+
+bool TelemetryRecorder::PersistPendingSample(const QueuedSample& queued_sample) {
+    QSaveFile file(queued_sample.pending_path);
+    const QJsonObject pending_record{
+        {QStringLiteral("format"), QStringLiteral("nlsi-pending-sample")},
+        {QStringLiteral("schema_version"), 1},
+        {QStringLiteral("sample"), queued_sample.sample},
+    };
+    const QByteArray bytes = QJsonDocument(pending_record).toJson(QJsonDocument::Compact) + '\n';
+    if (!file.open(QIODevice::WriteOnly)
+        || file.write(bytes) != bytes.size()
+        || !file.commit()) {
+        SetError(QStringLiteral(
+            "Could not preserve accepted telemetry in the local recovery queue %1: %2")
+            .arg(queued_sample.pending_path, file.errorString()));
+        return false;
+    }
+    return true;
+}
+
+bool TelemetryRecorder::RecoverPendingSamples(const QSet<QString>& record_ids) {
+    QDir directory(pending_directory_);
+    const QFileInfoList files = directory.entryInfoList(
+        {QStringLiteral("*.json")}, QDir::Files, QDir::Name);
+    std::deque<QueuedSample> recovered;
+    for (const QFileInfo& file_info : files) {
+        QFile file(file_info.absoluteFilePath());
+        if (!file.open(QIODevice::ReadOnly)) {
+            SetError(QStringLiteral("Could not read pending telemetry recovery file %1: %2")
+                .arg(file_info.absoluteFilePath(), file.errorString()));
+            return false;
+        }
+        QJsonObject object;
+        if (!ParseObject(file.readAll().trimmed(), &object)
+            || object.value(QStringLiteral("format")).toString()
+                != QStringLiteral("nlsi-pending-sample")
+            || object.value(QStringLiteral("schema_version")).toInt(-1) != 1
+            || !object.value(QStringLiteral("sample")).isObject()) {
+            SetError(QStringLiteral("Malformed pending telemetry recovery file %1; it was preserved.")
+                .arg(file_info.absoluteFilePath()));
+            return false;
+        }
+        QJsonObject sample = object.value(QStringLiteral("sample")).toObject();
+        const QString record_id = sample.value(QStringLiteral("record_id")).toString();
+        sample.remove(QStringLiteral("record_id"));
+        if (QUuid(record_id).isNull() || !IsRawSampleValid(sample)) {
+            SetError(QStringLiteral("Invalid pending telemetry recovery file %1; it was preserved.")
+                .arg(file_info.absoluteFilePath()));
+            return false;
+        }
+        sample.insert(QStringLiteral("record_id"), record_id);
+        if (record_ids.contains(record_id)) {
+            if (!QFile::remove(file_info.absoluteFilePath())) {
+                SetError(QStringLiteral(
+                    "A recovered telemetry record is already persisted, but its recovery file "
+                    "could not be removed: %1").arg(file_info.absoluteFilePath()));
+                return false;
+            }
+            continue;
+        }
+        recovered.push_back({std::move(sample), file_info.absoluteFilePath()});
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (queue_.size() + recovered.size() > kMaximumQueuedSamples) {
+        SetError(QStringLiteral(
+            "The local telemetry recovery queue exceeds its supported capacity; "
+            "recovery files were preserved."));
+        return false;
+    }
+    while (!recovered.empty()) {
+        queue_.push_front(std::move(recovered.back()));
+        recovered.pop_back();
+    }
+    condition_.notify_all();
+    return true;
 }
 
 bool TelemetryRecorder::RecoverTelemetryFile(const std::wstring& path) {
@@ -415,7 +555,14 @@ bool TelemetryRecorder::WriteSample(QJsonObject sample) {
         SetError(QStringLiteral("Telemetry sample contains an invalid UTC timestamp."));
         return false;
     }
-    const QString base_name = date_time.toString(QStringLiteral("yyyy-MM-dd"));
+    const QTimeZone manila = nlsi::time::Zone();
+    if (!manila.isValid()) {
+        SetError(QStringLiteral(
+            "IANA time-zone data for Asia/Manila is unavailable; telemetry was not written."));
+        return false;
+    }
+    const QString base_name = date_time.toTimeZone(manila)
+        .toString(QStringLiteral("yyyy-MM-dd"));
     QString file_path = QDir(telemetry_directory_).filePath(base_name + QStringLiteral(".nlsi"));
     int rotation = 0;
     while (QFileInfo::exists(file_path) && QFileInfo(file_path).size() >= kMaximumFileBytes) {
@@ -442,7 +589,11 @@ bool TelemetryRecorder::WriteSample(QJsonObject sample) {
             .arg(file_path));
         return false;
     }
-    const QString record_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString record_id = sample.value(QStringLiteral("record_id")).toString();
+    if (QUuid(record_id).isNull()) {
+        SetError(QStringLiteral("Telemetry recovery record has an invalid stable identifier."));
+        return false;
+    }
     sample.insert(QStringLiteral("record_type"), QStringLiteral("telemetry_sample"));
     sample.insert(QStringLiteral("schema_version"), 2);
     sample.insert(QStringLiteral("record_id"), record_id);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QElapsedTimer>
 #include <QMainWindow>
 
 #include <string>
@@ -14,6 +15,7 @@ class QToolButton;
 class QTimer;
 class QLabel;
 class QCloseEvent;
+class QProgressDialog;
 
 namespace nlsi::gui {
 
@@ -30,6 +32,7 @@ private:
     void ActivatePage(const QString& key);
     void RefreshState();
     void RefreshClock();
+    void PollShutdown();
 
     telemetry::TelemetryCore& telemetry_core_;
     QStackedWidget* page_stack_ = nullptr;
@@ -43,6 +46,11 @@ private:
     QHash<QString, QString> page_subtitles_;
     QTimer* refresh_timer_ = nullptr;
     QTimer* clock_timer_ = nullptr;
+    QTimer* shutdown_timer_ = nullptr;
+    QProgressDialog* shutdown_dialog_ = nullptr;
+    QElapsedTimer shutdown_wait_;
+    bool shutdown_started_ = false;
+    bool shutdown_complete_ = false;
 };
 
 } // namespace nlsi::gui

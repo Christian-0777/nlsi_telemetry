@@ -13,22 +13,15 @@
 #include <sstream>
 #include <type_traits>
 
+#include "time/ApplicationTime.h"
+
 namespace {
 
 using nlsi::telemetry::TelemetryField;
 using nlsi::telemetry::TelemetrySnapshot;
 
 std::wstring UtcNow() {
-    const auto now = std::chrono::system_clock::now();
-    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now.time_since_epoch()) % 1000;
-    const std::time_t time = std::chrono::system_clock::to_time_t(now);
-    std::tm utc{};
-    gmtime_s(&utc, &time);
-    std::wostringstream output;
-    output << std::put_time(&utc, L"%Y-%m-%dT%H:%M:%S")
-           << L'.' << std::setw(3) << std::setfill(L'0') << milliseconds.count() << L'Z';
-    return output.str();
+    return nlsi::time::UtcTimestampNow().toStdWString();
 }
 
 template <typename T>
@@ -122,6 +115,8 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
         trucksim_snapshot_ = {};
         ui_state_ = {};
         previous_job_identity_.clear();
+        shutdown_started_ = false;
+        shutdown_error_.clear();
         trucksim_state_ = ProviderState::Connecting;
         logged_trucksim_message_.clear();
         if (!user_data_directory.empty()) {
@@ -179,36 +174,99 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
 }
 
 void TelemetryCore::Shutdown() {
+    BeginShutdown();
+    if (telemetry_recorder_) {
+        telemetry_recorder_->StopFor(std::chrono::seconds(5));
+    }
+}
+
+void TelemetryCore::BeginShutdown() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (shutdown_started_) {
+            return;
+        }
+        shutdown_started_ = true;
+    }
     trucksim_provider_.Stop();
     scs_position_provider_.Stop();
-    if (telemetry_recorder_) {
-        telemetry_recorder_->Stop();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (session_manager_.IsActive()) {
+            EndSessionLocked(L"application_shutdown", UtcNow());
+        }
+        if (history_store_) {
+            const std::wstring history_error = history_store_->Snapshot().error.toStdWString();
+            if (!history_error.empty()) {
+                shutdown_error_ = history_error;
+            }
+        }
+        trucksim_state_ = ProviderState::Disconnected;
+        status_.trucksim = trucksim_state_;
+        scs_position_snapshot_ = {};
+        ui_state_.scs_position = scs_position_snapshot_;
+        const std::uint64_t pending_records =
+            telemetry_recorder_ ? telemetry_recorder_->PendingCount() : 0;
+        const std::wstring recorder_error =
+            telemetry_recorder_ ? telemetry_recorder_->LastError() : std::wstring{};
+        status_.sync_state = !recorder_error.empty()
+            ? L"Error; local records require attention"
+            : (!telemetry_recorder_
+                ? L"Offline; local telemetry recorder is unavailable"
+                : (pending_records == 0
+                    ? L"Offline; no authenticated API is configured"
+                    : L"Pending (" + std::to_wstring(pending_records)
+                        + L" records); authenticated API is not configured"));
+        status_.combined = CombinedProviderState::Disconnected;
+        status_.telemetry_freshness = L"offline";
+        if (shutdown_error_.empty()) {
+            status_.last_error.clear();
+        } else {
+            status_.last_error = shutdown_error_;
+        }
+        trucksim_snapshot_.connected = false;
+        RebuildStateLocked();
+        if (telemetry_recorder_) {
+            telemetry_recorder_->RequestStop();
+        }
     }
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (session_manager_.IsActive()) {
-        EndSessionLocked(L"application_shutdown", UtcNow());
+}
+
+TelemetryCore::ShutdownProgress TelemetryCore::PollShutdown() {
+    BeginShutdown();
+    ShutdownProgress progress;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!shutdown_error_.empty()) {
+            progress.state = ShutdownState::Failed;
+            progress.error = shutdown_error_;
+        }
     }
-    trucksim_state_ = ProviderState::Disconnected;
-    status_.trucksim = trucksim_state_;
-    scs_position_snapshot_ = {};
-    ui_state_.scs_position = scs_position_snapshot_;
-    const std::uint64_t pending_records =
-        telemetry_recorder_ ? telemetry_recorder_->PendingCount() : 0;
-    const std::wstring recorder_error =
-        telemetry_recorder_ ? telemetry_recorder_->LastError() : std::wstring{};
-    status_.sync_state = !recorder_error.empty()
-        ? L"Error; local records require attention"
-        : (!telemetry_recorder_
-            ? L"Offline; local telemetry recorder is unavailable"
-            : (pending_records == 0
-                ? L"Offline; no authenticated API is configured"
-                : L"Pending (" + std::to_wstring(pending_records)
-                    + L" records); authenticated API is not configured"));
-    status_.combined = CombinedProviderState::Disconnected;
-    status_.telemetry_freshness = L"offline";
-    status_.last_error.clear();
-    trucksim_snapshot_.connected = false;
-    RebuildStateLocked();
+    if (!telemetry_recorder_) {
+        if (progress.state != ShutdownState::Failed) {
+            progress.state = ShutdownState::Completed;
+        }
+        return progress;
+    }
+    const bool drained = telemetry_recorder_->StopFor(std::chrono::milliseconds::zero());
+    progress.queued_writes = telemetry_recorder_->QueuedCount();
+    progress.pending_records = telemetry_recorder_->PendingCount();
+    const std::wstring recorder_error = telemetry_recorder_->LastError();
+    if (!recorder_error.empty() && progress.error.empty()) {
+        progress.error = recorder_error;
+    }
+    if (!drained) {
+        progress.state = telemetry_recorder_->IsRunning()
+            ? ShutdownState::Draining
+            : ShutdownState::Failed;
+    } else if (progress.state != ShutdownState::Failed) {
+        progress.state = ShutdownState::Completed;
+    }
+    return progress;
+}
+
+bool TelemetryCore::IsShuttingDownLocked() const {
+    return shutdown_started_;
 }
 
 ProviderStatus TelemetryCore::Status() const {
@@ -252,8 +310,12 @@ session::HistorySnapshot TelemetryCore::History() const {
 }
 
 bool TelemetryCore::FlushLocalWrites(std::chrono::milliseconds timeout) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return !telemetry_recorder_ || telemetry_recorder_->FlushFor(timeout);
+    logging::TelemetryRecorder* recorder = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        recorder = telemetry_recorder_.get();
+    }
+    return !recorder || recorder->FlushFor(timeout);
 }
 
 bool TelemetryCore::IsFreshEnough() const {
@@ -266,6 +328,9 @@ void TelemetryCore::OnTruckSimUpdate(
     ProviderState state,
     const ProviderStatus& diagnostics) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (IsShuttingDownLocked()) {
+        return;
+    }
     trucksim_snapshot_ = snapshot;
     trucksim_state_ = state;
     if (state != ProviderState::Connected) {
@@ -299,7 +364,7 @@ void TelemetryCore::OnTruckSimUpdate(
 
 void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!history_store_) {
+    if (IsShuttingDownLocked() || !history_store_) {
         return;
     }
     const QByteArray raw_packet(packet_bytes.data(), static_cast<qsizetype>(packet_bytes.size()));
@@ -332,7 +397,7 @@ void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
 
 void TelemetryCore::OnTruckSimSample(const providers::RawTelemetrySample& sample) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!telemetry_recorder_) {
+    if (IsShuttingDownLocked() || !telemetry_recorder_) {
         return;
     }
     const QByteArray compressed_mapping = qCompress(sample.mapping, 9);
@@ -366,6 +431,9 @@ void TelemetryCore::OnTruckSimSample(const providers::RawTelemetrySample& sample
 void TelemetryCore::OnScsPositionUpdate(
     const providers::ScsPositionSnapshot& snapshot) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (IsShuttingDownLocked()) {
+        return;
+    }
     scs_position_snapshot_ = snapshot;
     ui_state_.scs_position = snapshot;
 }

@@ -19,12 +19,27 @@ namespace nlsi::telemetry {
 
 class TelemetryCore {
 public:
+    enum class ShutdownState {
+        Draining,
+        Completed,
+        Failed,
+    };
+
+    struct ShutdownProgress {
+        ShutdownState state = ShutdownState::Draining;
+        std::uint64_t queued_writes = 0;
+        std::uint64_t pending_records = 0;
+        std::wstring error;
+    };
+
     TelemetryCore();
     ~TelemetryCore();
     TelemetryCore(const TelemetryCore&) = delete;
     TelemetryCore& operator=(const TelemetryCore&) = delete;
 
     bool Initialize(const std::wstring& user_data_directory = {});
+    void BeginShutdown();
+    ShutdownProgress PollShutdown();
     void Shutdown();
 
     ProviderStatus Status() const;
@@ -43,6 +58,7 @@ private:
     void OnTruckSimSample(const providers::RawTelemetrySample& sample);
     void OnScsPositionUpdate(const providers::ScsPositionSnapshot& snapshot);
     void RebuildStateLocked();
+    bool IsShuttingDownLocked() const;
     void UpdateSessionLifecycleLocked();
     void EndSessionLocked(const std::wstring& reason, const std::wstring& timestamp);
     void LogProviderTransition(
@@ -59,6 +75,8 @@ private:
     ProviderState trucksim_state_ = ProviderState::Disconnected;
     std::chrono::steady_clock::time_point session_started_monotonic_;
     std::wstring logged_trucksim_message_;
+    bool shutdown_started_ = false;
+    std::wstring shutdown_error_;
     std::unique_ptr<logging::Logger> logger_;
     std::unique_ptr<logging::TelemetryRecorder> telemetry_recorder_;
     std::unique_ptr<session::HistoryStore> history_store_;

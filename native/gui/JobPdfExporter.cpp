@@ -12,6 +12,7 @@
 #include <cmath>
 
 #include "PageSupport.h"
+#include "time/ApplicationTime.h"
 
 namespace nlsi::gui {
 namespace {
@@ -88,6 +89,14 @@ bool ExportJobsToPdf(
         }
         return false;
     }
+    const QDateTime generated_at = nlsi::time::NowLocal();
+    if (!generated_at.isValid()) {
+        if (error) {
+            *error = QStringLiteral(
+                "The required IANA time-zone data for Asia/Manila is unavailable.");
+        }
+        return false;
+    }
 
     QString html = QStringLiteral(
         "<html><head><meta charset=\"utf-8\"><style>"
@@ -102,8 +111,8 @@ bool ExportJobsToPdf(
         "</style></head><body><h1>NLSI Exclusive Logbook</h1>"
         "<div class=\"generated\">Completed job records · %1 records · Generated %2</div>")
         .arg(FormatNumber(jobs.size(), 0).toHtmlEscaped(),
-            QDateTime::currentDateTimeUtc().toOffsetFromUtc(8 * 60 * 60)
-                .toString(QStringLiteral("MM/dd/yy HH:mm:ss.zzz")).toHtmlEscaped());
+            (generated_at.toString(QStringLiteral("MM/dd/yy HH:mm:ss.zzz"))
+                + QStringLiteral(" Asia/Manila")).toHtmlEscaped());
 
     for (qsizetype index = 0; index < jobs.size(); ++index) {
         const nlsi::session::JobRecord& job = jobs[index];

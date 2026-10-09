@@ -1,7 +1,6 @@
 #include "MainWindow.h"
 
 #include <QFrame>
-#include <QDateTime>
 #include <QCloseEvent>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -10,6 +9,7 @@
 #include <QVBoxLayout>
 #include <QPixmap>
 #include <QPushButton>
+#include <QProgressDialog>
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QStackedWidget>
@@ -23,6 +23,7 @@
 #include "IconTheme.h"
 #include "JobHistoryPage.h"
 #include "SettingsPage.h"
+#include "time/ApplicationTime.h"
 
 namespace nlsi::gui {
 
@@ -230,6 +231,9 @@ MainWindow::MainWindow(
     clock_timer_->setTimerType(Qt::PreciseTimer);
     clock_timer_->setInterval(33);
     connect(clock_timer_, &QTimer::timeout, this, &MainWindow::RefreshClock);
+    shutdown_timer_ = new QTimer(this);
+    shutdown_timer_->setInterval(200);
+    connect(shutdown_timer_, &QTimer::timeout, this, &MainWindow::PollShutdown);
     ActivatePage(QStringLiteral("dashboard"));
     RefreshClock();
     RefreshState();
@@ -253,40 +257,129 @@ void MainWindow::ActivatePage(const QString& key) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
-    QMessageBox confirmation(QMessageBox::Question,
-        QStringLiteral("Exit NLSI Exclusive Logbook"),
-        QStringLiteral("Are you sure you want to exit NLSI Exclusive Logbook?"),
-        QMessageBox::NoButton,
-        this);
-    QPushButton* exit_button = confirmation.addButton(
-        QStringLiteral("Exit"), QMessageBox::AcceptRole);
-    QPushButton* cancel_button = confirmation.addButton(
-        QStringLiteral("Cancel"), QMessageBox::RejectRole);
-    confirmation.setDefaultButton(cancel_button);
-    confirmation.setEscapeButton(cancel_button);
-    confirmation.exec();
-    if (confirmation.clickedButton() != exit_button) {
-        event->ignore();
+    if (shutdown_complete_) {
+        event->accept();
         return;
     }
-    if (!telemetry_core_.FlushLocalWrites(std::chrono::seconds(5))) {
-        QMessageBox::warning(this,
-            QStringLiteral("Local data is still being written"),
-            QStringLiteral("The application is still writing local telemetry. "
-                "No data was discarded; please try exiting again shortly."));
-        event->ignore();
-        return;
+    if (!shutdown_started_) {
+        QMessageBox confirmation(QMessageBox::Question,
+            QStringLiteral("Exit NLSI Exclusive Logbook"),
+            QStringLiteral("Are you sure you want to exit NLSI Exclusive Logbook?"),
+            QMessageBox::NoButton,
+            this);
+        QPushButton* exit_button = confirmation.addButton(
+            QStringLiteral("Exit"), QMessageBox::AcceptRole);
+        QPushButton* cancel_button = confirmation.addButton(
+            QStringLiteral("Cancel"), QMessageBox::RejectRole);
+        confirmation.setDefaultButton(cancel_button);
+        confirmation.setEscapeButton(cancel_button);
+        confirmation.exec();
+        if (confirmation.clickedButton() != exit_button) {
+            event->ignore();
+            return;
+        }
+        shutdown_started_ = true;
+        telemetry_core_.BeginShutdown();
     }
-    event->accept();
+    event->ignore();
+    if (!shutdown_dialog_) {
+        shutdown_dialog_ = new QProgressDialog(
+            QStringLiteral("Stopping telemetry producers and saving accepted local records."),
+            QStringLiteral("Keep app open"), 0, 0, this);
+        shutdown_dialog_->setWindowTitle(QStringLiteral("Saving local data"));
+        shutdown_dialog_->setWindowModality(Qt::WindowModal);
+        shutdown_dialog_->setMinimumDuration(0);
+        shutdown_dialog_->setAutoClose(false);
+        shutdown_dialog_->setAutoReset(false);
+        connect(shutdown_dialog_, &QProgressDialog::canceled, this, [this] {
+            shutdown_timer_->stop();
+            shutdown_dialog_->hide();
+        });
+    }
+    shutdown_dialog_->show();
+    shutdown_wait_.start();
+    shutdown_timer_->start();
+    PollShutdown();
 }
 
 void MainWindow::RefreshClock() {
-    const QDateTime manila_time = QDateTime::currentDateTimeUtc().addSecs(8 * 60 * 60);
-    const QString text = manila_time.toString(
-        QStringLiteral("MM/dd/yy - HH:mm:ss.zzz"))
-        + QStringLiteral(" | Asia/Manila | Ping: N/A ms");
+    const QDateTime manila_time = nlsi::time::NowLocal();
+    const QString text = manila_time.isValid()
+        ? manila_time.toString(QStringLiteral("MM/dd/yy - HH:mm:ss.zzz"))
+            + QStringLiteral(" | Asia/Manila | Ping: N/A ms")
+        : QStringLiteral("Time-zone data unavailable | Asia/Manila");
     if (header_clock_->text() != text) {
         header_clock_->setText(text);
+    }
+}
+
+void MainWindow::PollShutdown() {
+    const auto progress = telemetry_core_.PollShutdown();
+    if (progress.state == telemetry::TelemetryCore::ShutdownState::Completed) {
+        shutdown_timer_->stop();
+        shutdown_complete_ = true;
+        if (shutdown_dialog_) {
+            shutdown_dialog_->hide();
+        }
+        QTimer::singleShot(0, this, &QWidget::close);
+        return;
+    }
+    if (progress.state == telemetry::TelemetryCore::ShutdownState::Failed) {
+        shutdown_timer_->stop();
+        if (shutdown_dialog_) {
+            shutdown_dialog_->hide();
+        }
+        QMessageBox prompt(QMessageBox::Critical,
+            QStringLiteral("Local data could not be fully saved"),
+            QStringLiteral("%1\n\n%2 accepted local write(s) remain queued. "
+                "Writes already copied to recovery files will be retried at next start; "
+                "an in-memory write that could not be copied may be lost if you exit. "
+                "Exiting now will not be reported as a clean shutdown.")
+                .arg(QString::fromStdWString(progress.error))
+                .arg(progress.queued_writes),
+            QMessageBox::NoButton,
+            this);
+        QPushButton* exit_button = prompt.addButton(
+            QStringLiteral("Exit with write error"), QMessageBox::DestructiveRole);
+        QPushButton* keep_button = prompt.addButton(
+            QStringLiteral("Keep app open"), QMessageBox::RejectRole);
+        prompt.setDefaultButton(keep_button);
+        prompt.exec();
+        if (prompt.clickedButton() == exit_button) {
+            shutdown_complete_ = true;
+            QTimer::singleShot(0, this, &QWidget::close);
+        }
+        return;
+    }
+
+    if (shutdown_dialog_) {
+        shutdown_dialog_->setLabelText(
+            QStringLiteral("Draining accepted local telemetry writes: %1 queued; "
+                "%2 local-only records pending synchronization.")
+                .arg(progress.queued_writes)
+                .arg(progress.pending_records));
+    }
+    if (shutdown_wait_.elapsed() >= 5000) {
+        shutdown_wait_.restart();
+        QMessageBox prompt(QMessageBox::Warning,
+            QStringLiteral("Telemetry shutdown is taking longer than expected"),
+            QStringLiteral("%1 accepted write(s) remain in progress. You may keep waiting "
+                "or leave the application open. The writer will not be forcibly terminated.")
+                .arg(progress.queued_writes),
+            QMessageBox::NoButton,
+            this);
+        QPushButton* wait_button = prompt.addButton(
+            QStringLiteral("Keep waiting"), QMessageBox::AcceptRole);
+        QPushButton* open_button = prompt.addButton(
+            QStringLiteral("Keep app open"), QMessageBox::RejectRole);
+        prompt.setDefaultButton(wait_button);
+        prompt.exec();
+        if (prompt.clickedButton() == open_button) {
+            shutdown_timer_->stop();
+            if (shutdown_dialog_) {
+                shutdown_dialog_->hide();
+            }
+        }
     }
 }
 

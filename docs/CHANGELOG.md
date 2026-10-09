@@ -2,6 +2,14 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.4.5-beta
+
+- Stops telemetry producers before requesting a writer drain and reports draining, completed, timed-out, and failed shutdown states; slow work remains cancellable from the UI without terminating its worker.
+- Persists queued telemetry to atomic recovery files before appending it, then reconciles interrupted writes by stable record ID on restart.
+- Uses the IANA `Asia/Manila` zone for local timestamps, display conversion, and telemetry day grouping while retaining UTC machine-readable telemetry timestamps.
+- Keeps the v1 application `.nlsi`, v2 telemetry `.nlsi`, and UTF-8 TXT formats distinct and updates their recovery/time-zone documentation.
+- Preserves application identity, user-data location, installer policy, and prior release artifacts.
+
 ## v1.4.4-beta
 
 - Adds the position-only SCS SDK 1.15 `nlsi.dll` plugin for x64 and x86; the plugin subscribes only to `truck.world.placement`.

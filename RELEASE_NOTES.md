@@ -1,3 +1,30 @@
+# NLSI Exclusive Logbook v1.4.5-beta
+
+This maintenance release strengthens local telemetry shutdown and recovery,
+standardizes local date/time handling on the IANA `Asia/Manila` zone, and keeps
+the existing application-log and telemetry schemas compatible.
+
+## Verified changes
+
+- Stops telemetry producers before draining accepted writes; displays shutdown
+  progress and does not forcibly terminate a slow writer.
+- Stores queued samples in atomic local recovery files and deduplicates them
+  against telemetry records during restart recovery.
+- Converts explicitly zoned timestamps to Asia/Manila for display and daily
+  telemetry file grouping; stored `timestamp_utc` values remain UTC.
+- Preserves the separate v1 application `.nlsi`, v2 telemetry `.nlsi`, and
+  UTF-8 TXT purposes and schemas.
+- Keeps the existing application identity, per-user data location, and
+  installer/uninstall data policy.
+
+ETS2/ATS gameplay and hardware/provider integration still require manual
+validation. Previous release artifacts are not modified.
+
+Expected installer target:
+`build/releases/v1.4.5-beta/NLSI-Exclusive-Logbook-v1.4.5-beta-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.4.4-beta
 
 This Beta maintenance release adds current in-game world coordinates through a

@@ -1,10 +1,10 @@
 # Installation
 
-## Native v1.4.4-beta
+## Native v1.4.5-beta
 
 - Windows x64; no Python runtime is required for the native desktop application.
 - A fresh Alpha or Beta install defaults to `C:\Program Files (x86)\NLSI Exclusive Logbook`; the Stable installer defaults to `C:\Program Files\NLSI Exclusive Logbook`. An existing installation or user-selected path is retained during upgrades.
-- Setup displays whether it detected an existing installation and, when available, its installed version before updating to v1.4.4-beta. The publisher is Nabski Logistics and Solutions Inc.
+- Setup displays whether it detected an existing installation and, when available, its installed version before updating to v1.4.5-beta. The publisher is Nabski Logistics and Solutions Inc.
 - Updates replace application files in place and retain existing configuration and logs. Existing Start Menu/Desktop shortcut options and Terms and Conditions/Privacy Policy acceptance remain available.
 - Setup automatically installs the hash-verified official TruckSim GPS x64/x86 plugin into matching architecture folders for detected Steam ETS2/ATS installations. The separate TruckSim GPS Telemetry Server GUI is not bundled, opened, or required. Different or modified existing plugin DLLs are preserved.
 - Setup separately installs the SCS SDK position-only `nlsi.dll` into `bin\win_x64\plugins` and `bin\win_x86\plugins` only when those game architecture folders exist. Existing `nlsi.dll` files are backed up under the application directory; uninstall restores a valid backup or removes only an unchanged managed copy.
@@ -21,7 +21,7 @@
 
 ## Legacy Python telemetry installer (earlier releases)
 
-The instructions below apply only to the earlier Python/game-plugin installer, not the native v1.4.4-beta desktop installer.
+The instructions below apply only to the earlier Python/game-plugin installer, not the native v1.4.5-beta desktop installer.
 
 The release history proves that the native v1.3.8 Alpha and v1.3.9 Beta
 installer definitions used `{autopf}` in 64-bit install mode, while the
@@ -40,7 +40,7 @@ installation path during upgrades.
 - Administrator approval for installation under Program Files and game plugin folders.
 - The installer uses 64-bit install mode for the native x64 app and requests administrator privileges so it can write to Program Files and supported game plugin folders.
 
-The legacy Python telemetry installer and its game-plugin procedures below describe the earlier installer; the native v1.4.4-beta installer does not bundle that legacy agent.
+The legacy Python telemetry installer and its game-plugin procedures below describe the earlier installer; the native v1.4.5-beta installer does not bundle that legacy agent.
 
 ## Fresh installation
 

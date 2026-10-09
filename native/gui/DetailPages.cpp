@@ -162,7 +162,7 @@ TelemetryPage::TelemetryPage(QWidget* parent)
 void TelemetryPage::UpdateState(const telemetry::TelemetryUiState& state) {
     const auto& values = state.fast.values;
     SetValue(QStringLiteral("game"), FieldText(values.game_name));
-    SetValue(QStringLiteral("sample"), QString::fromStdWString(values.timestamp));
+    SetValue(QStringLiteral("sample"), TimestampText(QString::fromStdWString(values.timestamp)));
     SetValue(QStringLiteral("speed"), NumberText(values.speed_kmh, 2, QStringLiteral(" km/h")));
     SetValue(QStringLiteral("rpm"), NumberText(values.rpm, 0));
     SetValue(QStringLiteral("gear"), NumberText(values.gear, 0));
@@ -241,7 +241,7 @@ void ProvidersPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("combined"),
         QString::fromStdWString(telemetry::FormatCombinedStatus(state.providers.combined)));
     SetValue(QStringLiteral("freshness"),
-        QString::fromStdWString(state.providers.telemetry_freshness));
+        TimestampText(QString::fromStdWString(state.providers.telemetry_freshness)));
     const auto& values = state.fast.values;
     SetValue(QStringLiteral("source"),
         values.speed_kmh.available ? QString::fromStdWString(values.speed_kmh.source) : QStringLiteral("--"));
@@ -258,13 +258,13 @@ void ProvidersPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("lastRead"),
         state.providers.trucksim_last_read.empty()
             ? QStringLiteral("Never")
-            : QString::fromStdWString(state.providers.trucksim_last_read));
+            : TimestampText(QString::fromStdWString(state.providers.trucksim_last_read)));
     SetValue(QStringLiteral("dataAge"),
         QString::fromStdWString(state.providers.trucksim_data_age));
     SetValue(QStringLiteral("sourceTimestamp"),
         state.providers.trucksim_source_timestamp.empty()
             ? QStringLiteral("--")
-            : QString::fromStdWString(state.providers.trucksim_source_timestamp));
+            : TimestampText(QString::fromStdWString(state.providers.trucksim_source_timestamp)));
     SetValue(QStringLiteral("win32"),
         state.providers.trucksim_win32_error == 0
             ? QStringLiteral("None")

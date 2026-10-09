@@ -1,5 +1,7 @@
 #include "PageSupport.h"
 
+#include "time/ApplicationTime.h"
+
 #include <cmath>
 #include <iomanip>
 #include <sstream>
@@ -70,15 +72,12 @@ QString NumericText(const QString& value) {
 }
 
 QString TimestampText(const QString& value) {
-    QDateTime timestamp = QDateTime::fromString(value, Qt::ISODateWithMs);
-    if (!timestamp.isValid()) {
-        timestamp = QDateTime::fromString(value, Qt::ISODate);
-    }
+    const QDateTime timestamp = nlsi::time::ParseInstant(value);
     if (!timestamp.isValid()) {
         return value;
     }
-    return timestamp.toOffsetFromUtc(8 * 60 * 60)
-        .toString(QStringLiteral("MM/dd/yy HH:mm:ss.zzz"));
+    return timestamp.toString(QStringLiteral("MM/dd/yy HH:mm:ss.zzz"))
+        + QStringLiteral(" Asia/Manila");
 }
 
 DetailPage::DetailPage(QWidget* parent)

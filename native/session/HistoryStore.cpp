@@ -17,6 +17,7 @@
 
 #include "logging/Logger.h"
 #include "telemetry/TelemetryUiState.h"
+#include "time/ApplicationTime.h"
 
 namespace nlsi::session {
 namespace {
@@ -84,21 +85,33 @@ bool ParseRecord(
     return true;
 }
 
+bool TimestampNewer(const QString& left, const QString& right) {
+    const QDateTime left_time = nlsi::time::ParseInstant(left);
+    const QDateTime right_time = nlsi::time::ParseInstant(right);
+    if (left_time.isValid() && right_time.isValid()) {
+        return left_time > right_time;
+    }
+    if (left_time.isValid() != right_time.isValid()) {
+        return left_time.isValid();
+    }
+    return left > right;
+}
+
 void SortNewestFirst(QVector<EventRecord>& events) {
     std::sort(events.begin(), events.end(), [](const EventRecord& left, const EventRecord& right) {
-        return left.timestamp > right.timestamp;
+        return TimestampNewer(left.timestamp, right.timestamp);
     });
 }
 
 void SortNewestFirst(QVector<SessionRecord>& sessions) {
     std::sort(sessions.begin(), sessions.end(), [](const SessionRecord& left, const SessionRecord& right) {
-        return left.started_at > right.started_at;
+        return TimestampNewer(left.started_at, right.started_at);
     });
 }
 
 void SortNewestFirst(QVector<JobRecord>& jobs) {
     std::sort(jobs.begin(), jobs.end(), [](const JobRecord& left, const JobRecord& right) {
-        return left.timestamp > right.timestamp;
+        return TimestampNewer(left.timestamp, right.timestamp);
     });
 }
 

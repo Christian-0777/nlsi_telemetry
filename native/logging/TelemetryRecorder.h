@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -16,7 +17,7 @@ namespace nlsi::logging {
 
 class TelemetryRecorder {
 public:
-    TelemetryRecorder() = default;
+    explicit TelemetryRecorder(std::function<void()> before_write = {});
     ~TelemetryRecorder();
     TelemetryRecorder(const TelemetryRecorder&) = delete;
     TelemetryRecorder& operator=(const TelemetryRecorder&) = delete;
@@ -25,13 +26,24 @@ public:
     bool Enqueue(const QJsonObject& sample, std::wstring* error = nullptr);
     bool Flush();
     bool FlushFor(std::chrono::milliseconds timeout);
+    void RequestStop();
+    bool StopFor(std::chrono::milliseconds timeout);
     void Stop();
     std::wstring LastError() const;
     std::uint64_t PendingCount() const;
+    std::uint64_t QueuedCount() const;
+    bool IsRunning() const;
 
 private:
+    struct QueuedSample {
+        QJsonObject sample;
+        QString pending_path;
+    };
+
     void WriteLoop();
     bool Recover();
+    bool PersistPendingSample(const QueuedSample& sample);
+    bool RecoverPendingSamples(const QSet<QString>& record_ids);
     bool RecoverTelemetryFile(const std::wstring& path);
     bool ReconcileSyncQueue(const QSet<QString>& record_ids);
     bool WriteSample(QJsonObject sample);
@@ -43,7 +55,7 @@ private:
     QString sync_queue_path_;
     mutable std::mutex mutex_;
     std::condition_variable condition_;
-    std::deque<QJsonObject> queue_;
+    std::deque<QueuedSample> queue_;
     bool running_ = false;
     bool ready_ = false;
     bool stopping_ = false;
@@ -52,6 +64,8 @@ private:
     mutable std::mutex error_mutex_;
     std::wstring last_error_;
     std::atomic<std::uint64_t> pending_count_{0};
+    std::function<void()> before_write_;
+    QString pending_directory_;
     std::uint64_t next_sequence_ = 1;
 };
 

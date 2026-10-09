@@ -1,6 +1,6 @@
 # Technical overview
 
-## Native application v1.4.4 Beta
+## Native application v1.4.5 Beta
 
 The native Qt application keeps the existing TruckSim GPS shared-memory reader as its game telemetry provider. It reads `Local\TSGPSTelemetry` directly using the verified official 32 KiB plugin revision-13 layout and normalizes values into the existing telemetry, event, job, and session pipeline. On observed plugin timestamp changes, a separate background writer appends complete raw maps and named raw/normalized fields to daily v2 `.nlsi` files and a durable local Pending queue. A separate SCS position provider reads only `Local\NLSI.SCS.Position.v1`; it does not share, reinterpret, or write the TruckSim mapping or its records.
 

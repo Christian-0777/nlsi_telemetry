@@ -388,12 +388,23 @@ bool TestNumberAndTimeFormatting() {
         || nlsi::gui::NumericText(QStringLiteral("25000")) != QStringLiteral("25,000")
         || nlsi::gui::NumericText(QStringLiteral("25000.5")) != QStringLiteral("25,000.50")
         || nlsi::gui::TimestampText(QStringLiteral("2026-10-07T08:36:46.123Z"))
-            != QStringLiteral("10/07/26 16:36:46.123")
+            != QStringLiteral("10/07/26 16:36:46.123 Asia/Manila")
+        || nlsi::gui::TimestampText(QStringLiteral("2026-10-07T08:36:46.123"))
+            != QStringLiteral("2026-10-07T08:36:46.123")
         || nlsi::gui::DurationText(3661.25) != QStringLiteral("01:01:01.250")) {
         std::cerr << "Locale-independent number, date, or time formatting is incorrect.\n";
         return false;
     }
     return true;
+}
+
+bool TestShutdownIsIdempotent() {
+    nlsi::telemetry::TelemetryCore telemetry_core;
+    const auto first = telemetry_core.PollShutdown();
+    telemetry_core.BeginShutdown();
+    const auto second = telemetry_core.PollShutdown();
+    return first.state == nlsi::telemetry::TelemetryCore::ShutdownState::Completed
+        && second.state == nlsi::telemetry::TelemetryCore::ShutdownState::Completed;
 }
 
 bool TestProviderSurfaceSelectsTruckSimOnly() {
@@ -763,7 +774,7 @@ bool TestSingleInstanceGuard(QApplication& application) {
 
 bool TestOfflineUpdateCheck() {
     nlsi::updater::GitHubUpdater updater(
-        QStringLiteral("1.4.4-beta"),
+        QStringLiteral("1.4.5-beta"),
         nullptr,
         QUrl(QStringLiteral("http://127.0.0.1:1/releases")));
     QEventLoop loop;
@@ -801,12 +812,13 @@ int main(int argc, char** argv) {
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.4.4-beta"));
+    application.setApplicationVersion(QStringLiteral("v1.4.5-beta"));
     if (!TestModLogParsingAndSourceLinks()
         || !TestHistoryPagesLoadPersistedRows()) {
         return 1;
     }
     if (!TestNumberAndTimeFormatting()
+        || !TestShutdownIsIdempotent()
         || !TestProviderSurfaceSelectsTruckSimOnly()
         || !TestTruckControlsReportAvailability()
         || !TestDashboardContainsTransferredJobAndNavigationDetails()
@@ -814,7 +826,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.4-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.5-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -932,7 +944,7 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.4.4-beta");
+            || label->text() == QStringLiteral("v1.4.5-beta");
         found_beta_channel = found_beta_channel
             || label->text() == QStringLiteral("Beta");
         if (label->text() == QStringLiteral("Product") && label->parentWidget()) {
@@ -1121,6 +1133,7 @@ int main(int argc, char** argv) {
         }
     });
     close_button->click();
+    application.processEvents();
     if (window.isVisible() || !exit_prompt_verified) {
         std::cerr << "The explicit Exit action did not close the window.\n";
         return 1;

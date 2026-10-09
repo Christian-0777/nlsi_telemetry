@@ -37,7 +37,7 @@ alongside `.nlsi` writing and retains the prior line-oriented format.
 
 ## Telemetry logs, schema version 2
 
-One file is opened per UTC day at
+One file is opened per Asia/Manila calendar day at
 `%LOCALAPPDATA%\NLSI\Exclusive Logbook\telemetry\YYYY-MM-DD.nlsi`. A file
 rotates at 128 MiB to `YYYY-MM-DD-NNN.nlsi`; rotation creates another file and
 does not remove earlier data. The header declares `format=nlsi-telemetry` and
@@ -73,3 +73,13 @@ their availability/source/timestamp/stale metadata. The legacy
 `Logger::ReadNlsiLog` reader reads v1 application logs; it intentionally does
 not reinterpret v2 telemetry records. TXT logs continue to contain the
 existing human-readable application/history output.
+
+Before a queued sample reaches its daily `.nlsi` file, it is stored atomically
+under `telemetry\pending\<record-id>.json` using the internal
+`nlsi-pending-sample` schema version 1. The writer removes that recovery copy
+only after the v2 record and its pending-sync entry have been flushed. Startup
+reconciles a recovery copy against existing record IDs to avoid duplicating a
+record if interruption happened between those writes. The UTC `timestamp_utc`
+field remains UTC and unchanged; only daily file grouping and local display
+use the IANA `Asia/Manila` zone. OS termination, storage-device failure, and
+power loss can still exceed the guarantees of application-level flushing.

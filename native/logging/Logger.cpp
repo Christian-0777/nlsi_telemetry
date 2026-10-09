@@ -12,6 +12,8 @@
 #include <QJsonParseError>
 #include <QString>
 
+#include "time/ApplicationTime.h"
+
 namespace nlsi::logging {
 
 Logger::Logger(const std::wstring& log_path) : log_path_(log_path) {
@@ -127,7 +129,7 @@ bool Logger::WriteNlsiRecord(const std::wstring& message, std::wstring* error) {
 
     const QJsonObject record{
         {QStringLiteral("record_type"), QStringLiteral("entry")},
-        {QStringLiteral("timestamp"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+        {QStringLiteral("timestamp"), nlsi::time::UtcTimestampNow()},
         {QStringLiteral("message"), QString::fromStdWString(message)},
     };
     const QByteArray line = QJsonDocument(record).toJson(QJsonDocument::Compact) + '\n';

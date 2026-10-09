@@ -9,6 +9,7 @@
 
 #include "gui/MainWindow.h"
 #include "SingleInstance.h"
+#include "time/ApplicationTime.h"
 
 App::App()
     : version_label_([this] {
@@ -31,6 +32,13 @@ int App::Run() {
     application.setOrganizationName(QStringLiteral("NLSI"));
     application.setApplicationDisplayName(QString::fromStdWString(product_name_));
     application.setWindowIcon(QIcon(QStringLiteral(":/icons/logo.ico")));
+
+    if (!nlsi::time::IsAvailable()) {
+        QMessageBox::critical(nullptr, QStringLiteral("Startup error"),
+            QStringLiteral("The required IANA time-zone data for Asia/Manila is unavailable. "
+                "Install or repair the Qt time-zone data and restart the application."));
+        return 1;
+    }
 
     const QString user_data_path = QStandardPaths::writableLocation(
         QStandardPaths::AppLocalDataLocation);
