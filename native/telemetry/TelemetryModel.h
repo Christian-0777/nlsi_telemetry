@@ -94,6 +94,7 @@ struct ProviderStatus {
     std::wstring telemetry_freshness;
     std::wstring last_error;
     std::wstring storage_error;
+    std::wstring sync_state = L"Offline; no authenticated API configured";
     std::wstring trucksim_stage = L"Not checked";
     std::wstring trucksim_layout = L"Unknown";
     std::wstring trucksim_mapping_name = L"Local\\TSGPSTelemetry";

@@ -5,12 +5,18 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonValue>
 
 #include <chrono>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
+#include <type_traits>
 
 namespace {
+
+using nlsi::telemetry::TelemetryField;
+using nlsi::telemetry::TelemetrySnapshot;
 
 std::wstring UtcNow() {
     const auto now = std::chrono::system_clock::now();
@@ -23,6 +29,74 @@ std::wstring UtcNow() {
     output << std::put_time(&utc, L"%Y-%m-%dT%H:%M:%S")
            << L'.' << std::setw(3) << std::setfill(L'0') << milliseconds.count() << L'Z';
     return output.str();
+}
+
+template <typename T>
+QJsonValue JsonFieldValue(const T& value) {
+    if constexpr (std::is_same_v<T, bool>) {
+        return value;
+    } else if constexpr (std::is_same_v<T, double>) {
+        return std::isfinite(value) ? QJsonValue(value) : QJsonValue(QJsonValue::Null);
+    } else {
+        return QString::fromStdWString(value);
+    }
+}
+
+template <typename T>
+void AddNormalizedField(
+    QJsonObject& normalized,
+    const char* name,
+    const TelemetryField<T>& field) {
+    normalized.insert(QString::fromLatin1(name), QJsonObject{
+        {QStringLiteral("available"), field.available},
+        {QStringLiteral("value"), field.available
+            ? JsonFieldValue(field.value)
+            : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("source"), QString::fromStdWString(field.source)},
+        {QStringLiteral("timestamp_utc"), QString::fromStdWString(field.timestamp)},
+        {QStringLiteral("stale"), field.stale},
+    });
+}
+
+QJsonObject NormalizedFields(const TelemetrySnapshot& snapshot) {
+    QJsonObject fields;
+    AddNormalizedField(fields, "game_id", snapshot.game_id);
+    AddNormalizedField(fields, "game_name", snapshot.game_name);
+    AddNormalizedField(fields, "paused", snapshot.paused);
+    AddNormalizedField(fields, "driving", snapshot.driving);
+    AddNormalizedField(fields, "session_active", snapshot.session_active);
+    AddNormalizedField(fields, "has_job", snapshot.has_job);
+    AddNormalizedField(fields, "speed_kmh", snapshot.speed_kmh);
+    AddNormalizedField(fields, "rpm", snapshot.rpm);
+    AddNormalizedField(fields, "gear", snapshot.gear);
+    AddNormalizedField(fields, "input_throttle", snapshot.input_throttle);
+    AddNormalizedField(fields, "effective_throttle", snapshot.effective_throttle);
+    AddNormalizedField(fields, "input_brake", snapshot.input_brake);
+    AddNormalizedField(fields, "effective_brake", snapshot.effective_brake);
+    AddNormalizedField(fields, "retarder_level", snapshot.retarder_level);
+    AddNormalizedField(fields, "retarder_active", snapshot.retarder_active);
+    AddNormalizedField(fields, "cruise_control_speed_kmh", snapshot.cruise_control_speed);
+    AddNormalizedField(fields, "cruise_control_active", snapshot.cruise_control_active);
+    AddNormalizedField(fields, "fuel_liters", snapshot.fuel_liters);
+    AddNormalizedField(fields, "fuel_range_km", snapshot.fuel_range_km);
+    AddNormalizedField(fields, "odometer_km", snapshot.odometer_km);
+    AddNormalizedField(fields, "navigation_distance_m", snapshot.navigation_distance_m);
+    AddNormalizedField(fields, "navigation_distance_km", snapshot.navigation_distance_km);
+    AddNormalizedField(fields, "navigation_time_s", snapshot.navigation_time_s);
+    AddNormalizedField(fields, "eta_seconds", snapshot.eta_seconds);
+    AddNormalizedField(fields, "cargo_id", snapshot.cargo_id);
+    AddNormalizedField(fields, "cargo_name", snapshot.cargo_name);
+    AddNormalizedField(fields, "source_company", snapshot.source_company);
+    AddNormalizedField(fields, "source_city", snapshot.source_city);
+    AddNormalizedField(fields, "destination_company", snapshot.destination_company);
+    AddNormalizedField(fields, "destination_city", snapshot.destination_city);
+    AddNormalizedField(fields, "income", snapshot.income);
+    AddNormalizedField(fields, "planned_distance", snapshot.planned_distance);
+    AddNormalizedField(fields, "delivery_time", snapshot.delivery_time);
+    AddNormalizedField(fields, "loaded", snapshot.loaded);
+    AddNormalizedField(fields, "market", snapshot.market);
+    AddNormalizedField(fields, "special_job", snapshot.special_job);
+    return fields;
 }
 
 } // namespace
@@ -55,14 +129,19 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
             logger_ = std::make_unique<logging::Logger>(
                 QDir(root).filePath(QStringLiteral("logs/NLSI-Exclusive-Logbook.txt")).toStdWString());
             history_store_ = std::make_unique<session::HistoryStore>(*logger_);
+            telemetry_recorder_ = std::make_unique<logging::TelemetryRecorder>();
             const QString legacy_user_data = QDir(QFileInfo(root).absolutePath())
                 .filePath(QStringLiteral("NLSI Exclusive Logbook"));
             if (!history_store_->Initialize(
                     root, QCoreApplication::applicationDirPath(), legacy_user_data)) {
                 status_.storage_error = history_store_->Snapshot().error.toStdWString();
             }
+            std::wstring recorder_error;
+            if (!telemetry_recorder_->Start(user_data_directory, &recorder_error)) {
+                status_.storage_error = std::move(recorder_error);
+            }
             std::wstring log_error;
-            if (!logger_->Log(L"[startup] NLSI Exclusive Logbook v1.3.9-beta", &log_error)) {
+            if (!logger_->Log(L"[startup] NLSI Exclusive Logbook v1.4.0-alpha", &log_error)) {
                 status_.storage_error = std::move(log_error);
             }
         }
@@ -74,6 +153,9 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
         },
         [this](const std::string& packet) {
             OnProviderEvent(packet);
+        },
+        [this](const providers::RawTelemetrySample& sample) {
+            OnTruckSimSample(sample);
         });
     if (!trucksim_started) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -87,12 +169,27 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
 
 void TelemetryCore::Shutdown() {
     trucksim_provider_.Stop();
+    if (telemetry_recorder_) {
+        telemetry_recorder_->Stop();
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     if (session_manager_.IsActive()) {
         EndSessionLocked(L"application_shutdown", UtcNow());
     }
     trucksim_state_ = ProviderState::Disconnected;
     status_.trucksim = trucksim_state_;
+    const std::uint64_t pending_records =
+        telemetry_recorder_ ? telemetry_recorder_->PendingCount() : 0;
+    const std::wstring recorder_error =
+        telemetry_recorder_ ? telemetry_recorder_->LastError() : std::wstring{};
+    status_.sync_state = !recorder_error.empty()
+        ? L"Error; local records require attention"
+        : (!telemetry_recorder_
+            ? L"Offline; local telemetry recorder is unavailable"
+            : (pending_records == 0
+                ? L"Offline; no authenticated API is configured"
+                : L"Pending (" + std::to_wstring(pending_records)
+                    + L" records); authenticated API is not configured"));
     status_.combined = CombinedProviderState::Disconnected;
     status_.telemetry_freshness = L"offline";
     status_.last_error.clear();
@@ -102,7 +199,14 @@ void TelemetryCore::Shutdown() {
 
 ProviderStatus TelemetryCore::Status() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return status_;
+    ProviderStatus result = status_;
+    if (telemetry_recorder_) {
+        const std::wstring recorder_error = telemetry_recorder_->LastError();
+        if (!recorder_error.empty()) {
+            result.storage_error = recorder_error;
+        }
+    }
+    return result;
 }
 
 TelemetrySnapshot TelemetryCore::Snapshot() const {
@@ -194,7 +298,46 @@ void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
     }
 }
 
+void TelemetryCore::OnTruckSimSample(const providers::RawTelemetrySample& sample) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!telemetry_recorder_) {
+        return;
+    }
+    const QByteArray compressed_mapping = qCompress(sample.mapping, 9);
+    QJsonObject record{
+        {QStringLiteral("timestamp_utc"), QString::fromStdWString(sample.timestamp_utc)},
+        {QStringLiteral("session_id"), session_manager_.IsActive()
+            ? QJsonValue(QString::fromStdWString(session_manager_.CurrentId()))
+            : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("provider"), QStringLiteral("TruckSim GPS")},
+        {QStringLiteral("provider_revision"), static_cast<int>(sample.revision)},
+        {QStringLiteral("mapping_name"), QStringLiteral("Local\\TSGPSTelemetry")},
+        {QStringLiteral("source_timestamps"), QJsonObject{
+            {QStringLiteral("sample"), QString::number(sample.source_timestamp)},
+            {QStringLiteral("simulation"), QString::number(sample.simulation_timestamp)},
+            {QStringLiteral("render"), QString::number(sample.render_timestamp)},
+        }},
+        {QStringLiteral("raw_fields"), sample.source_fields},
+        {QStringLiteral("raw_availability"), sample.source_availability},
+        {QStringLiteral("raw_mapping_encoding"), QStringLiteral("qcompress+base64")},
+        {QStringLiteral("raw_mapping_uncompressed_bytes"), sample.mapping.size()},
+        {QStringLiteral("raw_mapping_base64"),
+            QString::fromLatin1(compressed_mapping.toBase64(QByteArray::Base64Encoding))},
+        {QStringLiteral("normalized_fields"), NormalizedFields(trucksim_snapshot_)},
+    };
+    std::wstring error;
+    if (!telemetry_recorder_->Enqueue(record, &error)) {
+        status_.storage_error = std::move(error);
+    }
+}
+
 void TelemetryCore::RebuildStateLocked() {
+    if (telemetry_recorder_) {
+        const std::wstring recorder_error = telemetry_recorder_->LastError();
+        if (!recorder_error.empty()) {
+            status_.storage_error = recorder_error;
+        }
+    }
     snapshot_ = trucksim_snapshot_;
     snapshot_.connected = trucksim_state_ == ProviderState::Connected;
     if (!snapshot_.connected) {

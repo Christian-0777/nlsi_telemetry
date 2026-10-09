@@ -1,7 +1,24 @@
 #define AppName "NLSI Exclusive Logbook"
-#define AppVersion "1.3.9-beta"
-#define ReleaseTag "v" + AppVersion
-#define ReleasePayload "build\intermediate\installer-payload-" + ReleaseTag
+#ifndef AppChannel
+#define AppChannel "alpha"
+#endif
+#ifndef AppFileVersion
+#define AppFileVersion 1.4.0.0
+#endif
+#ifndef ReleaseLabel
+#define ReleaseLabel "1.4.0-alpha"
+#endif
+#if (AppChannel == "alpha") || (AppChannel == "beta")
+#define DefaultApplicationDir "{autopf32}\NLSI Exclusive Logbook"
+#else
+#define DefaultApplicationDir "{autopf64}\NLSI Exclusive Logbook"
+#endif
+#ifndef ReleaseTag
+#define ReleaseTag "v1.4.0-alpha"
+#endif
+#ifndef ReleasePayload
+#define ReleasePayload "build\intermediate\installer-payload-v1.4.0-alpha"
+#endif
 #define AppPublisher "Nabski Logistics and Solutions Inc."
 #define AppURL "https://github.com/Christian-0777/nlsi_telemetry"
 #ifndef InstallPrivileges
@@ -14,12 +31,12 @@
 [Setup]
 AppId=NLSI Exclusive Logbook
 AppName={#AppName}
-AppVersion={#AppVersion}
+AppVersion={#ReleaseLabel}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 AppUpdatesURL={#AppURL}
-DefaultDirName={autopf}\NLSI Exclusive Logbook
+DefaultDirName={#DefaultApplicationDir}
 ArchitecturesInstallIn64BitMode=x64compatible
 DefaultGroupName={#AppName}
 UsePreviousAppDir=yes
@@ -47,8 +64,8 @@ UninstallDisplayIcon={app}\NLSI-Exclusive-Logbook.exe
 SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.3.9.0
-VersionInfoProductVersion=1.3.9.0
+VersionInfoVersion={#AppFileVersion}
+VersionInfoProductVersion={#AppFileVersion}
 VersionInfoCompany=Nabski Logistics and Solutions Inc.
 VersionInfoProductName={#AppName}
 
@@ -100,7 +117,7 @@ function DetectExistingInstallation: Boolean;
 var
   RegistryInstallDir: String;
 begin
-  ExistingInstallDir := ExpandConstant('{autopf32}\NLSI Exclusive Logbook');
+  ExistingInstallDir := ExpandConstant('{#DefaultApplicationDir}');
   ExistingInstallVersion := '';
 
   if not RegQueryStringValue(HKLM32, UninstallRegistryKey, 'InstallLocation',
@@ -157,14 +174,14 @@ begin
       'An existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
       'This setup will UPDATE the existing installation.' + #13#10 +
       'Installed version: ' + ExistingInstallVersion + #13#10 +
-      'New version: v{#AppVersion}' + #13#10 +
+      'New version: v{#ReleaseLabel}' + #13#10 +
       'Installation directory: ' + ExistingInstallDir + #13#10#13#10 +
       'Existing configuration and log files will be preserved.' + #13#10#13#10 +
       'Setup automatically detects supported Steam ETS2/ATS installations and installs the official TruckSim GPS plugin into matching x64 and x86 plugin folders. Different existing plugin DLLs are preserved.';
   end else begin
     InstallationSummary :=
       'No existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
-      'This setup will perform a fresh installation of v{#AppVersion} under Program Files.' + #13#10#13#10 +
+      'This setup will perform a fresh installation of v{#ReleaseLabel} under {#DefaultApplicationDir}.' + #13#10#13#10 +
       'Setup automatically detects supported Steam ETS2/ATS installations and installs the official TruckSim GPS plugin into matching x64 and x86 plugin folders. Different existing plugin DLLs are preserved.';
   end;
   if DirExists(ExpandConstant('{#LegacyDirectory}')) and
@@ -236,10 +253,11 @@ begin
   if CurPageID = wpFinished then begin
     WizardForm.FinishedHeadingLabel.Caption := 'Installation complete';
     WizardForm.FinishedLabel.Caption :=
-      'NLSI Exclusive Logbook v1.3.9-beta has been installed.' + #13#10#13#10 +
+      'NLSI Exclusive Logbook v{#ReleaseLabel} has been installed.' + #13#10#13#10 +
       'What''s New' + #13#10 +
       '- Direct TruckSim GPS revision-13 telemetry; the separate server client is not required.' + #13#10 +
-      '- TruckSim GPS is the only active game telemetry source; local events, jobs, sessions, and TXT logs remain supported.' + #13#10 +
+      '- Capture complete revision-13 raw samples with local-only, pending synchronization records; no online service is configured.' + #13#10 +
+      '- Local events, jobs, sessions, existing .nlsi logs, and TXT logs remain supported.' + #13#10 +
       '- Setup installs the verified official TruckSim GPS plugin for detected supported game folders.' + #13#10#13#10 +
       'The About page includes Nabski Logistics and Solutions Inc. community and creator links.';
   end;

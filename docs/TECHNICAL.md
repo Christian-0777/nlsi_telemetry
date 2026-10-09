@@ -1,12 +1,12 @@
 # Technical overview
 
-## Native application v1.3.8 Alpha
+## Native application v1.4.0 Alpha
 
-The native Qt application runs one game telemetry provider: a TruckSim GPS shared-memory reader. It reads `Local\TSGPSTelemetry` directly using the verified official 32 KiB plugin revision-13 layout and normalizes values into the existing telemetry, event, job, and session pipeline. The NLSI UDP listener and RenCloud provider are not started or included in the native application. The separate GPL-3.0 TruckSim GPS Telemetry Server is not bundled, linked, launched, or required.
+The native Qt application runs one game telemetry provider: a TruckSim GPS shared-memory reader. It reads `Local\TSGPSTelemetry` directly using the verified official 32 KiB plugin revision-13 layout and normalizes values into the existing telemetry, event, job, and session pipeline. On observed plugin timestamp changes, a separate background writer appends complete raw maps and named raw/normalized fields to daily v2 `.nlsi` files and a durable local Pending queue. Existing v1 application `.nlsi`, TXT, event, job, and session history streams remain intact. The NLSI UDP listener and RenCloud provider are not started or included in the native application. The separate GPL-3.0 TruckSim GPS Telemetry Server is not bundled, linked, launched, or required.
 
 The installer automatically places the MIT-licensed official TruckSim GPS plugin into matching x64/x86 directories for detected supported Steam ETS2/ATS installations. It preserves other plugin files and creates a recovery backup before replacing an unchanged prior managed copy. The app reports missing maps, unsupported plugin revisions, inactive SDK state, and samples that stop changing; stale data is not presented as connected. Plugin delivery/cancellation events flow into the existing local event, completed-job, session, TXT-log, and `.nlsi` log storage. Completed jobs can be exported to PDF without changing source records.
 
-The revision-13 decoder, formatter, log reader/writer, PDF export, and Windows mapping lifecycle are covered by offline tests. Live game telemetry and installation into actual game folders have not been validated for this release. The separate legacy SCS SDK plugin build remains documented below and is not a native desktop application dependency.
+The revision-13 decoder, raw record validation/recovery, local queue restart recovery, formatter, v1 log reader/writer, PDF export, and Windows mapping lifecycle are covered by offline tests. Live game telemetry and installation into actual game folders have not been validated for this release. The separate legacy SCS SDK plugin build remains documented below and is not a native desktop application dependency. There is no authenticated account, web API, remote database, or upload implementation; the migration under `db/migrations` is a server-side design only.
 
 ## Architecture
 

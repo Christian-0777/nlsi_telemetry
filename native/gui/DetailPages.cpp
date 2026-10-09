@@ -232,6 +232,7 @@ ProvidersPage::ProvidersPage(QWidget* parent)
     AddField(QStringLiteral("sourceTimestamp"), QStringLiteral("Plugin timestamps"));
     AddField(QStringLiteral("win32"), QStringLiteral("Windows error"));
     AddField(QStringLiteral("storage"), QStringLiteral("Local logs and history"));
+    AddField(QStringLiteral("sync"), QStringLiteral("Online synchronization"));
     AddField(QStringLiteral("error"), QStringLiteral("Last provider message"));
 }
 
@@ -272,6 +273,7 @@ void ProvidersPage::UpdateState(const telemetry::TelemetryUiState& state) {
         state.providers.storage_error.empty()
             ? QStringLiteral("Ready in the current user's application data directory")
             : QString::fromStdWString(state.providers.storage_error));
+    SetValue(QStringLiteral("sync"), QString::fromStdWString(state.providers.sync_state));
     SetValue(QStringLiteral("error"),
         state.providers.trucksim_error.empty()
             ? (state.providers.last_error.empty()

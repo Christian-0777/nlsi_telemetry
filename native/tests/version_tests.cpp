@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <array>
+#include <QByteArray>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
@@ -16,6 +17,7 @@
 #include <QTemporaryDir>
 
 #include "logging/Logger.h"
+#include "logging/TelemetryRecorder.h"
 #include "providers/NLSIProvider.h"
 #include "providers/TruckSimGpsProvider.h"
 #include "session/HistoryStore.h"
@@ -144,6 +146,9 @@ void TestTruckSimGpsRevision13LayoutAndUnits() {
     const bool on_job = true;
     put(0, sdk_active);
     put(4, paused);
+    put(8, std::uint64_t{101});
+    put(16, std::uint64_t{202});
+    put(24, std::uint64_t{303});
     put(40, revision);
     put(52, game);
     put(100, planned_distance_km);
@@ -169,10 +174,11 @@ void TestTruckSimGpsRevision13LayoutAndUnits() {
     put(4300, on_job);
 
     nlsi::telemetry::TelemetrySnapshot snapshot;
+    nlsi::providers::RawTelemetrySample raw_sample;
     std::uint32_t decoded_revision = 0;
     std::wstring error;
     Check(nlsi::providers::TruckSimGpsProvider::DecodeRevision13(
-            bytes.data(), bytes.size(), snapshot, decoded_revision, error),
+            bytes.data(), bytes.size(), snapshot, decoded_revision, error, &raw_sample),
         "revision-13 TruckSim GPS mapping was rejected");
     Check(decoded_revision == 13 && snapshot.game_id.value == L"ats"
         && snapshot.game_name.value == L"American Truck Simulator",
@@ -185,6 +191,15 @@ void TestTruckSimGpsRevision13LayoutAndUnits() {
         && snapshot.navigation_distance_km.value == 60.0
         && snapshot.planned_distance.value == L"1200",
         "TruckSim GPS navigation or planned distance was not normalized");
+    Check(raw_sample.mapping.size() == static_cast<qsizetype>(bytes.size())
+        && raw_sample.revision == 13
+        && raw_sample.source_timestamp == 101
+        && raw_sample.simulation_timestamp == 202
+        && raw_sample.render_timestamp == 303
+        && raw_sample.source_fields.value(QStringLiteral("speed_mps")).toDouble() == 10.0
+        && raw_sample.source_fields.value(QStringLiteral("cruise_control_speed_mps")).toDouble() == 20.0
+        && raw_sample.source_availability.value(QStringLiteral("speed_mps")).toBool(),
+        "raw TruckSim values, source timestamps, availability, or full mapping bytes were not retained");
     Check(snapshot.has_job.available && snapshot.has_job.value
         && snapshot.loaded.value && snapshot.cargo_id.value == L"job-17"
         && snapshot.cargo_name.value == L"Furniture"
@@ -496,12 +511,91 @@ void TestHistoryAndTxtLogPersistence() {
 
 void TestVersionComparison() {
     const nlsi::updater::GitHubUpdater updater;
-    Check(updater.LatestVersion() == L"1.3.9-beta",
+    Check(updater.LatestVersion() == L"1.4.0-alpha",
         "the updater's default latest version is not current");
     Check(nlsi::updater::GitHubUpdater::CompareVersions(L"1.3.0 Alpha", L"1.3.1") < 0,
         "version comparison failed for newer release");
     Check(nlsi::updater::GitHubUpdater::IsUpdateAvailable(L"1.3.1", L"1.3.0 Alpha") == false,
         "older release was reported as an update");
+}
+
+void TestTelemetryRecorderOfflineRecovery() {
+    QTemporaryDir root;
+    Check(root.isValid(), "telemetry recorder temporary directory could not be created");
+    const QJsonObject sample{
+        {QStringLiteral("timestamp_utc"), QStringLiteral("2026-10-08T12:00:00.000Z")},
+        {QStringLiteral("session_id"), QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("provider"), QStringLiteral("TruckSim GPS")},
+        {QStringLiteral("provider_revision"), 13},
+        {QStringLiteral("raw_fields"), QJsonObject{
+            {QStringLiteral("speed_mps"), 10.0},
+        }},
+        {QStringLiteral("raw_availability"), QJsonObject{
+            {QStringLiteral("speed_mps"), true},
+        }},
+        {QStringLiteral("normalized_fields"), QJsonObject{}},
+        {QStringLiteral("raw_mapping_encoding"), QStringLiteral("qcompress+base64")},
+        {QStringLiteral("raw_mapping_uncompressed_bytes"), 32 * 1024},
+        {QStringLiteral("raw_mapping_base64"),
+            QString::fromLatin1(qCompress(QByteArray(32 * 1024, '\0'), 9).toBase64())},
+    };
+    const QJsonObject malformed{
+        {QStringLiteral("timestamp_utc"), QStringLiteral("not-a-time")},
+        {QStringLiteral("provider_revision"), 99},
+        {QStringLiteral("raw_fields"), QJsonObject{}},
+        {QStringLiteral("raw_availability"), QJsonObject{}},
+        {QStringLiteral("normalized_fields"), QJsonObject{}},
+        {QStringLiteral("raw_mapping_encoding"), QStringLiteral("qcompress+base64")},
+        {QStringLiteral("raw_mapping_uncompressed_bytes"), 32 * 1024},
+        {QStringLiteral("raw_mapping_base64"),
+            QString::fromLatin1(qCompress(QByteArray(32 * 1024, '\0'), 9).toBase64())},
+    };
+    nlsi::logging::TelemetryRecorder malformed_recorder;
+    Check(malformed_recorder.Start(root.path().toStdWString()),
+        "malformed-record fixture recorder could not start");
+    std::wstring error;
+    Check(!malformed_recorder.Enqueue(malformed, &error) && !error.empty(),
+        "malformed telemetry record was accepted without a validation error");
+    malformed_recorder.Stop();
+
+    const QString store = QDir(root.path()).filePath(QStringLiteral("records"));
+    nlsi::logging::TelemetryRecorder recorder;
+    Check(recorder.Start(store.toStdWString()),
+        "offline telemetry recorder could not start");
+    Check(recorder.Enqueue(sample) && recorder.Flush(),
+        "valid telemetry sample was not durably written offline");
+    Check(recorder.PendingCount() == 1,
+        "offline sample was not retained in the pending synchronization queue");
+    recorder.Stop();
+
+    const QString telemetry_file = QDir(store).filePath(
+        QStringLiteral("telemetry/2026-10-08.nlsi"));
+    QFile interrupted(telemetry_file);
+    Check(interrupted.open(QIODevice::WriteOnly | QIODevice::Append)
+        && interrupted.write("{\"record_type\":\"telemetry_sample\"")
+            == static_cast<qint64>(sizeof("{\"record_type\":\"telemetry_sample\"") - 1),
+        "interrupted telemetry tail fixture could not be written");
+    interrupted.close();
+
+    nlsi::logging::TelemetryRecorder recovered;
+    Check(recovered.Start(store.toStdWString()) && recovered.Flush(),
+        "telemetry recorder did not recover after restart");
+    Check(recovered.PendingCount() == 1,
+        "restart recovery duplicated or lost the pending telemetry sample");
+    Check(QFile::exists(telemetry_file + QStringLiteral(".recovery")),
+        "incomplete trailing bytes were not preserved for recovery");
+    QFile recovered_file(telemetry_file);
+    Check(recovered_file.open(QIODevice::ReadOnly | QIODevice::Text),
+        "recovered telemetry file could not be inspected");
+    const QList<QByteArray> lines = recovered_file.readAll().split('\n');
+    Check(lines.size() == 3 && lines.at(1).contains("\"record_id\"")
+        && lines.at(1).contains("\"sequence\":1"),
+        "recovery did not retain exactly one complete sample with a stable ID and sequence");
+    QFile sync_queue(QDir(store).filePath(QStringLiteral("sync/queue.jsonl")));
+    Check(sync_queue.open(QIODevice::ReadOnly | QIODevice::Text)
+        && sync_queue.readAll().count('\n') == 1,
+        "restart recovery duplicated the durable pending-queue entry");
+    recovered.Stop();
 }
 
 } // namespace
@@ -516,6 +610,7 @@ int main() {
         {"stale telemetry", TestStaleTelemetryStopsDriving},
         {"UI job identity, progress, and session states", TestUiJobIdentityProgressAndSessionStates},
         {"history and TXT log persistence", TestHistoryAndTxtLogPersistence},
+        {"offline telemetry queue and interrupted-write recovery", TestTelemetryRecorderOfflineRecovery},
         {"version comparison", TestVersionComparison},
     };
     try {

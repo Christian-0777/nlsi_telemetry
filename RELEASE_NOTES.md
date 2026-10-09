@@ -1,3 +1,34 @@
+# NLSI Exclusive Logbook v1.4.0-alpha
+
+This alpha adds local raw telemetry capture and a durable local queue while
+preserving existing TXT logs, v1 `.nlsi` logs, history, and user data.
+
+## What's new
+
+- Capture each observed TruckSim GPS revision-13 sample on source timestamp changes (250 ms polling) without blocking the provider/UI thread.
+- Preserve the complete 32 KiB shared-memory map in compressed form and separately record named raw source fields, availability, provider/revision metadata, source clocks, UTC timestamp, stable record ID, sequence number, optional driving-session ID, and normalized values.
+- Write daily schema-v2 `.nlsi` JSON Lines files with non-destructive 128 MiB rotation and recovery sidecars for incomplete trailing records.
+- Add a local pending synchronization queue that is rebuilt from telemetry records after restart and surfaced in Settings → Providers.
+- Document the current decoder's verified revision-13 field inventory and add a versioned MySQL schema design migration without adding a user/account table.
+- Preserve the existing v1 application `.nlsi` stream and TXT output.
+- Set the executable, About/runtime version, installer, and release notes to v1.4.0-alpha.
+
+## Explicit limitations
+
+- No authenticated account system, HTTPS API endpoint, backend, database deployment, or remote synchronization is present. Samples remain local and Pending; no record is marked Synced.
+- No live ETS2/ATS test was possible from the desktop build. Only fields decoded by the active reader are named; the complete vendor layout is not published with the binary payload. The full 32 KiB map is retained to avoid losing opaque fields.
+- Disk-space exhaustion and file errors are surfaced in Settings → Providers, but cannot recover samples which the operating system refuses to write.
+
+## Data and installer
+
+- User data remains under `%LOCALAPPDATA%\NLSI\Exclusive Logbook`; upgrades and uninstall do not remove these files.
+- Release target: `build/releases/v1.4.0-alpha/NLSI-Exclusive-Logbook-v1.4.0-alpha-Setup.exe`.
+- **Validated:** native MSVC Release application and both native test executables built; Python compatibility/packaging/schema checks passed (37 tests); Release CTest passed (2/2); v1.4.0.0 / v1.4.0-alpha executable metadata verified; installer staging confirmed Qt/MSVC runtimes, Qt platform plugin, official x64/x86 TruckSim plugin payloads, MIT notices, and docs.
+- **Installer:** `build/releases/v1.4.0-alpha/NLSI-Exclusive-Logbook-v1.4.0-alpha-Setup.exe` (created).
+- **Not validated:** live ETS2/ATS capture, game-folder plugin installation, applying the SQL migration to MySQL, authenticated API upload, offline-to-online retry, remote idempotency, and unauthorized API behavior. No backend/API is present.
+
+---
+
 # NLSI Exclusive Logbook v1.3.9-beta
 
 The v1.3.9-beta update refreshes the company branding and removes application
@@ -13,7 +44,7 @@ version badges from the shared page header.
 
 ## Validation notes
 
-- Verified the MSVC/Qt/CMake Release build, passed both CTest targets, and compiled the v1.3.9-beta installer with Inno Setup.
+- Build, test, and installer compilation results will be recorded after running the release checks for this version.
 - Live ETS2/ATS telemetry and actual game-folder plugin installation remain runtime validations.
 - The installer target is `build/releases/v1.3.9-beta/NLSI-Exclusive-Logbook-v1.3.9-beta-Setup.exe`.
 

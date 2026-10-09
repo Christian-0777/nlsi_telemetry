@@ -95,6 +95,7 @@ qt_add_executable(NLSI-Exclusive-Logbook MANUAL_FINALIZATION
     session/JobManager.cpp
     session/HistoryStore.cpp
     logging/Logger.cpp
+    logging/TelemetryRecorder.cpp
     updater/GitHubUpdater.cpp
     resources/app.rc
     resources/resources.qrc
@@ -172,6 +173,7 @@ if(BUILD_TESTING)
         session/JobManager.cpp
         session/HistoryStore.cpp
         logging/Logger.cpp
+        logging/TelemetryRecorder.cpp
         updater/GitHubUpdater.cpp
     )
 
@@ -230,6 +232,7 @@ if(BUILD_TESTING)
         session/JobManager.cpp
         session/HistoryStore.cpp
         logging/Logger.cpp
+        logging/TelemetryRecorder.cpp
         updater/GitHubUpdater.cpp
         resources/resources.qrc
     )

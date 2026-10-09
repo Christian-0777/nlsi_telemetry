@@ -1,6 +1,6 @@
 # NLSI Exclusive Logbook
 
-NLSI Exclusive Logbook is a native Windows desktop companion for ETS2 and ATS telemetry. The v1.3.9-beta C++ application uses Qt 6 Widgets and retains the existing Python implementation as reference-only code.
+NLSI Exclusive Logbook is a native Windows desktop companion for ETS2 and ATS telemetry. The v1.4.0-alpha C++ application uses Qt 6 Widgets and retains the existing Python implementation as reference-only code.
 
 ## What it does
 
@@ -18,7 +18,7 @@ The native app reads the official TruckSim GPS SCS plugin's revision-13 shared-m
 
 ## Current release
 
-The current source version is **v1.3.9-beta**. The native application can be configured and built with CMake and Qt 6.12; its Debug and Release output locations are documented in [development](docs/DEVELOPMENT.md). Release installers are published as GitHub Release assets when available:
+The current source version is **v1.4.0-alpha**. The native application can be configured and built with CMake and Qt 6.12; its Debug and Release output locations are documented in [development](docs/DEVELOPMENT.md). Release installers are published as GitHub Release assets when available:
 
 **[Download NLSI release assets](https://github.com/Christian-0777/nlsi_telemetry/releases)**
 
@@ -40,7 +40,7 @@ Game telemetry is available only while the game loads the plugin. See the [user 
 
 ## Telemetry data
 
-The native C++ application stores the existing TXT logs, versioned `.nlsi` logs, event records, session history, and completed/cancelled job history under `%LOCALAPPDATA%\NLSI\Exclusive Logbook`. The installer and uninstaller leave that per-user data intact. Application version 1.3.9-beta is separate from the SCS telemetry API value reported at runtime. See the [native log format](docs/NLSI-LOG-FORMAT.md), [technical documentation](docs/TECHNICAL.md), and [telemetry mapping](docs/TELEMETRY-MAPPING.md).
+The native C++ application stores the existing TXT logs, versioned `.nlsi` logs, event records, session history, and completed/cancelled job history under `%LOCALAPPDATA%\NLSI\Exclusive Logbook`. The installer and uninstaller leave that per-user data intact. Application version 1.4.0-alpha is separate from the SCS telemetry API value reported at runtime. See the [native log format](docs/NLSI-LOG-FORMAT.md), [technical documentation](docs/TECHNICAL.md), and [telemetry mapping](docs/TELEMETRY-MAPPING.md).
 
 ## Documentation
 

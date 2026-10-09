@@ -16,7 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION_METADATA = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
 VERSION = str(VERSION_METADATA["version"])
 CHANNEL = str(VERSION_METADATA["channel"]).lower()
-RELEASE_TAG = f"v{VERSION}-{CHANNEL}"
+FILE_VERSION = f"{VERSION}.0"
+INSTALL_CHANNEL = "stable" if CHANNEL in {"stable", "public"} else CHANNEL
+RELEASE_TAG = f"v{VERSION}" if INSTALL_CHANNEL == "stable" else f"v{VERSION}-{INSTALL_CHANNEL}"
+RELEASE_LABEL = f"{VERSION}-{INSTALL_CHANNEL}" if INSTALL_CHANNEL != "stable" else VERSION
 RELEASE_DIR = ROOT / "build" / "releases" / RELEASE_TAG
 APP_EXE = "NLSI-Exclusive-Logbook.exe"
 TRUCKSIM_PLUGIN_FILES = (
@@ -53,10 +56,23 @@ def fail(message: str) -> int:
     return 1
 
 
+def default_install_dir_for_channel(channel: str) -> str:
+    normalized = channel.strip().lower()
+    if normalized in {"alpha", "beta"}:
+        return r"{autopf32}\NLSI Exclusive Logbook"
+    if normalized in {"stable", "public"}:
+        return r"{autopf64}\NLSI Exclusive Logbook"
+    raise ValueError(f"Unsupported release channel: {channel!r}.")
+
+
 def verify_version() -> None:
     payload = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
     if payload.get("version") != VERSION or str(payload.get("channel", "")).lower() != CHANNEL:
         raise ValueError(f"version.json must describe {VERSION} {CHANNEL}.")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", VERSION):
+        raise ValueError("version.json must contain a numeric X.Y.Z release version.")
+    if INSTALL_CHANNEL not in {"alpha", "beta", "stable"}:
+        raise ValueError(f"Unsupported release channel in version.json: {CHANNEL!r}.")
 
 def verify_installer_policy() -> None:
     installer_text = ISS_FILE.read_text(encoding="utf-8")
@@ -72,6 +88,24 @@ def verify_installer_policy() -> None:
         raise ValueError("The installer must handle both supported plugin architectures.")
     if "SCSSdkClient.Demo.exe" in script_text or "TruckSim GPS Telemetry Server" in installer_text:
         raise ValueError("The TruckSim GPS server GUI must not be included or launched.")
+    required_installer_policy = (
+        "DefaultDirName={#DefaultApplicationDir}",
+        '#if (AppChannel == "alpha") || (AppChannel == "beta")',
+        'DefaultApplicationDir "{autopf32}\\NLSI Exclusive Logbook"',
+        'DefaultApplicationDir "{autopf64}\\NLSI Exclusive Logbook"',
+        "UsePreviousAppDir=yes",
+        "AppId=NLSI Exclusive Logbook",
+        "ArchitecturesInstallIn64BitMode=x64compatible",
+        "PrivilegesRequired={#InstallPrivileges}",
+        '#define InstallPrivileges "admin"',
+        "VersionInfoProductVersion={#AppFileVersion}",
+        "VersionInfoVersion={#AppFileVersion}",
+    )
+    if any(rule not in installer_text for rule in required_installer_policy):
+        raise ValueError("The native installer path, identity, or metadata policy is incomplete.")
+    for channel in ("alpha", "beta", "stable"):
+        if default_install_dir_for_channel(channel) not in installer_text:
+            raise ValueError(f"The native installer is missing the {channel} destination.")
 
 
 def verify_executable_version(app_exe: Path) -> None:
@@ -147,6 +181,19 @@ def copy_runtime_payload(app_exe: Path) -> None:
     shutil.copy2(ROOT / "img" / "logo.ico", logo_directory / "logo.ico")
     shutil.copy2(ROOT / "img" / "logo.png", logo_directory / "logo.png")
     shutil.copy2(ROOT / "version.json", PAYLOAD_DIR / "version.json")
+    docs_payload = PAYLOAD_DIR / "docs"
+    docs_payload.mkdir(parents=True, exist_ok=True)
+    for relative in (
+        Path("RELEASE_NOTES.md"),
+        Path("docs/NLSI-LOG-FORMAT.md"),
+        Path("docs/TELEMETRY-MAPPING.md"),
+        Path("docs/SQL-SCHEMA.md"),
+        Path("db/migrations/001_telemetry_sync.sql"),
+    ):
+        source = ROOT / relative
+        destination = docs_payload / relative.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
 
     for source, expected_hash, relative_destination in TRUCKSIM_PLUGIN_FILES:
         if not source.is_file():
@@ -261,7 +308,19 @@ def compile_installer() -> None:
     compiler = locate_iscc()
     OUTPUT_EXE.parent.mkdir(parents=True, exist_ok=True)
     print(f"Compiling {ISS_FILE.name} with Inno Setup...")
-    subprocess.run([str(compiler), str(ISS_FILE)], cwd=ROOT, check=True)
+    subprocess.run(
+        [
+            str(compiler),
+            f'/DAppChannel="{INSTALL_CHANNEL}"',
+            f"/DReleaseLabel={RELEASE_LABEL}",
+            f"/DReleaseTag={RELEASE_TAG}",
+            f"/DReleasePayload=build\\intermediate\\installer-payload-{RELEASE_TAG}",
+            f"/DAppFileVersion={FILE_VERSION}",
+            str(ISS_FILE),
+        ],
+        cwd=ROOT,
+        check=True,
+    )
     if not OUTPUT_EXE.is_file() or OUTPUT_EXE.stat().st_size == 0:
         raise FileNotFoundError(f"Inno Setup did not produce {OUTPUT_EXE}")
 

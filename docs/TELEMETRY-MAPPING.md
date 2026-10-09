@@ -1,10 +1,96 @@
 # Telemetry mapping and availability
 
-## Native Qt application v1.3.8 Alpha
+## Native Qt application v1.4.0 Alpha
 
 The native app reads the official TruckSim GPS plugin's 32 KiB `Local\TSGPSTelemetry` map (revision 13) directly; it does not use the separate TruckSim GPS Telemetry Server. TruckSim GPS is the only active native game telemetry provider. The reader normalizes game identity, pause/driving state, speed, RPM, gear, throttle/brake, retarder, cruise control, fuel/range, odometer, route distance/time, job metadata, and the map's delivery/cancellation events into the existing telemetry/session/history model.
 
-The decoder rejects unknown map revisions. Cruise-control enabled state and set speed, and retarder status and level, are displayed only when their verified fields are available; retarder-active state is derived from a positive SDK retarder level because the map does not expose a separate active boolean. Plugin presence, SDK activity, source timestamp freshness, and shared-memory errors are shown under Settings → Providers. The official plugin binaries are MIT-licensed and packaged with the plugin and SCS SDK notices. The GPL-3.0 server application and its code are not redistributed. Live ETS2/ATS telemetry is NOT TESTED for v1.3.8-alpha.
+The decoder rejects unknown map revisions. Cruise-control enabled state and set speed, and retarder status and level, are displayed only when their verified fields are available; retarder-active state is derived from a positive SDK retarder level because the map does not expose a separate active boolean. Plugin presence, SDK activity, source timestamp freshness, storage and synchronization states, and shared-memory errors are shown under Settings → Providers. The official plugin binaries are MIT-licensed and packaged with the plugin and SCS SDK notices. The GPL-3.0 server application and its code are not redistributed. Live ETS2/ATS telemetry is NOT TESTED for v1.4.0-alpha.
+
+### Revision-13 raw field inventory for the active native decoder
+
+The source of truth for the named offsets currently consumed is the native
+revision-13 decoder in `native/providers/TruckSimGpsProvider.cpp`, paired with
+the official TruckSim GPS plugin x64/x86 payload at
+`TruckSim-GPS/trucksim-gps-plugin` commit
+`ab79d819229740978bb22fb338a2b12bf5f623bf`. The plugin's complete named
+revision-13 structure definition is not present in the upstream binary payload
+or this checkout. Therefore this inventory is explicitly every named field
+NLSI can verify/read today, not a claim that the private map has no other
+fields. All 32 KiB are retained in each v2 raw record so opaque or future fields
+are not discarded or guessed.
+
+Raw map values are captured before unit conversion/display formatting. “Present”
+means the field slot exists in the validated revision-13 map. Semantic
+availability is false where the decoder cannot safely interpret the value;
+raw bytes remain preserved. Timestamp columns in this inventory are plugin
+clock counters, not UTC wall-clock timestamps. Every sample also gets a local
+UTC capture timestamp. This map has no documented latitude/longitude, GPS
+coordinates, account identity, game version, or authenticated-user session.
+
+| Source field (offset) | Source type | Source unit / meaning | Normalized application field | Validity / nullability | Timestamp behavior | Captured before v1.4.0 | v1.4.0 capture |
+|---|---|---|---|---|---|---|---|
+| SDK active (0) | bool | SDK/plugin active flag | `session_active` | Slot present; true/false | Source sample timestamp | Yes, bool | Raw bool + validity |
+| Paused (4) | bool | Game pause flag | `paused`; `driving` is derived | Slot present; true/false | Source sample timestamp | Yes, bool | Raw bool + validity |
+| Sample timestamp (8) | uint64 | Plugin-defined counter; unit not established here | Provider freshness metadata | Zero means no valid sample timestamp | Source counter, serialized as decimal text | Diagnostics only | Raw timestamp + validity |
+| Simulation timestamp (16) | uint64 | Plugin-defined simulation counter; unit not established here | None | Slot present; zero retained | Same source sample | Diagnostics only | Raw timestamp |
+| Render timestamp (24) | uint64 | Plugin-defined render counter; unit not established here | None | Slot present; zero retained | Same source sample | Diagnostics only | Raw timestamp |
+| Plugin revision (40) | uint32 | Revision number | Provider metadata | Must equal 13 to decode | Static per map revision | Yes, status only | Raw revision |
+| Game (52) | uint32 enum | 1=ETS2, 2=ATS | `game_id`, `game_name` | Other values unavailable | Source sample timestamp | Yes, mapped strings | Raw enum + mapped values |
+| Planned distance (100) | uint32 | km (as used by current decoder/history) | `planned_distance` | Zero unavailable in normalized model | Source sample timestamp | Yes, decimal string if >0 | Raw integer + validity |
+| Retarder level (108) | uint32 | Discrete level | `retarder_level`; active is derived as level > 0 | Slot present | Source sample timestamp | Yes | Raw integer + derived bool |
+| Selected gear (504) | int32 | Gear value | `gear` | Slot present | Source sample timestamp | Yes | Raw integer |
+| Speed (948) | float32 | m/s | `speed_kmh` (×3.6); `driving` is derived | Finite and >=0 | Source sample timestamp | Yes, converted only | Raw m/s and normalized km/h |
+| Engine RPM (952) | float32 | rpm | `rpm` | Finite and >=0 | Source sample timestamp | Yes | Raw and normalized |
+| Input throttle (960) | float32 | Source fraction/value; range not clamped | `input_throttle` | Finite and >=0 | Source sample timestamp | Yes | Raw and normalized |
+| Input brake (964) | float32 | Source fraction/value; range not clamped | `input_brake` | Finite and >=0 | Source sample timestamp | Yes | Raw and normalized |
+| Effective throttle (976) | float32 | Source fraction/value; range not clamped | `effective_throttle` | Finite and >=0 | Source sample timestamp | Yes | Raw and normalized |
+| Effective brake (980) | float32 | Source fraction/value; range not clamped | `effective_brake` | Finite and >=0 | Source sample timestamp | Yes | Raw and normalized |
+| Cruise-control speed (988) | float32 | m/s | `cruise_control_speed` (×3.6) | Finite and >=0 | Source sample timestamp | Yes, converted only | Raw m/s and normalized km/h |
+| Fuel (1000) | float32 | liters | `fuel_liters` | Finite and >=0 | Source sample timestamp | Yes | Raw and normalized |
+| Fuel range (1008) | float32 | km | `fuel_range_km` | Finite and >=0 | Source sample timestamp | Yes | Raw and normalized |
+| Odometer (1056) | float32 | km | `odometer_km` | Finite and >=0 | Source sample timestamp | Yes | Raw and normalized |
+| Navigation distance (1060) | float32 | m | `navigation_distance_m`; km is derived | Finite and >=0 | Source sample timestamp | Yes, m and derived km | Raw m, normalized m/km |
+| Navigation time (1064) | float32 | seconds | `navigation_time_s` | Finite and >=0 | Source sample timestamp | Yes | Raw and normalized |
+| Job loaded (1564) | bool | Loaded flag | `loaded` | Slot present | Source sample timestamp | Yes | Raw bool + validity |
+| Special job (1565) | bool | Special-job flag | `special_job` | Slot present | Source sample timestamp | Yes | Raw bool + validity |
+| Cargo ID (2556, 64 bytes) | UTF-8 NUL-terminated bytes | Identifier text | `cargo_id` | Non-empty, valid UTF-8 | Source sample timestamp | Yes, decoded text only | Raw decoded text + availability + map bytes |
+| Cargo name (2620, 64 bytes) | UTF-8 NUL-terminated bytes | Name text | `cargo_name` | Non-empty, valid UTF-8 | Source sample timestamp | Yes, decoded text only | Raw decoded text + availability + map bytes |
+| Destination city (2748, 64 bytes) | UTF-8 NUL-terminated bytes | City text | `destination_city` | Non-empty, valid UTF-8 | Source sample timestamp | Yes, decoded text only | Raw decoded text + availability + map bytes |
+| Destination company (2876, 64 bytes) | UTF-8 NUL-terminated bytes | Company text | `destination_company` | Non-empty, valid UTF-8 | Source sample timestamp | Yes, decoded text only | Raw decoded text + availability + map bytes |
+| Source city (3004, 64 bytes) | UTF-8 NUL-terminated bytes | City text | `source_city` | Non-empty, valid UTF-8 | Source sample timestamp | Yes, decoded text only | Raw decoded text + availability + map bytes |
+| Source company (3132, 64 bytes) | UTF-8 NUL-terminated bytes | Company text | `source_company` | Non-empty, valid UTF-8 | Source sample timestamp | Yes, decoded text only | Raw decoded text + availability + map bytes |
+| Job market (3404, 32 bytes) | UTF-8 NUL-terminated bytes | Market text | `market` | Non-empty, valid UTF-8 | Source sample timestamp | Yes, decoded text only | Raw decoded text + availability + map bytes |
+| Income (4000) | uint64 | Integer game amount; currency semantics not asserted | `income` | Zero unavailable in normalized model | Source sample timestamp | Yes, decimal string if >0 | Raw decimal integer + validity |
+| On job (4300) | bool | Active-job flag | `has_job` | Slot present | Source sample timestamp | Yes | Raw bool + validity |
+| Job cancelled (4302) | bool | Terminal event flag | `job.cancelled` event on rising edge | Slot present; persisted event only when active SDK and baseline exists | Event timestamp is NLSI UTC capture time | Event only | Raw bool on every changed sample and event |
+| Job delivered (4303) | bool | Terminal event flag | `job.delivered` event on rising edge | Slot present; persisted event only when active SDK and baseline exists | Event timestamp is NLSI UTC capture time | Event only | Raw bool on every changed sample and event |
+
+Application-derived fields (not separate source fields) include driving state,
+retarder-active state, navigation distance in km, and ETA. `delivery_time` has
+no revision-13 source offset in the active decoder and remains unavailable.
+Previous `.nlsi` application logs did not contain telemetry samples; v1.4.0
+does not change their schema. The new v2 daily files are additive.
+
+## Database migration and field mapping
+
+Only after recording the above inventory, the versioned MySQL 8 schema design
+was added at `db/migrations/001_telemetry_sync.sql`. It defines driving
+sessions, telemetry samples, job records, and durable synchronization state;
+it intentionally defines no users/accounts table because this application
+contains no authenticated account system. `source_fields`,
+`source_availability`, and `normalized_fields` are separate queryable JSON
+columns; exact mapping bytes are stored as a binary payload. The v2 local
+`record_id`, session ID, sequence, UTC timestamp, provider/revision, fields,
+and validity map correspond to the similarly named columns. Job records map
+from local job event IDs/details; session/game/start/end fields map from
+`sessions.jsonl`.
+
+The migration is a design artifact only: there is no server, authentication
+provider, database deployment, API endpoint, migration runner, or remote
+upload implementation in this repository. Apply it only when a backend and
+its authorization/data-retention policy exist. See
+`docs/SQL-SCHEMA.md` for column mapping, migration checks, and rollback
+instructions. Until then records remain local and queue state is Pending.
 
 This project relies on the official SCS Telemetry SDK 1.15 as the source of truth. The native plugin forwards telemetry to the local Python agent over UDP, the agent normalizes the packet into a stable Python structure, and the Tkinter GUI renders only values already known to be valid at runtime.
 

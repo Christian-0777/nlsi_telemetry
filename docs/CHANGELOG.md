@@ -2,6 +2,15 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.4.0-alpha
+
+- Added asynchronous daily v2 `.nlsi` capture for changed TruckSim GPS revision-13 source samples, including the exact compressed 32 KiB map, named raw fields, source timestamps, validity, normalized values, stable record IDs, sequence numbers, and driving-session association.
+- Added crash-tail preservation/recovery, 128 MiB non-destructive file rotation, size/schema validation, a durable local pending-sync queue, and an explicit Settings → Providers sync state.
+- Added the revision-13 field inventory, v2 format guide, and MySQL schema design migration.
+- Kept the prior v1 `.nlsi` application log, TXT logs, local history, and user data unchanged.
+- Online upload is not implemented: there is no authenticated account, backend, endpoint, or server migration deployment.
+- Updated native, installer, About/runtime, and release metadata to v1.4.0-alpha.
+
 ## v1.3.9-beta
 
 - Rebranded the sidebar as NABSKI / Logistics Solutions Inc. and identified Nabski Logistics and Solutions Inc. in the About page and installer publisher metadata.

@@ -25,7 +25,7 @@ ctest --test-dir build\cmake -C Debug --output-on-failure
 
 The VS Code CMake Tools workspace is configured to use `build\cmake`; the repository-root `build` directory may contain a cache from another generator and must not be reused for the native MSVC build.
 
-Debug binaries are written to `build\debug`; Release binaries are written to `build\releases\v1.3.8-alpha`. CMake deploys the required Qt runtime and platform plugin beside each application executable when `windeployqt` is available in the selected Qt installation.
+Debug binaries are written to `build\debug`; Release binaries are written to `build\releases\v1.4.0-alpha`. CMake deploys the required Qt runtime and platform plugin beside each application executable when `windeployqt` is available in the selected Qt installation.
 
 ## Tests
 
@@ -55,7 +55,7 @@ Use the existing Visual Studio CMake build and native installer script:
 build-release.bat
 ```
 
-The script builds only the `NLSI-Exclusive-Logbook` Release target in `build\cmake`, runs Python compatibility tests and Release CTest, then calls `build-installer.bat` to stage Qt/MSVC and official TruckSim plugin dependencies and compile `installer\NLSI-Exclusive-Logbook.iss`. It does not delete or reconfigure the existing CMake build directory. The expected installer output is `build\releases\v1.3.8-alpha\NLSI-Exclusive-Logbook-v1.3.8-alpha-Setup.exe`.
+The script builds the `NLSI-Exclusive-Logbook` Release application and native tests in `build\cmake`, runs Python compatibility tests and Release CTest, then calls `build-installer.bat` to stage Qt/MSVC, official TruckSim plugin files, notices, and release documentation before compiling `installer\NLSI-Exclusive-Logbook.iss`. It does not delete or reconfigure the existing CMake build directory. The expected installer output is `build\releases\v1.4.0-alpha\NLSI-Exclusive-Logbook-v1.4.0-alpha-Setup.exe`.
 
 For the native installer alone, after building the Release application, run:
 

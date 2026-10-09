@@ -1,17 +1,16 @@
-NLSI Exclusive Logbook v1.3.9-beta has been installed.
+NLSI Exclusive Logbook v1.4.0-alpha has been installed.
 
 What's New
-- TruckSim GPS is the sole active native game telemetry provider; the separate server GUI is not included or required.
-- Setup automatically installs the verified official plugin for detected supported game folders and preserves existing plugin files safely.
-- Added versioned .nlsi logging alongside TXT, consistent number/date formatting, and completed-job PDF export.
-- Preserved user logs, events, sessions, jobs, and offline operation.
-- Updated company branding and removed version badges from all page headers.
-- The About page shows the current application version: v1.3.9-beta.
+- Record raw TruckSim GPS revision-13 samples in daily, versioned .nlsi JSON Lines files.
+- Preserve each complete shared-memory sample and store raw availability separately from normalized values.
+- Keep telemetry records and their Pending synchronization queue on this computer; no online service is configured.
+- Preserve existing .nlsi/TXT logs, history, and user data during upgrades and uninstall.
+- The About page shows the current application version: v1.4.0-alpha.
 - Live ETS2/ATS telemetry and actual game-folder installation have not been tested for this release.
 
 WHAT'S NEW
 
-- Added Asia/Manila date/time with milliseconds, TruckSim cruise-control and retarder details when available, and application-version/About links.
+- Retained Asia/Manila date/time with milliseconds, TruckSim cruise-control and retarder details when available, and application-version/About links.
 - Preserved the 900x600 minimum/default window size and responsive Qt layout.
 - Application files remain under Program Files; user data remains under LocalAppData.
 

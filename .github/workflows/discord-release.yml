@@ -1,0 +1,34 @@
+name: Discord release announcement
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: discord-release-${{ github.event.release.id }}
+  cancel-in-progress: false
+
+jobs:
+  announce:
+    if: github.event.release.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the published release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Announce release
+        env:
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: node .github/scripts/discord-release.mjs

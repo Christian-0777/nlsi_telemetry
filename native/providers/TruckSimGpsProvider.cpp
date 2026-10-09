@@ -155,6 +155,110 @@ void SetText(
     }
 }
 
+void AddRaw(
+    QJsonObject& fields,
+    QJsonObject& availability,
+    const char* name,
+    const QJsonValue& value,
+    bool valid) {
+    const QString key = QString::fromLatin1(name);
+    fields.insert(key, value);
+    availability.insert(key, valid);
+}
+
+void AddRawFloat(
+    const std::uint8_t* data,
+    QJsonObject& fields,
+    QJsonObject& availability,
+    const char* name,
+    std::size_t offset,
+    bool non_negative = true) {
+    const float value = ReadValue<float>(data, offset);
+    const bool valid = std::isfinite(value) && (!non_negative || value >= 0.0f);
+    AddRaw(fields, availability, name,
+        valid ? QJsonValue(static_cast<double>(value)) : QJsonValue(QJsonValue::Null),
+        valid);
+}
+
+void AddRawText(
+    const std::uint8_t* data,
+    QJsonObject& fields,
+    QJsonObject& availability,
+    const char* name,
+    std::size_t offset,
+    std::size_t length) {
+    const std::wstring value = ReadString(data, offset, length);
+    AddRaw(fields, availability, name, QString::fromStdWString(value), !value.empty());
+}
+
+nlsi::providers::RawTelemetrySample MakeRawSample(
+    const std::uint8_t* data,
+    const std::wstring& timestamp) {
+    nlsi::providers::RawTelemetrySample sample;
+    sample.mapping = QByteArray(
+        reinterpret_cast<const char*>(data), static_cast<qsizetype>(kMappingSize));
+    sample.timestamp_utc = timestamp;
+    sample.source_timestamp = ReadValue<std::uint64_t>(data, kTimestampOffset);
+    sample.simulation_timestamp = ReadValue<std::uint64_t>(data, kSimulationTimestampOffset);
+    sample.render_timestamp = ReadValue<std::uint64_t>(data, kRenderTimestampOffset);
+    sample.revision = ReadValue<std::uint32_t>(data, kRevisionOffset);
+
+    auto& fields = sample.source_fields;
+    auto& availability = sample.source_availability;
+    AddRaw(fields, availability, "sdk_active",
+        ReadBoolean(data, kSdkActiveOffset), true);
+    AddRaw(fields, availability, "paused", ReadBoolean(data, kPausedOffset), true);
+    AddRaw(fields, availability, "sample_timestamp",
+        QString::number(sample.source_timestamp), sample.source_timestamp != 0);
+    AddRaw(fields, availability, "simulation_timestamp",
+        QString::number(sample.simulation_timestamp), sample.simulation_timestamp != 0);
+    AddRaw(fields, availability, "render_timestamp",
+        QString::number(sample.render_timestamp), sample.render_timestamp != 0);
+    AddRaw(fields, availability, "plugin_revision",
+        static_cast<int>(sample.revision), sample.revision == kSupportedRevision);
+    AddRaw(fields, availability, "game",
+        static_cast<int>(ReadValue<std::uint32_t>(data, kGameOffset)),
+        ReadValue<std::uint32_t>(data, kGameOffset) == 1
+            || ReadValue<std::uint32_t>(data, kGameOffset) == 2);
+    AddRaw(fields, availability, "planned_distance_km",
+        static_cast<qint64>(ReadValue<std::uint32_t>(data, kPlannedDistanceOffset)),
+        ReadValue<std::uint32_t>(data, kPlannedDistanceOffset) > 0);
+    AddRaw(fields, availability, "retarder_level",
+        static_cast<qint64>(ReadValue<std::uint32_t>(data, kRetarderLevelOffset)), true);
+    AddRaw(fields, availability, "selected_gear",
+        ReadValue<std::int32_t>(data, kSelectedGearOffset), true);
+    AddRawFloat(data, fields, availability, "speed_mps", kSpeedOffset);
+    AddRawFloat(data, fields, availability, "rpm", kRpmOffset);
+    AddRawFloat(data, fields, availability, "input_throttle", kInputThrottleOffset);
+    AddRawFloat(data, fields, availability, "input_brake", kInputBrakeOffset);
+    AddRawFloat(data, fields, availability, "effective_throttle", kEffectiveThrottleOffset);
+    AddRawFloat(data, fields, availability, "effective_brake", kEffectiveBrakeOffset);
+    AddRawFloat(data, fields, availability, "cruise_control_speed_mps", kCruiseSpeedOffset);
+    AddRawFloat(data, fields, availability, "fuel_liters", kFuelOffset);
+    AddRawFloat(data, fields, availability, "fuel_range_km", kFuelRangeOffset);
+    AddRawFloat(data, fields, availability, "odometer_km", kOdometerOffset);
+    AddRawFloat(data, fields, availability, "navigation_distance_m", kNavigationDistanceOffset);
+    AddRawFloat(data, fields, availability, "navigation_time_s", kNavigationTimeOffset);
+    AddRaw(fields, availability, "job_loaded", ReadBoolean(data, kJobLoadedOffset), true);
+    AddRaw(fields, availability, "special_job", ReadBoolean(data, kJobSpecialOffset), true);
+    AddRawText(data, fields, availability, "cargo_id", kCargoIdOffset, 64);
+    AddRawText(data, fields, availability, "cargo_name", kCargoNameOffset, 64);
+    AddRawText(data, fields, availability, "destination_city", kDestinationCityOffset, 64);
+    AddRawText(data, fields, availability, "destination_company", kDestinationCompanyOffset, 64);
+    AddRawText(data, fields, availability, "source_city", kSourceCityOffset, 64);
+    AddRawText(data, fields, availability, "source_company", kSourceCompanyOffset, 64);
+    AddRawText(data, fields, availability, "job_market", kJobMarketOffset, 32);
+    const std::uint64_t income = ReadValue<std::uint64_t>(data, kIncomeOffset);
+    AddRaw(fields, availability, "income",
+        QString::number(static_cast<qulonglong>(income)), income > 0);
+    AddRaw(fields, availability, "on_job", ReadBoolean(data, kOnJobOffset), true);
+    AddRaw(fields, availability, "job_cancelled",
+        ReadBoolean(data, kJobCancelledOffset), true);
+    AddRaw(fields, availability, "job_delivered",
+        ReadBoolean(data, kJobDeliveredOffset), true);
+    return sample;
+}
+
 QString FieldString(const nlsi::telemetry::TelemetryField<std::wstring>& field) {
     return field.available ? QString::fromStdWString(field.value) : QString();
 }
@@ -207,12 +311,16 @@ TruckSimGpsProvider::~TruckSimGpsProvider() {
     Stop();
 }
 
-bool TruckSimGpsProvider::Start(UpdateCallback callback, EventCallback event_callback) {
+bool TruckSimGpsProvider::Start(
+    UpdateCallback callback,
+    EventCallback event_callback,
+    SampleCallback sample_callback) {
     if (worker_.joinable()) {
         return false;
     }
     callback_ = std::move(callback);
     event_callback_ = std::move(event_callback);
+    sample_callback_ = std::move(sample_callback);
     stopping_ = false;
     state_ = telemetry::ProviderState::Connecting;
     try {
@@ -245,7 +353,8 @@ bool TruckSimGpsProvider::DecodeRevision13(
     std::size_t size,
     telemetry::TelemetrySnapshot& snapshot,
     std::uint32_t& revision,
-    std::wstring& error) {
+    std::wstring& error,
+    RawTelemetrySample* raw_sample) {
     revision = 0;
     if (!data || size < kMappingSize) {
         error = L"Shared-memory view is smaller than the 32 KiB TruckSim GPS layout.";
@@ -341,6 +450,9 @@ bool TruckSimGpsProvider::DecodeRevision13(
         ReadBoolean(data, kSdkActiveOffset), L"TruckSim GPS", timestamp);
     snapshot.timestamp = timestamp;
     snapshot.connected = true;
+    if (raw_sample) {
+        *raw_sample = MakeRawSample(data, timestamp);
+    }
     return true;
 }
 
@@ -459,6 +571,7 @@ void TruckSimGpsProvider::ReadLoop() {
             + L"; render=" + std::to_wstring(render);
 
         const auto now = std::chrono::steady_clock::now();
+        const bool new_sample = source_timestamp != 0 && source_timestamp != previous_timestamp;
         if (source_timestamp != previous_timestamp
             || last_changed == std::chrono::steady_clock::time_point{}) {
             previous_timestamp = source_timestamp;
@@ -504,6 +617,9 @@ void TruckSimGpsProvider::ReadLoop() {
         } else {
             status.trucksim_stage = L"Connected; revision-13 telemetry is changing";
             Publish(snapshot, telemetry::ProviderState::Connected, status);
+        }
+        if (new_sample && sample_callback_) {
+            sample_callback_(MakeRawSample(bytes.data(), current.timestamp));
         }
         std::this_thread::sleep_for(250ms);
     }

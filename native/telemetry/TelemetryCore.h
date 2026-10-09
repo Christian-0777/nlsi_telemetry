@@ -8,6 +8,7 @@
 #include "TelemetryModel.h"
 #include "TelemetryUiState.h"
 #include "logging/Logger.h"
+#include "logging/TelemetryRecorder.h"
 #include "providers/TruckSimGpsProvider.h"
 #include "session/HistoryStore.h"
 #include "session/JobManager.h"
@@ -37,6 +38,7 @@ private:
         ProviderState state,
         const ProviderStatus& diagnostics);
     void OnProviderEvent(const std::string& packet);
+    void OnTruckSimSample(const providers::RawTelemetrySample& sample);
     void RebuildStateLocked();
     void UpdateSessionLifecycleLocked();
     void EndSessionLocked(const std::wstring& reason, const std::wstring& timestamp);
@@ -55,6 +57,7 @@ private:
     std::chrono::steady_clock::time_point session_started_monotonic_;
     std::wstring logged_trucksim_message_;
     std::unique_ptr<logging::Logger> logger_;
+    std::unique_ptr<logging::TelemetryRecorder> telemetry_recorder_;
     std::unique_ptr<session::HistoryStore> history_store_;
     session::SessionManager session_manager_;
     session::JobManager job_manager_;

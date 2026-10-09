@@ -285,7 +285,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.3.9-beta"));
+    application.setApplicationVersion(QStringLiteral("v1.4.0-alpha"));
     if (!TestHistoryPagesLoadPersistedRows()) {
         return 1;
     }
@@ -296,7 +296,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.3.9-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.0-alpha",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -385,7 +385,7 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.3.9-beta");
+            || label->text() == QStringLiteral("v1.4.0-alpha");
     }
     if (!found_company || !found_version) {
         std::cerr << "The About page is missing its company name or current version.\n";
