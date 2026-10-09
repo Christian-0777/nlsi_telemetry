@@ -1,5 +1,11 @@
 # Telemetry mapping and availability
 
+## Native Qt application v1.3.8 Alpha
+
+The native app reads the official TruckSim GPS plugin's 32 KiB `Local\TSGPSTelemetry` map (revision 13) directly; it does not use the separate TruckSim GPS Telemetry Server. TruckSim GPS is the only active native game telemetry provider. The reader normalizes game identity, pause/driving state, speed, RPM, gear, throttle/brake, retarder, cruise control, fuel/range, odometer, route distance/time, job metadata, and the map's delivery/cancellation events into the existing telemetry/session/history model.
+
+The decoder rejects unknown map revisions. Cruise-control enabled state and set speed, and retarder status and level, are displayed only when their verified fields are available; retarder-active state is derived from a positive SDK retarder level because the map does not expose a separate active boolean. Plugin presence, SDK activity, source timestamp freshness, and shared-memory errors are shown under Settings → Providers. The official plugin binaries are MIT-licensed and packaged with the plugin and SCS SDK notices. The GPL-3.0 server application and its code are not redistributed. Live ETS2/ATS telemetry is NOT TESTED for v1.3.8-alpha.
+
 This project relies on the official SCS Telemetry SDK 1.15 as the source of truth. The native plugin forwards telemetry to the local Python agent over UDP, the agent normalizes the packet into a stable Python structure, and the Tkinter GUI renders only values already known to be valid at runtime.
 
 The mapping below is intentionally strict: values are labeled as `DIRECT`, `DERIVED`, `EVENT-DERIVED`, `UNAVAILABLE`, or `NOT RELIABLY EXPOSED`.

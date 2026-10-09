@@ -83,16 +83,17 @@ qt_add_executable(NLSI-Exclusive-Logbook MANUAL_FINALIZATION
     app/App.cpp
     gui/MainWindow.cpp
     gui/PageSupport.cpp
+    gui/JobPdfExporter.cpp
     gui/DashboardPage.cpp
     gui/DetailPages.cpp
     gui/HistoryPages.cpp
     telemetry/TelemetryCore.cpp
     telemetry/TelemetryModel.cpp
     telemetry/TelemetryUiState.cpp
-    providers/NLSIProvider.cpp
-    providers/RenCloudProvider.cpp
+    providers/TruckSimGpsProvider.cpp
     session/SessionManager.cpp
     session/JobManager.cpp
+    session/HistoryStore.cpp
     logging/Logger.cpp
     updater/GitHubUpdater.cpp
     resources/app.rc
@@ -136,7 +137,11 @@ target_include_directories(NLSI-Exclusive-Logbook PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/updater
 )
 
-target_link_libraries(NLSI-Exclusive-Logbook PRIVATE Qt6::Widgets shell32 ws2_32)
+target_link_libraries(NLSI-Exclusive-Logbook PRIVATE Qt6::Widgets shell32)
+target_compile_definitions(NLSI-Exclusive-Logbook PRIVATE
+    NLSI_VERSION="${NLSI_VERSION}"
+    NLSI_CHANNEL="${NLSI_CHANNEL}"
+)
 if(MSVC)
     target_compile_options(NLSI-Exclusive-Logbook PRIVATE /W4)
 endif()
@@ -162,9 +167,10 @@ if(BUILD_TESTING)
         telemetry/TelemetryModel.cpp
         telemetry/TelemetryUiState.cpp
         providers/NLSIProvider.cpp
-        providers/RenCloudProvider.cpp
+        providers/TruckSimGpsProvider.cpp
         session/SessionManager.cpp
         session/JobManager.cpp
+        session/HistoryStore.cpp
         logging/Logger.cpp
         updater/GitHubUpdater.cpp
     )
@@ -197,28 +203,32 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/logging
         ${CMAKE_CURRENT_SOURCE_DIR}/updater
     )
-    target_link_libraries(nlsi_core_tests PRIVATE ws2_32)
+    target_link_libraries(nlsi_core_tests PRIVATE Qt6::Core ws2_32)
 
     if(MSVC)
         target_compile_options(nlsi_core_tests PRIVATE /W4)
     endif()
 
     add_test(NAME nlsi_core_tests COMMAND nlsi_core_tests)
+    set_tests_properties(nlsi_core_tests PROPERTIES
+        ENVIRONMENT "PATH=${NLSI_QT_ROOT}/bin"
+    )
 
     add_executable(nlsi_gui_tests
         tests/main_window_tests.cpp
         gui/MainWindow.cpp
         gui/PageSupport.cpp
+        gui/JobPdfExporter.cpp
         gui/DashboardPage.cpp
         gui/DetailPages.cpp
         gui/HistoryPages.cpp
         telemetry/TelemetryCore.cpp
         telemetry/TelemetryModel.cpp
         telemetry/TelemetryUiState.cpp
-        providers/NLSIProvider.cpp
-        providers/RenCloudProvider.cpp
+        providers/TruckSimGpsProvider.cpp
         session/SessionManager.cpp
         session/JobManager.cpp
+        session/HistoryStore.cpp
         logging/Logger.cpp
         updater/GitHubUpdater.cpp
         resources/resources.qrc
@@ -242,7 +252,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/logging
         ${CMAKE_CURRENT_SOURCE_DIR}/updater
     )
-    target_link_libraries(nlsi_gui_tests PRIVATE Qt6::Widgets shell32 ws2_32)
+    target_link_libraries(nlsi_gui_tests PRIVATE Qt6::Widgets shell32)
 
     if(MSVC)
         target_compile_options(nlsi_gui_tests PRIVATE /W4)
@@ -251,6 +261,6 @@ if(BUILD_TESTING)
     add_test(NAME nlsi_gui_tests COMMAND nlsi_gui_tests)
     set_tests_properties(nlsi_gui_tests PROPERTIES
         ENVIRONMENT
-            "QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${NLSI_QT_ROOT}/plugins/platforms"
+            "PATH=${NLSI_QT_ROOT}/bin;QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${NLSI_QT_ROOT}/plugins/platforms"
     )
 endif()

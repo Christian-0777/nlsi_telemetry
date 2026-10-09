@@ -606,11 +606,12 @@ NLSIProvider::~NLSIProvider() {
     Stop();
 }
 
-bool NLSIProvider::Start(UpdateCallback callback) {
+bool NLSIProvider::Start(UpdateCallback callback, EventCallback event_callback) {
     if (running_.load() || worker_.joinable()) {
         return false;
     }
     callback_ = std::move(callback);
+    event_callback_ = std::move(event_callback);
     stopping_ = false;
     state_ = telemetry::ProviderState::Connecting;
     Publish({}, telemetry::ProviderState::Connecting, L"");
@@ -761,6 +762,13 @@ void NLSIProvider::ReceiveLoop() {
                 if (!type || type->type != JsonValue::Type::String) {
                     Publish(latest_snapshot, current_state, L"Received a telemetry packet without a type.");
                     continue;
+                }
+                if ((type->string == "gameplay_event"
+                        || type->string == "lifecycle"
+                        || type->string == "plugin_init"
+                        || type->string == "plugin_shutdown")
+                    && event_callback_) {
+                    event_callback_(std::string(buffer, static_cast<std::size_t>(received)));
                 }
                 if (type->string == "configuration") {
                     const JsonValue* id = packet.Find("id");

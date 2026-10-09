@@ -1,11 +1,17 @@
-NLSI Exclusive Logbook v1.3.4-alpha has been installed.
+NLSI Exclusive Logbook v1.3.8-alpha has been installed.
+
+What's New
+- TruckSim GPS is the sole active native game telemetry provider; the separate server GUI is not included or required.
+- Setup automatically installs the verified official plugin for detected supported game folders and preserves existing plugin files safely.
+- Added versioned .nlsi logging alongside TXT, consistent number/date formatting, and completed-job PDF export.
+- Preserved user logs, events, sessions, jobs, and offline operation.
+- Live ETS2/ATS telemetry and actual game-folder installation have not been tested for this release.
 
 WHAT'S NEW
 
-- Moved detailed NLSI and RenCloud status from Dashboard to Settings > Providers.
-- Improved responsive layouts while preserving the existing minimum window size.
-- Opened the application at the existing minimum window size.
-- Kept telemetry updates lightweight and limited to changed values.
+- Added Asia/Manila date/time with milliseconds, TruckSim cruise-control and retarder details when available, and application-version/About links.
+- Preserved the 900x600 minimum/default window size and responsive Qt layout.
+- Application files remain under Program Files; user data remains under LocalAppData.
 
-The SCS plugin supplies the live telemetry fields available to the application.
-Native RenCloud ingestion and persisted history are not available in this build.
+The TruckSim GPS game plugin supplies telemetry through a local shared-memory map.
+The GPL server implementation and TruckSim GPS Server GUI are not bundled.

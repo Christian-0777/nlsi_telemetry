@@ -6,10 +6,9 @@
 - Visual Studio 2022 Build Tools with the **Desktop development with C++** workload and MSVC x64 tools.
 - CMake 3.20 or newer.
 - Qt 6.12 Widgets for MSVC 2022 x64. Set `CMAKE_PREFIX_PATH` to the Qt installation prefix when configuring.
-- The extracted official SCS Telemetry SDK 1.15. The normal local SDK path used by the release script is `C:\SCS\scs_sdk_1_15`.
+- The native Qt application uses the verified TruckSim GPS revision-13 shared-memory map; the official x64/x86 game-plugin binaries and MIT notices are packaged by the installer builder. The TruckSim GPS Server GUI is not a build or runtime dependency.
+- The extracted official SCS Telemetry SDK 1.15 is needed only for the separate legacy native plugin target (`build.bat`), not for the Qt desktop application/release installer.
 - Inno Setup 6 to compile the installer.
-
-The extracted SDK directory must contain `include\scssdk_telemetry.h`. The SDK is a build-time dependency and is not included in the release package.
 
 The native desktop application uses Qt Widgets and does not require a Python runtime. The existing Python agent and Tkinter GUI remain in the repository as a reference implementation.
 
@@ -24,7 +23,9 @@ cmake --build build\cmake --config Release
 ctest --test-dir build\cmake -C Debug --output-on-failure
 ```
 
-Debug binaries are written to `build\debug`; Release binaries are written to `build\releases\v1.3.2-alpha`. CMake deploys the required Qt runtime and platform plugin beside each application executable when `windeployqt` is available in the selected Qt installation.
+The VS Code CMake Tools workspace is configured to use `build\cmake`; the repository-root `build` directory may contain a cache from another generator and must not be reused for the native MSVC build.
+
+Debug binaries are written to `build\debug`; Release binaries are written to `build\releases\v1.3.8-alpha`. CMake deploys the required Qt runtime and platform plugin beside each application executable when `windeployqt` is available in the selected Qt installation.
 
 ## Tests
 
@@ -38,7 +39,7 @@ These tests exercise the agent model, GUI view-model, persisted history, and bui
 
 ## Build the native plugin
 
-Use the existing native build script:
+The separate legacy SCS ABI plugin remains available when explicitly needed:
 
 ```bat
 build.bat "C:\SCS\scs_sdk_1_15"
@@ -46,18 +47,21 @@ build.bat "C:\SCS\scs_sdk_1_15"
 
 It locates MSVC with `vswhere`, calls the Visual Studio x64 developer environment, and builds `build\v<VERSION>\nlsi_telemetry.dll` from `src\nlsi_telemetry.cpp` and `src\nlsi_telemetry.def`. The version comes from `version.json`; previous version folders are not overwritten.
 
-## Build a complete release
+## Build a complete native release
 
-The unified release script validates the SDK, builds and verifies the DLL, runs tests, invokes the existing installer builder, then checks the final installer and build metadata:
+Use the existing Visual Studio CMake build and native installer script:
 
 ```bat
 build-release.bat
-build-release.bat "D:\path\to\scs_sdk_1_15"
-build-release.bat clean
-build-release.bat clean "C:\SCS\scs_sdk_1_15"
 ```
 
-`clean` removes only the current version's generated output directory. The existing `build-installer.bat`/`installer\build_installer.py` flow itself repeats its test and DLL build before staging and compiling with Inno Setup.
+The script builds only the `NLSI-Exclusive-Logbook` Release target in `build\cmake`, runs Python compatibility tests and Release CTest, then calls `build-installer.bat` to stage Qt/MSVC and official TruckSim plugin dependencies and compile `installer\NLSI-Exclusive-Logbook.iss`. It does not delete or reconfigure the existing CMake build directory. The expected installer output is `build\releases\v1.3.8-alpha\NLSI-Exclusive-Logbook-v1.3.8-alpha-Setup.exe`.
+
+For the native installer alone, after building the Release application, run:
+
+```bat
+build-installer.bat
+```
 
 ## Project layout
 

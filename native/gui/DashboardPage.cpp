@@ -57,15 +57,6 @@ DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
     page_layout->setContentsMargins(4, 4, 4, 4);
     page_layout->setSpacing(14);
 
-    auto* title = new QLabel(QStringLiteral("Dashboard"), this);
-    title->setObjectName(QStringLiteral("pageTitle"));
-    page_layout->addWidget(title);
-    auto* description = new QLabel(
-        QStringLiteral("Your current drive at a glance."),
-        this);
-    description->setObjectName(QStringLiteral("pageDescription"));
-    page_layout->addWidget(description);
-
     auto* grid = new QGridLayout();
     grid->setSpacing(14);
     grid->setColumnStretch(0, 1);
@@ -121,12 +112,12 @@ void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
     const auto& snapshot = state.fast.values;
     SetValue(QStringLiteral("game"), FieldText(snapshot.game_name));
     SetValue(QStringLiteral("connection"), ConnectionText(state));
-    SetValue(QStringLiteral("speed"), NumberText(snapshot.speed_kmh, 1, QStringLiteral(" km/h")));
+    SetValue(QStringLiteral("speed"), NumberText(snapshot.speed_kmh, 2, QStringLiteral(" km/h")));
     SetValue(QStringLiteral("engine"),
         NumberText(snapshot.rpm, 0) + QStringLiteral(" RPM\nGear ") + NumberText(snapshot.gear, 0));
     SetValue(QStringLiteral("fuel"),
-        NumberText(snapshot.fuel_liters, 1, QStringLiteral(" L"))
-        + QStringLiteral("\n") + NumberText(snapshot.fuel_range_km, 1, QStringLiteral(" km")));
+        NumberText(snapshot.fuel_liters, 2, QStringLiteral(" L"))
+        + QStringLiteral("\n") + NumberText(snapshot.fuel_range_km, 2, QStringLiteral(" km")));
     SetValue(QStringLiteral("cargo"), JobSummary(state));
     const QString source = RouteText(state.job.source_company, state.job.source_city);
     const QString destination = RouteText(state.job.destination_company, state.job.destination_city);

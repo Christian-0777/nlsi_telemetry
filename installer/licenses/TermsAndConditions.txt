@@ -1,10 +1,10 @@
-NLSI EXCLUSIVE LOGBOOK v1.3.4 ALPHA
+NLSI EXCLUSIVE LOGBOOK v1.3.8 ALPHA
 TERMS AND CONDITIONS
 
 1. ACCEPTANCE
 
 By selecting “I accept the Terms and Conditions” and continuing, you agree to
-these terms for your use of NLSI Exclusive Logbook v1.3.4 Alpha (“the
+these terms for your use of NLSI Exclusive Logbook v1.3.8 Alpha (“the
 Application”). If you do not agree, cancel the installer and do not use the
 Application.
 

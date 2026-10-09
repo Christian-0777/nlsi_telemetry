@@ -225,23 +225,11 @@ class TelemetryAgent:
         self._seen_job_configurations: set[str] = set()
         self.provider_states: dict[str, dict[str, Any]] = {
             "nlsi": {"connected": False, "last_update": None, "last_timestamp": None, "version": None},
-            "rencloud": {"connected": False, "last_update": None, "last_timestamp": None, "version": None},
         }
-        self._provider_telemetry: dict[str, dict[str, Any]] = {"nlsi": {}, "rencloud": {}}
+        self._provider_telemetry: dict[str, Any] = {}
 
-    def _normalize_provider_name(self, provider: Any) -> str:
-        if not isinstance(provider, str):
-            return "nlsi"
-        normalized = provider.strip().lower().replace("-", "_").replace(" ", "_")
-        if "ren" in normalized and "cloud" in normalized:
-            return "rencloud"
-        if "nlsi" in normalized or normalized in {"scs", "scs_telemetry", "telemetry"}:
-            return "nlsi"
-        return "nlsi"
-
-    def _register_provider_update(self, provider: Any, message: dict[str, Any], now: float) -> None:
-        provider_key = self._normalize_provider_name(provider)
-        state = self.provider_states.setdefault(provider_key, {"connected": False, "last_update": None, "last_timestamp": None, "version": None})
+    def _register_provider_update(self, message: dict[str, Any], now: float) -> None:
+        state = self.provider_states["nlsi"]
         state["connected"] = True
         state["last_update"] = now
         state["last_timestamp"] = message.get("timestamp") or utc_now()
@@ -250,8 +238,7 @@ class TelemetryAgent:
             version = game.get("version")
             if isinstance(version, str) and version.strip():
                 state["version"] = version
-        if provider_key in self._provider_telemetry:
-            self._provider_telemetry[provider_key] = message
+        self._provider_telemetry = message
 
     def _provider_connected(self, provider: str, now: float | None = None) -> bool:
         current_time = self.monotonic() if now is None else now
@@ -267,46 +254,13 @@ class TelemetryAgent:
 
     def _combined_connection_state(self, now: float | None = None) -> str:
         current_time = self.monotonic() if now is None else now
-        active = sum(1 for provider in ("nlsi", "rencloud") if self._provider_connected(provider, current_time))
-        if active >= 2:
-            return "CONNECTED"
-        if active == 1:
-            return "PARTIAL"
-        return "DISCONNECTED"
-
-    def _merge_provider_values(self, nlsi_value: Any, rencloud_value: Any) -> Any:
-        if nlsi_value is not None:
-            return nlsi_value
-        return rencloud_value
-
-    def _merge_provider_payloads(self, nlsi_payload: Any, rencloud_payload: Any) -> Any:
-        if not isinstance(nlsi_payload, dict) and not isinstance(rencloud_payload, dict):
-            return self._merge_provider_values(nlsi_payload, rencloud_payload)
-        if not isinstance(nlsi_payload, dict):
-            return rencloud_payload
-        if not isinstance(rencloud_payload, dict):
-            return nlsi_payload
-        combined: dict[str, Any] = {}
-        for key in set(nlsi_payload) | set(rencloud_payload):
-            if key in nlsi_payload and key not in rencloud_payload:
-                combined[key] = nlsi_payload[key]
-                continue
-            if key in rencloud_payload and key not in nlsi_payload:
-                combined[key] = rencloud_payload[key]
-                continue
-            combined[key] = self._merge_provider_payloads(nlsi_payload.get(key), rencloud_payload.get(key))
-        return combined
+        return "CONNECTED" if self._provider_connected("nlsi", current_time) else "DISCONNECTED"
 
     def combined_telemetry(self, now: float | None = None) -> dict[str, Any] | None:
         current = self.latest_telemetry if isinstance(self.latest_telemetry, dict) else {}
-        nlsi_payload = self._provider_telemetry.get("nlsi") if isinstance(self._provider_telemetry.get("nlsi"), dict) else {}
-        rencloud_payload = self._provider_telemetry.get("rencloud") if isinstance(self._provider_telemetry.get("rencloud"), dict) else {}
-        if not nlsi_payload and not rencloud_payload:
+        if not self._provider_telemetry:
             return current
-        merged = self._merge_provider_payloads(nlsi_payload, rencloud_payload)
-        if not isinstance(merged, dict):
-            return merged or current
-        return merged or current
+        return self._provider_telemetry
 
     def _set_game(self, game: Any) -> None:
         if not isinstance(game, dict):
@@ -690,8 +644,7 @@ class TelemetryAgent:
         snapshot["paused"] = not self.driving
         self.latest_telemetry = snapshot
         self.last_telemetry_timestamp = timestamp
-        provider = message.get("provider")
-        self._register_provider_update(provider, snapshot, now)
+        self._register_provider_update(snapshot, now)
         self.output(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")))
 
         self._maybe_record_heartbeat(timestamp, now)
@@ -702,6 +655,14 @@ class TelemetryAgent:
         message_type = message.get("type")
         if not isinstance(message_type, str):
             raise ValueError("Telemetry packet is missing its type.")
+        if message_type == "telemetry":
+            provider = message.get("provider")
+            if provider is not None:
+                if not isinstance(provider, str):
+                    return
+                normalized_provider = provider.strip().lower().replace("-", "_").replace(" ", "_")
+                if normalized_provider not in {"nlsi", "scs", "scs_telemetry", "telemetry"}:
+                    return
         current_time = self.monotonic() if now is None else now
         if "game" in message:
             self._set_game(message["game"])
@@ -720,10 +681,10 @@ class TelemetryAgent:
             self.last_packet_monotonic = current_time
         elif message_type == "plugin_init":
             self.last_packet_monotonic = current_time
-            self._register_provider_update("nlsi", message, current_time)
+            self._register_provider_update(message, current_time)
         elif message_type == "plugin_heartbeat":
             self.last_packet_monotonic = current_time
-            self._register_provider_update("nlsi", message, current_time)
+            self._register_provider_update(message, current_time)
             self._maybe_record_heartbeat(timestamp or utc_now(), current_time)
         elif message_type == "lifecycle":
             state = message.get("state")
@@ -743,8 +704,7 @@ class TelemetryAgent:
                 )
         elif message_type == "telemetry":
             self._snapshot(message, current_time)
-            provider = message.get("provider") or "nlsi"
-            self._register_provider_update(provider, self.latest_telemetry or message, current_time)
+            self._register_provider_update(self.latest_telemetry or message, current_time)
         elif message_type == "plugin_shutdown":
             self._end_session("game_plugin_shutdown", timestamp, current_time)
         else:
@@ -771,12 +731,9 @@ class TelemetryAgent:
             self.last_packet_monotonic is not None
             and current_time - self.last_packet_monotonic >= TELEMETRY_TIMEOUT_SECONDS
         )
-        provider_timeout = all(
-            not self._provider_connected(provider, current_time)
-            for provider in ("nlsi", "rencloud")
-        ) and any(
-            state.get("last_update") is not None
-            for state in self.provider_states.values()
+        provider_timeout = (
+            not self._provider_connected("nlsi", current_time)
+            and self.provider_states["nlsi"].get("last_update") is not None
         )
         if packet_timeout or provider_timeout:
             self._end_session("telemetry_timeout", now=current_time)

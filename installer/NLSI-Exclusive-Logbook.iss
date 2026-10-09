@@ -1,5 +1,5 @@
 #define AppName "NLSI Exclusive Logbook"
-#define AppVersion "1.3.4"
+#define AppVersion "1.3.8"
 #define ReleaseTag "v" + AppVersion + "-alpha"
 #define ReleasePayload "build\intermediate\installer-payload-" + ReleaseTag
 #define AppPublisher "NLSI"
@@ -19,7 +19,8 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}
 AppUpdatesURL={#AppURL}
-DefaultDirName={autopf32}\NLSI Exclusive Logbook
+DefaultDirName={autopf}\NLSI Exclusive Logbook
+ArchitecturesInstallIn64BitMode=x64compatible
 DefaultGroupName={#AppName}
 UsePreviousAppDir=yes
 DisableProgramGroupPage=yes
@@ -46,8 +47,8 @@ UninstallDisplayIcon={app}\NLSI-Exclusive-Logbook.exe
 SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=1.3.4.0
-VersionInfoProductVersion=1.3.4.0
+VersionInfoVersion=1.3.8.0
+VersionInfoProductVersion=1.3.8.0
 VersionInfoCompany=NLSI
 VersionInfoProductName={#AppName}
 
@@ -73,9 +74,12 @@ Name: "{autodesktop}\NLSI Exclusive Logbook"; Filename: "{app}\NLSI-Exclusive-Lo
 Name: "{userstartup}\NLSI Exclusive Logbook"; Filename: "{app}\NLSI-Exclusive-Logbook.exe"; WorkingDir: "{app}"; IconFilename: "{app}\img\logo.ico"; Tasks: startup
 
 [Run]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\InstallTruckSimPlugin.ps1"" -DllPath64 ""{app}\plugins\trucksim\win_x64\plugins\trucksim-gps-telemetry.dll"" -DllPath32 ""{app}\plugins\trucksim\win_x86\plugins\trucksim-gps-telemetry.dll"" -ManifestPath ""{app}\tools\installed-trucksim-plugins.json"" -StatusPath ""{app}\logs\trucksim-plugin-status.txt"""; WorkingDir: "{app}"; Flags: runhidden waituntilterminated
 Filename: "{app}\NLSI-Exclusive-Logbook.exe"; Description: "Launch NLSI Exclusive Logbook"; Flags: postinstall nowait skipifsilent unchecked
 Filename: "https://www.tiktok.com/@kape_073"; Description: "Follow @kape_073 on TikTok"; Flags: postinstall shellexec nowait skipifsilent unchecked
 Filename: "https://github.com/Christian-0777/nlsi_telemetry/releases/tag/{#ReleaseTag}"; Description: "View release notes"; Flags: postinstall shellexec nowait skipifsilent unchecked
+[UninstallRun]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\InstallTruckSimPlugin.ps1"" -DllPath64 ""{app}\plugins\trucksim\win_x64\plugins\trucksim-gps-telemetry.dll"" -DllPath32 ""{app}\plugins\trucksim\win_x86\plugins\trucksim-gps-telemetry.dll"" -ManifestPath ""{app}\tools\installed-trucksim-plugins.json"" -StatusPath ""{app}\logs\trucksim-plugin-status.txt"" -RemoveManagedPlugin"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveManagedTruckSimPlugin"
 
 [Code]
 const
@@ -155,11 +159,13 @@ begin
       'Installed version: ' + ExistingInstallVersion + #13#10 +
       'New version: v{#AppVersion}-alpha' + #13#10 +
       'Installation directory: ' + ExistingInstallDir + #13#10#13#10 +
-      'Existing configuration and log files will be preserved.';
+      'Existing configuration and log files will be preserved.' + #13#10#13#10 +
+      'Setup automatically detects supported Steam ETS2/ATS installations and installs the official TruckSim GPS plugin into matching x64 and x86 plugin folders. Different existing plugin DLLs are preserved.';
   end else begin
     InstallationSummary :=
       'No existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
-      'This setup will perform a fresh installation of v{#AppVersion}-alpha.';
+      'This setup will perform a fresh installation of v{#AppVersion}-alpha under Program Files.' + #13#10#13#10 +
+      'Setup automatically detects supported Steam ETS2/ATS installations and installs the official TruckSim GPS plugin into matching x64 and x86 plugin folders. Different existing plugin DLLs are preserved.';
   end;
   if DirExists(ExpandConstant('{#LegacyDirectory}')) and
      LegacyContainsUserData(ExpandConstant('{#LegacyDirectory}')) then
@@ -230,11 +236,11 @@ begin
   if CurPageID = wpFinished then begin
     WizardForm.FinishedHeadingLabel.Caption := 'Installation complete';
     WizardForm.FinishedLabel.Caption :=
-      'NLSI Exclusive Logbook v1.3.4-alpha has been installed.' + #13#10#13#10 +
+      'NLSI Exclusive Logbook v1.3.8-alpha has been installed.' + #13#10#13#10 +
       'What''s New' + #13#10 +
-      '- Extended the active navigation background across the full sidebar width.' + #13#10 +
-      '- Improved responsive page layouts and removed unnecessary scrollbars.' + #13#10 +
-      '- Retained the lightweight Qt Widgets interface and 900×600 default size.' + #13#10#13#10 +
-      'Select any optional action below, then click Finish.';
+      '- Direct TruckSim GPS revision-13 telemetry; the separate server client is not required.' + #13#10 +
+      '- TruckSim GPS is the only active game telemetry source; local events, jobs, sessions, and TXT logs remain supported.' + #13#10 +
+      '- Setup installs the verified official TruckSim GPS plugin for detected supported game folders.' + #13#10#13#10 +
+      'The About page includes NLSI community and creator links.';
   end;
 end;

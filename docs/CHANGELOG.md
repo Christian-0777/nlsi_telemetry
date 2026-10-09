@@ -2,6 +2,42 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.3.8 — Alpha
+
+- Made TruckSim GPS the native app's sole active game telemetry provider; removed RenCloud and the NLSI UDP receiver from the native runtime/installer payload.
+- Added versioned `.nlsi` logs alongside compatible TXT logs and documented the schema and strict read/write behavior.
+- Added the Asia/Manila millisecond clock, consistent date/number formatting, and TruckSim cruise/retarder state where supplied.
+- Added PDF export for completed jobs with recorded statistics and paginated long records.
+- Added dynamic About version, requested social links, and plugin/SCS attribution.
+- Made verified official TruckSim plugin installation automatic for detected supported Steam game architectures with collision protection and recovery backups.
+- Retained local user data and the existing 900×600 default/minimum window size. Live gameplay and actual game-folder installation remain unverified.
+
+## v1.3.7 — Alpha
+
+- Replaced active RenCloud ingestion with a direct reader for TruckSim GPS plugin revision 13 at `Local\TSGPSTelemetry`; the separate TruckSim GPS Telemetry Server client is not needed.
+- Added a guarded optional installer task for the official x64/x86 TruckSim GPS plugins with hash verification and plugin/SCS SDK MIT notices.
+- Kept NLSI first in per-field selection, wired TruckSim GPS job delivery/cancellation events into the existing event and completed-job stores, and retained existing session/TXT logging.
+- Reported missing plugin maps, unsupported layouts, inactive SDK state, and stale telemetry explicitly; disabled RenCloud in the provider UI while preserving its source and configuration.
+- Updated native app and installer version metadata to v1.3.7-alpha; kept the shared header, theme, sidebar, and 900×600 window size.
+- Live ETS2/ATS telemetry has not been tested for this release.
+
+## v1.3.6 — Alpha
+
+- Removed repeated titles and subtitles from all page bodies; the shared header remains the single title/subtitle source.
+- Classified active jobs as in transit when fresh driving telemetry is available without a separate loaded flag, and only persisted identified terminal-job events.
+- Reported mapped-but-unsupported RenCloud revisions without claiming their layout or freshness; revision 539 remains unsupported pending layout verification.
+- Staged the genuine hash-verified RenCloud plugin and its imported MSVC runtime dependencies for the optional game-plugin install.
+- Updated native app, installer, and documentation version metadata to v1.3.6-alpha.
+
+## v1.3.5 — Alpha
+
+- Implemented a RenCloud shared-memory reader for the verified revision-12 layout, with explicit mapping/access/layout/staleness diagnostics and field-level NLSI-first fallback.
+- Added a hash-verified, optional RenCloud installer task with MIT notice and guarded update/uninstall behavior.
+- Restored UTF-8 TXT logs and per-user `logs`/`session_logs`, preserved/migrated install-directory log files, and persisted provider events, sessions, and explicit delivery/cancellation jobs.
+- Populated Events, Sessions & trips, and Completed jobs views from stored records with test coverage for details and tab switching.
+- Classified job status from available loaded/driving evidence when optional identity fields are absent.
+- Added page-specific header subtitles and updated application, installer, and release metadata.
+
 ## v1.3.4 — Alpha
 
 - Extended the active sidebar navigation background across its full width without changing the NLSI pink/white horizontal brand header.

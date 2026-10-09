@@ -1,4 +1,4 @@
-NLSI EXCLUSIVE LOGBOOK v1.3.4 ALPHA
+NLSI EXCLUSIVE LOGBOOK v1.3.8 ALPHA
 PRIVACY POLICY
 
 1. INFORMATION PROCESSED BY THE APPLICATION
@@ -6,35 +6,42 @@ PRIVACY POLICY
 The native Application receives supported ETS2/ATS telemetry from the local
 SCS plugin over the computer's local interface. Values may include game,
 vehicle, navigation, job, session, and provider status fields when the game
-and plugin supply them. Telemetry is processed locally to display current
-application state. The native Application does not currently provide
-persisted job, session, or event history.
+and plugin supply them. TruckSim GPS telemetry is read locally from the
+Windows shared-memory mapping created by the game plugin. Telemetry is processed
+locally to display current application state. Provider events, session
+lifecycle records, completed/cancelled job events, and TXT and NLSI logs are stored
+under the current user's Windows application data directory.
 
 The current native Application does not send gameplay telemetry to NLSI or
 another remote telemetry service. It does not require an online account.
 Unavailable telemetry values are not intentionally filled with invented
-values.
+values. The updater may contact GitHub to check for releases.
 
 2. INSTALLATION AND LEGACY CLEANUP
 
 The installer places Application files in the selected installation
 directory. During an update, application files are replaced in place and
-existing configuration and logs are retained. Setup removes the legacy
+existing per-user application data is retained. Setup automatically installs
+the bundled official TruckSim GPS plugin only into detected ETS2/ATS Steam
+plugin folders; a different existing plugin DLL is not overwritten. The uninstaller
+removes only a recorded TruckSim GPS plugin whose contents still match the
+installed copy.
+Setup removes the legacy
 C:\nlsi-tem application directory only when it does not contain the known
 user-data folders (config, data, logs, or app\test\output). If any of those
 folders are present, setup leaves the legacy directory untouched to protect
 that data. The uninstaller does not target user data stored outside the
-Application installation directory, except for shortcuts and the optional
-Windows startup shortcut you choose.
+Application installation directory, except for managed TruckSim GPS plugin
+copies described above, shortcuts, and the optional Windows startup shortcut
+you choose.
 
 3. OPTIONAL EXTERNAL LINKS
 
-If you select “Follow @kape_073 on TikTok” or “View release notes,” the
-installer opens the corresponding website in your default browser. Those
-websites are operated by third parties and may receive information such as
-your IP address and browser data under their own privacy policies. The
-installer opens neither website when its corresponding option is not
-selected.
+The Application's About page provides links to the NLSI Discord, CEO and
+developer TikTok accounts, and the TruckSim GPS project. If you open one,
+the corresponding third-party website may receive information such as your
+IP address and browser data under its own privacy policy. Setup does not open
+these links automatically.
 
 4. RETENTION AND CONTROL
 
@@ -48,5 +55,5 @@ files; it does not recreate C:\nlsi-tem.
 Project information is available at:
 https://github.com/Christian-0777/nlsi_telemetry
 
-This policy describes the v1.3.4 Alpha native Application and installer.
+This policy describes the v1.3.8 Alpha native Application and installer.
 Update it if data handling changes.

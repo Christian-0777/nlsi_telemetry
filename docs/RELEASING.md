@@ -1,37 +1,43 @@
 # Release process
 
-`version.json` is the authoritative NLSI application version. For v0.3.2 the SCS telemetry API value remains independent (the plugin currently reports `1.01`). The installer is a release asset; local builds do not publish or upload anything.
+`version.json` is the authoritative application version and release channel.
+The native Qt application gets its runtime version from the CMake configure
+metadata; `native/resources/app.rc` and `installer/NLSI-Exclusive-Logbook.iss`
+carry matching Windows executable/installer metadata. Local builds do not
+publish or upload anything.
 
 ## Build and verify
 
-Requirements and test coverage are described in [Development](DEVELOPMENT.md). From the repository root, run:
+Use the existing Visual Studio 2022 x64 CMake configuration at `build\cmake`.
+Do not configure over the repository-root `build\` directory: it may contain a
+Ninja cache belonging to another toolchain.
 
 ```bat
 build-release.bat
 ```
 
-The script uses `C:\SCS\scs_sdk_1_15` by default. To select another extracted SDK, pass its path:
+The release script builds only the native Qt Release target, runs Python
+compatibility/packaging tests and Release CTest, then invokes
+`build-installer.bat`. The installer builder verifies executable version
+metadata, official TruckSim GPS x64/x86 plugin hashes, license notices, and the
+automatic safe-install policy before staging Qt/MSVC dependencies and
+compiling the Inno Setup definition.
 
-```bat
-build-release.bat "D:\path\to\scs_sdk_1_15"
-```
+Expected outputs for v1.3.8-alpha:
 
-For a clean build of only the current version:
+- `build\releases\v1.3.8-alpha\NLSI-Exclusive-Logbook.exe`
+- `build\releases\v1.3.8-alpha\NLSI-Exclusive-Logbook-v1.3.8-alpha-Setup.exe`
 
-```bat
-build-release.bat clean
-```
-
-The release script reads `version.json`, creates `build\v<VERSION>\`, calls `build.bat` to compile `src\nlsi_telemetry.cpp` and `src\nlsi_telemetry.def` into that directory, runs the tests, and then invokes the installer builder. The installer stages the matching versioned DLL, `agent.py`, `gui_app.py`, `.env.example`, and `img\logo.ico`; it does not take a DLL from the shared build root.
-
-For v0.3.2, verify these outputs:
-
-- `build\v0.3.2\nlsi_telemetry.dll`
-- `build\v0.3.2\NLSI-Telemetry-Setup-v0.3.2.exe`
-- `build\v0.3.2\build-info.json`
-
-The package contains the seven-tab Tkinter UI and icon. Generated `build\` outputs and `installer\staging\` are ignored by Git and should not be committed.
+The installer keeps application files under Program Files, user data under
+`%LOCALAPPDATA%\NLSI\Exclusive Logbook`, and installs the official plugin only
+to detected matching architecture folders for supported Steam ETS2/ATS
+installations. The GPL server GUI/implementation is not packaged. Plugin and
+SCS license/copyright notices are included. Live gameplay and installation
+into actual game folders must be validated separately before making those
+claims for a release.
 
 ## Publish
 
-After reviewing and publishing the source release, create a GitHub Release for the matching version tag and attach its installer. No upload or GitHub Release creation occurs in the local build command.
+After reviewing and publishing the source release, create a GitHub Release for
+the matching version tag and attach its installer. No commit, tag, upload, or
+GitHub Release creation occurs in the local build command.

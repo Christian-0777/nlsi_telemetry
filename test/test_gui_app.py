@@ -36,11 +36,11 @@ class GuiDataTests(unittest.TestCase):
                 now=1.0,
             )
             snapshot = make_snapshot(agent, None, "Listening")
-            self.assertEqual("1.3.4", app_version())
+            self.assertEqual("1.3.8", app_version())
             self.assertEqual("NLSI Exclusive Logbook", app_product())
             self.assertEqual("alpha", app_channel())
             self.assertEqual("Alpha v1.3", app_release_label())
-            self.assertEqual("1.3.4", snapshot["application_version"])
+            self.assertEqual("1.3.8", snapshot["application_version"])
             self.assertEqual("1.01", snapshot["telemetry_api_version"])
             agent.close()
 

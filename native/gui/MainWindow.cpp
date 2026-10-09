@@ -1,9 +1,11 @@
 #include "MainWindow.h"
 
 #include <QFrame>
+#include <QDateTime>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QLabel>
+#include <QVBoxLayout>
 #include <QPixmap>
 #include <QScrollArea>
 #include <QSizePolicy>
@@ -83,13 +85,26 @@ MainWindow::MainWindow(
     header->setObjectName(QStringLiteral("appHeader"));
     auto* header_layout = new QHBoxLayout(header);
     header_layout->setContentsMargins(18, 12, 18, 12);
+    auto* header_text = new QVBoxLayout();
+    header_text->setContentsMargins(0, 0, 0, 0);
+    header_text->setSpacing(2);
     active_page_title_ = new QLabel(QStringLiteral("Dashboard"), header);
     active_page_title_->setObjectName(QStringLiteral("headerTitle"));
+    active_page_subtitle_ = new QLabel(
+        QStringLiteral("Live telemetry and current driving status."), header);
+    active_page_subtitle_->setObjectName(QStringLiteral("headerSubtitle"));
+    header_text->addWidget(active_page_title_);
+    header_text->addWidget(active_page_subtitle_);
     const QString version_label = QString::fromStdWString(version);
+    header_clock_ = new QLabel(header);
+    header_clock_->setObjectName(QStringLiteral("headerClock"));
+    header_clock_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    header_clock_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     auto* header_version = new QLabel(version_label, header);
     header_version->setObjectName(QStringLiteral("versionBadge"));
-    header_layout->addWidget(active_page_title_);
+    header_layout->addLayout(header_text);
     header_layout->addStretch(1);
+    header_layout->addWidget(header_clock_);
     header_layout->addWidget(header_version);
     content_layout->addWidget(header);
 
@@ -102,25 +117,38 @@ MainWindow::MainWindow(
     struct NavigationEntry {
         QString key;
         QString title;
+        QString subtitle;
         QStyle::StandardPixmap icon;
         StatePage* page;
     };
     const QList<NavigationEntry> workspace_entries = {
-        {QStringLiteral("dashboard"), QStringLiteral("Dashboard"), QStyle::SP_ComputerIcon,
+        {QStringLiteral("dashboard"), QStringLiteral("Dashboard"),
+            QStringLiteral("Live telemetry and current driving status."), QStyle::SP_ComputerIcon,
             new DashboardPage(this)},
-        {QStringLiteral("liveDrive"), QStringLiteral("Live Drive"), QStyle::SP_MediaPlay,
+        {QStringLiteral("liveDrive"), QStringLiteral("Live Drive"),
+            QStringLiteral("Detailed vehicle telemetry while you drive."), QStyle::SP_MediaPlay,
             new LiveDrivePage(this)},
-        {QStringLiteral("jobs"), QStringLiteral("Jobs"), QStyle::SP_FileDialogDetailedView,
+        {QStringLiteral("jobs"), QStringLiteral("Jobs"),
+            QStringLiteral("Current delivery details and completed job records."),
+            QStyle::SP_FileDialogDetailedView,
             new JobsPage(this)},
-        {QStringLiteral("history"), QStringLiteral("History"), QStyle::SP_BrowserReload,
+        {QStringLiteral("history"), QStringLiteral("History"),
+            QStringLiteral("Recorded sessions, trips, and completed deliveries."),
+            QStyle::SP_BrowserReload,
             new HistoryPage(this)},
-        {QStringLiteral("events"), QStringLiteral("Events"), QStyle::SP_MessageBoxInformation,
+        {QStringLiteral("events"), QStringLiteral("Events"),
+            QStringLiteral("Provider events and recorded event details."),
+            QStyle::SP_MessageBoxInformation,
             new EventsPage(this)},
     };
     const QList<NavigationEntry> system_entries = {
-        {QStringLiteral("settings"), QStringLiteral("Settings"), QStyle::SP_FileDialogContentsView,
+        {QStringLiteral("settings"), QStringLiteral("Settings"),
+            QStringLiteral("Application preferences and provider diagnostics."),
+            QStyle::SP_FileDialogContentsView,
             new SettingsPage(this)},
-        {QStringLiteral("about"), QStringLiteral("About"), QStyle::SP_MessageBoxQuestion,
+        {QStringLiteral("about"), QStringLiteral("About"),
+            QStringLiteral("Product information, release details, and acknowledgements."),
+            QStyle::SP_MessageBoxQuestion,
             new AboutPage(version_label, this)},
     };
 
@@ -142,6 +170,7 @@ MainWindow::MainWindow(
         sidebar_layout->addWidget(button);
         navigation_buttons_.insert(entry.key, button);
         pages_.insert(entry.key, entry.page);
+        page_subtitles_.insert(entry.key, entry.subtitle);
         auto* page_scroll = new QScrollArea(page_stack_);
         page_scroll->setObjectName(QStringLiteral("pageScroll"));
         page_scroll->setWidgetResizable(true);
@@ -195,9 +224,15 @@ MainWindow::MainWindow(
     connect(refresh_timer_, &QTimer::timeout, this, [this] {
         RefreshState();
     });
+    clock_timer_ = new QTimer(this);
+    clock_timer_->setTimerType(Qt::PreciseTimer);
+    clock_timer_->setInterval(33);
+    connect(clock_timer_, &QTimer::timeout, this, &MainWindow::RefreshClock);
     ActivatePage(QStringLiteral("dashboard"));
+    RefreshClock();
     RefreshState();
     refresh_timer_->start();
+    clock_timer_->start();
 }
 
 void MainWindow::ActivatePage(const QString& key) {
@@ -207,16 +242,29 @@ void MainWindow::ActivatePage(const QString& key) {
     }
     page_stack_->setCurrentWidget(page_scroll_areas_.value(key));
     active_page_title_->setText(navigation_buttons_.value(key)->text());
+    active_page_subtitle_->setText(page_subtitles_.value(key));
     for (auto it = navigation_buttons_.cbegin(); it != navigation_buttons_.cend(); ++it) {
         it.value()->setChecked(it.key() == key);
     }
 }
 
+void MainWindow::RefreshClock() {
+    const QDateTime manila_time = QDateTime::currentDateTimeUtc().addSecs(8 * 60 * 60);
+    const QString text = manila_time.toString(
+        QStringLiteral("MM/dd/yy - HH:mm:ss.zzz"))
+        + QStringLiteral(" | Asia/Manila | Ping: N/A ms");
+    if (header_clock_->text() != text) {
+        header_clock_->setText(text);
+    }
+}
+
 void MainWindow::RefreshState() {
     const auto state = telemetry_core_.UiState();
+    const auto history = telemetry_core_.History();
 
     for (StatePage* page : pages_) {
         page->UpdateState(state);
+        page->UpdateHistory(history);
     }
 
     const QString connection_text = state.fast.values.connected

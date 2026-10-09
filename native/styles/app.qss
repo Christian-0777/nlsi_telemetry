@@ -77,6 +77,11 @@ QToolButton#navigationButton:focus {
     font-weight: 600;
 }
 
+#headerSubtitle {
+    color: #766A70;
+    font-size: 9pt;
+}
+
 #versionBadge {
     background-color: #FFD1E6;
     border: 1px solid #E8C2D2;

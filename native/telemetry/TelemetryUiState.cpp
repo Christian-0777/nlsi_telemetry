@@ -68,9 +68,8 @@ TelemetryUiState MakeTelemetryUiState(
 
         if (keep_stale_job) {
             state.job_status = JobStatus::Unknown;
-        } else if (state.job.identity.empty()) {
-            state.job_status = JobStatus::Unknown;
-        } else if (state.job.identity != previous_job_identity) {
+        } else if (!state.job.identity.empty()
+            && state.job.identity != previous_job_identity) {
             state.job_status = JobStatus::JobDetected;
         } else if (snapshot.loaded.available && snapshot.loaded.value) {
             state.job_status = snapshot.paused.available && snapshot.paused.value
@@ -79,6 +78,8 @@ TelemetryUiState MakeTelemetryUiState(
                     ? JobStatus::InTransit : JobStatus::Loaded);
         } else if (snapshot.loaded.available) {
             state.job_status = JobStatus::Loading;
+        } else if (snapshot.driving.available && snapshot.driving.value && !snapshot.driving.stale) {
+            state.job_status = JobStatus::InTransit;
         } else {
             state.job_status = JobStatus::Unknown;
         }
@@ -107,7 +108,7 @@ TelemetryUiState MakeTelemetryUiState(
     }
 
     if (!snapshot.connected) {
-        state.session.status = providers.nlsi == ProviderState::Connecting
+        state.session.status = providers.trucksim == ProviderState::Connecting
             ? SessionStatus::Waiting
             : SessionStatus::TelemetryLost;
     } else if (!snapshot.session_active.available || !snapshot.session_active.value) {

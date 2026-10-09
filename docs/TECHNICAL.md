@@ -1,5 +1,13 @@
 # Technical overview
 
+## Native application v1.3.8 Alpha
+
+The native Qt application runs one game telemetry provider: a TruckSim GPS shared-memory reader. It reads `Local\TSGPSTelemetry` directly using the verified official 32 KiB plugin revision-13 layout and normalizes values into the existing telemetry, event, job, and session pipeline. The NLSI UDP listener and RenCloud provider are not started or included in the native application. The separate GPL-3.0 TruckSim GPS Telemetry Server is not bundled, linked, launched, or required.
+
+The installer automatically places the MIT-licensed official TruckSim GPS plugin into matching x64/x86 directories for detected supported Steam ETS2/ATS installations. It preserves other plugin files and creates a recovery backup before replacing an unchanged prior managed copy. The app reports missing maps, unsupported plugin revisions, inactive SDK state, and samples that stop changing; stale data is not presented as connected. Plugin delivery/cancellation events flow into the existing local event, completed-job, session, TXT-log, and `.nlsi` log storage. Completed jobs can be exported to PDF without changing source records.
+
+The revision-13 decoder, formatter, log reader/writer, PDF export, and Windows mapping lifecycle are covered by offline tests. Live game telemetry and installation into actual game folders have not been validated for this release. The separate legacy SCS SDK plugin build remains documented below and is not a native desktop application dependency.
+
 ## Architecture
 
 NLSI Telemetry has three local layers:

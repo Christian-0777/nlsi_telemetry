@@ -4,11 +4,20 @@
 #include <QFile>
 #include <QIcon>
 #include <QMessageBox>
+#include <QStandardPaths>
 #include <QTextStream>
 
 #include "gui/MainWindow.h"
 
-App::App() = default;
+App::App()
+    : version_label_([this] {
+          const QString channel = QString::fromLatin1(NLSI_CHANNEL);
+          return QStringLiteral("v%1 %2")
+              .arg(QString::fromLatin1(NLSI_VERSION),
+                  channel.left(1).toUpper() + channel.mid(1))
+              .toStdWString();
+      }()) {
+}
 App::~App() = default;
 
 int App::Run() {
@@ -16,8 +25,9 @@ int App::Run() {
     char app_name[] = "NLSI-Exclusive-Logbook";
     char* argv[] = {app_name, nullptr};
     QApplication application(argc, argv);
-    application.setApplicationName(QString::fromStdWString(product_name_));
+    application.setApplicationName(QStringLiteral("Exclusive Logbook"));
     application.setApplicationVersion(QString::fromStdWString(version_label_));
+    application.setOrganizationName(QStringLiteral("NLSI"));
     application.setWindowIcon(QIcon(QStringLiteral(":/icons/logo.ico")));
 
     QFile stylesheet(QStringLiteral(":/styles/app.qss"));
@@ -48,7 +58,14 @@ std::wstring App::VersionLabel() const {
 }
 
 void App::Initialize() {
-    telemetry_core_.Initialize();
+    const QString user_data_path = QStandardPaths::writableLocation(
+        QStandardPaths::AppLocalDataLocation);
+    if (user_data_path.isEmpty()) {
+        QMessageBox::critical(nullptr, QStringLiteral("Startup error"),
+            QStringLiteral("Windows did not provide a writable application data directory."));
+        return;
+    }
+    telemetry_core_.Initialize(user_data_path.toStdWString());
 }
 
 void App::Shutdown() {

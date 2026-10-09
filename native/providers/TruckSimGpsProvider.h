@@ -1,6 +1,8 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <thread>
@@ -9,41 +11,39 @@
 
 namespace nlsi::providers {
 
-class NLSIProvider {
+class TruckSimGpsProvider {
 public:
     using UpdateCallback = std::function<void(
         const telemetry::TelemetrySnapshot&,
         telemetry::ProviderState,
-        const std::wstring&)>;
+        const telemetry::ProviderStatus&)>;
     using EventCallback = std::function<void(const std::string&)>;
 
-    static constexpr unsigned short kUdpPort = 28745;
-
-    NLSIProvider();
-    ~NLSIProvider();
-    NLSIProvider(const NLSIProvider&) = delete;
-    NLSIProvider& operator=(const NLSIProvider&) = delete;
+    TruckSimGpsProvider();
+    ~TruckSimGpsProvider();
+    TruckSimGpsProvider(const TruckSimGpsProvider&) = delete;
+    TruckSimGpsProvider& operator=(const TruckSimGpsProvider&) = delete;
 
     bool Start(UpdateCallback callback, EventCallback event_callback = {});
     void Stop();
-    bool IsRunning() const;
     telemetry::ProviderState State() const;
     std::wstring Name() const;
 
-    static bool ParseTelemetryPacket(
-        const std::string& packet,
+    static bool DecodeRevision13(
+        const std::uint8_t* data,
+        std::size_t size,
         telemetry::TelemetrySnapshot& snapshot,
-        std::wstring* error = nullptr);
+        std::uint32_t& revision,
+        std::wstring& error);
 
 private:
-    void ReceiveLoop();
+    void ReadLoop();
     void Publish(
         const telemetry::TelemetrySnapshot& snapshot,
         telemetry::ProviderState state,
-        const std::wstring& error);
+        const telemetry::ProviderStatus& status);
 
     std::atomic_bool stopping_{false};
-    std::atomic_bool running_{false};
     std::atomic<telemetry::ProviderState> state_{telemetry::ProviderState::Disconnected};
     UpdateCallback callback_;
     EventCallback event_callback_;

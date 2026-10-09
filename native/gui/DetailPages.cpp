@@ -10,6 +10,7 @@
 
 #include <QCoreApplication>
 #include <QLabel>
+#include <QUrl>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
@@ -23,7 +24,7 @@ QString StatusText(telemetry::ProviderState state) {
 QString GameConnection(const telemetry::TelemetryUiState& state) {
     return state.fast.values.connected
         ? QStringLiteral("CONNECTED")
-        : StatusText(state.providers.nlsi);
+        : StatusText(state.providers.trucksim);
 }
 
 QString JobRoute(
@@ -43,11 +44,9 @@ QString JobRoute(
 class ApplicationSettingsPage final : public DetailPage {
 public:
     explicit ApplicationSettingsPage(QWidget* parent = nullptr)
-        : DetailPage(QStringLiteral("Application Settings"),
-            QStringLiteral("Advanced configuration and display preferences."), parent) {
+        : DetailPage(parent) {
         AddField(QStringLiteral("version"), QStringLiteral("Application version"));
         AddField(QStringLiteral("channel"), QStringLiteral("Release channel"));
-        AddField(QStringLiteral("port"), QStringLiteral("NLSI telemetry UDP port"));
         AddField(QStringLiteral("refresh"), QStringLiteral("UI refresh rate"));
         AddField(QStringLiteral("transport"), QStringLiteral("Telemetry transport"));
         AddField(QStringLiteral("display"), QStringLiteral("Unavailable values"));
@@ -56,9 +55,8 @@ public:
     void UpdateState(const telemetry::TelemetryUiState&) override {
         SetValue(QStringLiteral("version"), QCoreApplication::applicationVersion());
         SetValue(QStringLiteral("channel"), QStringLiteral("Alpha"));
-        SetValue(QStringLiteral("port"), QStringLiteral("28745"));
         SetValue(QStringLiteral("refresh"), QStringLiteral("4 Hz (250 ms)"));
-        SetValue(QStringLiteral("transport"), QStringLiteral("Local SCS plugin UDP"));
+        SetValue(QStringLiteral("transport"), QStringLiteral("TruckSim GPS shared memory"));
         SetValue(QStringLiteral("display"), QStringLiteral("Hidden when not supplied"));
     }
 };
@@ -66,8 +64,7 @@ public:
 } // namespace
 
 LiveDrivePage::LiveDrivePage(QWidget* parent)
-    : DetailPage(QStringLiteral("Live Drive"),
-        QStringLiteral("Current vehicle data from the active telemetry provider."), parent) {
+    : DetailPage(parent) {
     AddField(QStringLiteral("game"), QStringLiteral("Game"));
     AddField(QStringLiteral("connection"), QStringLiteral("Connection"));
     AddField(QStringLiteral("speed"), QStringLiteral("Speed"));
@@ -78,6 +75,8 @@ LiveDrivePage::LiveDrivePage(QWidget* parent)
     AddField(QStringLiteral("odometer"), QStringLiteral("Odometer"));
     AddField(QStringLiteral("navigation"), QStringLiteral("Navigation distance"));
     AddField(QStringLiteral("navigationTime"), QStringLiteral("Navigation time"));
+    AddField(QStringLiteral("cruise"), QStringLiteral("Cruise control"));
+    AddField(QStringLiteral("retarder"), QStringLiteral("Retarder"));
     AddField(QStringLiteral("session"), QStringLiteral("Session"));
 }
 
@@ -85,25 +84,45 @@ void LiveDrivePage::UpdateState(const telemetry::TelemetryUiState& state) {
     const auto& values = state.fast.values;
     SetValue(QStringLiteral("game"), FieldText(values.game_name));
     SetValue(QStringLiteral("connection"), GameConnection(state));
-    SetValue(QStringLiteral("speed"), NumberText(values.speed_kmh, 1, QStringLiteral(" km/h")));
+    SetValue(QStringLiteral("speed"), NumberText(values.speed_kmh, 2, QStringLiteral(" km/h")));
     SetValue(QStringLiteral("rpm"), NumberText(values.rpm, 0));
     SetValue(QStringLiteral("gear"), NumberText(values.gear, 0));
-    SetValue(QStringLiteral("fuel"), NumberText(values.fuel_liters, 1, QStringLiteral(" L")));
-    SetValue(QStringLiteral("range"), NumberText(values.fuel_range_km, 1, QStringLiteral(" km")));
-    SetValue(QStringLiteral("odometer"), NumberText(values.odometer_km, 1, QStringLiteral(" km")));
+    SetValue(QStringLiteral("fuel"), NumberText(values.fuel_liters, 2, QStringLiteral(" L")));
+    SetValue(QStringLiteral("range"), NumberText(values.fuel_range_km, 2, QStringLiteral(" km")));
+    SetValue(QStringLiteral("odometer"), NumberText(values.odometer_km, 2, QStringLiteral(" km")));
     SetValue(QStringLiteral("navigation"),
-        NumberText(values.navigation_distance_km, 1, QStringLiteral(" km")));
+        NumberText(values.navigation_distance_km, 2, QStringLiteral(" km")));
     SetValue(QStringLiteral("navigationTime"),
         values.navigation_time_s.available && !values.navigation_time_s.stale
             ? DurationText(values.navigation_time_s.value)
             : QStringLiteral("--"));
+    const QString cruise_status = !values.cruise_control_active.available
+        ? QStringLiteral("Unavailable")
+        : values.cruise_control_active.value
+            ? QStringLiteral("Enabled")
+            : QStringLiteral("Disabled");
+    const QString cruise_speed = NumberText(
+        values.cruise_control_speed, 2, QStringLiteral(" km/h"));
+    SetValue(QStringLiteral("cruise"),
+        cruise_speed == QStringLiteral("--")
+            ? cruise_status
+            : QStringLiteral("%1 · set to %2").arg(cruise_status, cruise_speed));
+    const QString retarder_status = !values.retarder_active.available
+        ? QStringLiteral("Unavailable")
+        : values.retarder_active.value
+            ? QStringLiteral("Enabled")
+            : QStringLiteral("Disabled");
+    const QString retarder_level = NumberText(values.retarder_level, 0);
+    SetValue(QStringLiteral("retarder"),
+        retarder_level == QStringLiteral("--")
+            ? retarder_status
+            : QStringLiteral("%1 · level %2").arg(retarder_status, retarder_level));
     SetValue(QStringLiteral("session"),
         QString::fromStdWString(telemetry::FormatSessionStatus(state.session.status)));
 }
 
 CurrentJobPage::CurrentJobPage(QWidget* parent)
-    : DetailPage(QStringLiteral("Current Job"),
-        QStringLiteral("Job identity is held separately from live progress values."), parent) {
+    : DetailPage(parent) {
     AddField(QStringLiteral("status"), QStringLiteral("Status"));
     AddField(QStringLiteral("cargo"), QStringLiteral("Cargo"));
     AddField(QStringLiteral("cargoId"), QStringLiteral("Cargo ID"));
@@ -125,10 +144,10 @@ void CurrentJobPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("source"), JobRoute(state.job.source_company, state.job.source_city));
     SetValue(QStringLiteral("destination"),
         JobRoute(state.job.destination_company, state.job.destination_city));
-    SetValue(QStringLiteral("income"), FieldText(state.job.income));
+    SetValue(QStringLiteral("income"), NumericText(FieldText(state.job.income)));
     SetValue(QStringLiteral("planned"),
         state.job.planned_distance.available
-            ? FieldText(state.job.planned_distance) + QStringLiteral(" km")
+            ? NumericText(FieldText(state.job.planned_distance)) + QStringLiteral(" km")
             : QStringLiteral("--"));
     const QString loaded = !state.job.loaded.available
         ? QStringLiteral("--")
@@ -137,13 +156,12 @@ void CurrentJobPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("remaining"),
         OptionalNumberText(state.progress.remaining_distance_km, 2, QStringLiteral(" km")));
     SetValue(QStringLiteral("progress"),
-        OptionalNumberText(state.progress.progress_percent, 1, QStringLiteral("%")));
+        OptionalNumberText(state.progress.progress_percent, 2, QStringLiteral("%")));
     SetValue(QStringLiteral("eta"), DurationText(state.progress.eta_seconds));
 }
 
 TelemetryPage::TelemetryPage(QWidget* parent)
-    : DetailPage(QStringLiteral("Telemetry"),
-        QStringLiteral("Normalized values only. Unavailable fields remain blank."), parent) {
+    : DetailPage(parent) {
     AddField(QStringLiteral("game"), QStringLiteral("Game"));
     AddField(QStringLiteral("sample"), QStringLiteral("Last sample"));
     AddField(QStringLiteral("speed"), QStringLiteral("Speed"));
@@ -172,7 +190,7 @@ void TelemetryPage::UpdateState(const telemetry::TelemetryUiState& state) {
         if (!field.available || !std::isfinite(field.value)) {
             return QStringLiteral("--");
         }
-        QString text = QString::number(field.value * 100.0, 'f', 0) + QLatin1Char('%');
+        QString text = FormatNumber(field.value * 100.0, 2) + QLatin1Char('%');
         if (field.stale) {
             text += QStringLiteral("  · stale");
         }
@@ -182,10 +200,10 @@ void TelemetryPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("brake"), percentage_text(values.effective_brake));
     SetValue(QStringLiteral("retarder"), NumberText(values.retarder_level, 0));
     SetValue(QStringLiteral("cruise"),
-        NumberText(values.cruise_control_speed, 1, QStringLiteral(" km/h")));
+        NumberText(values.cruise_control_speed, 2, QStringLiteral(" km/h")));
     SetValue(QStringLiteral("fuel"), NumberText(values.fuel_liters, 2, QStringLiteral(" L")));
-    SetValue(QStringLiteral("fuelRange"), NumberText(values.fuel_range_km, 1, QStringLiteral(" km")));
-    SetValue(QStringLiteral("odometer"), NumberText(values.odometer_km, 1, QStringLiteral(" km")));
+    SetValue(QStringLiteral("fuelRange"), NumberText(values.fuel_range_km, 2, QStringLiteral(" km")));
+    SetValue(QStringLiteral("odometer"), NumberText(values.odometer_km, 2, QStringLiteral(" km")));
     SetValue(QStringLiteral("navigation"),
         NumberText(values.navigation_distance_km, 2, QStringLiteral(" km")));
     SetValue(QStringLiteral("navigationTime"),
@@ -199,20 +217,26 @@ void TelemetryPage::UpdateState(const telemetry::TelemetryUiState& state) {
 }
 
 ProvidersPage::ProvidersPage(QWidget* parent)
-    : DetailPage(QStringLiteral("Providers"),
-        QStringLiteral("NLSI is preferred. RenCloud status is shown independently."), parent) {
-    AddField(QStringLiteral("nlsi"), QStringLiteral("NLSI"));
-    AddField(QStringLiteral("rencloud"), QStringLiteral("RenCloud"));
+    : DetailPage(parent) {
+    AddField(QStringLiteral("trucksim"), QStringLiteral("TruckSim GPS"));
     AddField(QStringLiteral("combined"), QStringLiteral("Combined"));
     AddField(QStringLiteral("freshness"), QStringLiteral("Telemetry sample"));
     AddField(QStringLiteral("source"), QStringLiteral("Active telemetry source"));
-    AddField(QStringLiteral("fallback"), QStringLiteral("Fallback"));
+    AddField(QStringLiteral("mapping"), QStringLiteral("TruckSim GPS mapping"));
+    AddField(QStringLiteral("mappingOpen"), QStringLiteral("Mapping handle"));
+    AddField(QStringLiteral("viewMapped"), QStringLiteral("Shared-memory view"));
+    AddField(QStringLiteral("layout"), QStringLiteral("Detected layout"));
+    AddField(QStringLiteral("failureStage"), QStringLiteral("TruckSim GPS stage"));
+    AddField(QStringLiteral("lastRead"), QStringLiteral("Last successful read"));
+    AddField(QStringLiteral("dataAge"), QStringLiteral("Source data age"));
+    AddField(QStringLiteral("sourceTimestamp"), QStringLiteral("Plugin timestamps"));
+    AddField(QStringLiteral("win32"), QStringLiteral("Windows error"));
+    AddField(QStringLiteral("storage"), QStringLiteral("Local logs and history"));
     AddField(QStringLiteral("error"), QStringLiteral("Last provider message"));
 }
 
 void ProvidersPage::UpdateState(const telemetry::TelemetryUiState& state) {
-    SetValue(QStringLiteral("nlsi"), StatusText(state.providers.nlsi));
-    SetValue(QStringLiteral("rencloud"), StatusText(state.providers.rencloud));
+    SetValue(QStringLiteral("trucksim"), StatusText(state.providers.trucksim));
     SetValue(QStringLiteral("combined"),
         QString::fromStdWString(telemetry::FormatCombinedStatus(state.providers.combined)));
     SetValue(QStringLiteral("freshness"),
@@ -220,29 +244,46 @@ void ProvidersPage::UpdateState(const telemetry::TelemetryUiState& state) {
     const auto& values = state.fast.values;
     SetValue(QStringLiteral("source"),
         values.speed_kmh.available ? QString::fromStdWString(values.speed_kmh.source) : QStringLiteral("--"));
-    SetValue(QStringLiteral("fallback"),
-        state.providers.rencloud == telemetry::ProviderState::Connected
-            ? QStringLiteral("Available for missing NLSI fields")
-            : QStringLiteral("Unavailable: no RenCloud telemetry connection"));
-    SetValue(QStringLiteral("error"),
-        state.providers.last_error.empty()
+    SetValue(QStringLiteral("mapping"),
+        QString::fromStdWString(state.providers.trucksim_mapping_name));
+    SetValue(QStringLiteral("mappingOpen"),
+        state.providers.trucksim_mapping_open ? QStringLiteral("Open") : QStringLiteral("Closed"));
+    SetValue(QStringLiteral("viewMapped"),
+        state.providers.trucksim_view_mapped ? QStringLiteral("Mapped") : QStringLiteral("Not mapped"));
+    SetValue(QStringLiteral("layout"),
+        QString::fromStdWString(state.providers.trucksim_layout));
+    SetValue(QStringLiteral("failureStage"),
+        QString::fromStdWString(state.providers.trucksim_stage));
+    SetValue(QStringLiteral("lastRead"),
+        state.providers.trucksim_last_read.empty()
+            ? QStringLiteral("Never")
+            : QString::fromStdWString(state.providers.trucksim_last_read));
+    SetValue(QStringLiteral("dataAge"),
+        QString::fromStdWString(state.providers.trucksim_data_age));
+    SetValue(QStringLiteral("sourceTimestamp"),
+        state.providers.trucksim_source_timestamp.empty()
             ? QStringLiteral("--")
-            : QString::fromStdWString(state.providers.last_error));
+            : QString::fromStdWString(state.providers.trucksim_source_timestamp));
+    SetValue(QStringLiteral("win32"),
+        state.providers.trucksim_win32_error == 0
+            ? QStringLiteral("None")
+            : QString::number(state.providers.trucksim_win32_error));
+    SetValue(QStringLiteral("storage"),
+        state.providers.storage_error.empty()
+            ? QStringLiteral("Ready in the current user's application data directory")
+            : QString::fromStdWString(state.providers.storage_error));
+    SetValue(QStringLiteral("error"),
+        state.providers.trucksim_error.empty()
+            ? (state.providers.last_error.empty()
+                ? QStringLiteral("None")
+                : QString::fromStdWString(state.providers.last_error))
+            : QString::fromStdWString(state.providers.trucksim_error));
 }
 
 SettingsPage::SettingsPage(QWidget* parent) : StatePage(parent) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
-    layout->setSpacing(18);
-    auto* heading = new QLabel(QStringLiteral("Settings"), this);
-    heading->setObjectName(QStringLiteral("pageTitle"));
-    layout->addWidget(heading);
-    auto* description = new QLabel(
-        QStringLiteral("Provider health, telemetry diagnostics, mod availability, and application configuration."),
-        this);
-    description->setObjectName(QStringLiteral("pageDescription"));
-    description->setWordWrap(true);
-    layout->addWidget(description);
+    layout->setSpacing(14);
 
     tabs_ = new QTabWidget(this);
     tabs_->setObjectName(QStringLiteral("contentTabs"));
@@ -265,23 +306,38 @@ void SettingsPage::UpdateState(const telemetry::TelemetryUiState& state) {
 }
 
 AboutPage::AboutPage(const QString& version, QWidget* parent)
-    : DetailPage(QStringLiteral("About"),
-        QStringLiteral("Application version and implementation details."), parent),
+    : DetailPage(parent),
       version_(version) {
     AddField(QStringLiteral("product"), QStringLiteral("Product"));
     AddField(QStringLiteral("version"), QStringLiteral("Version"));
     AddField(QStringLiteral("channel"), QStringLiteral("Channel"));
     AddField(QStringLiteral("framework"), QStringLiteral("UI framework"));
     AddField(QStringLiteral("backend"), QStringLiteral("Telemetry backend"));
+    AddField(QStringLiteral("discord"), QStringLiteral("Community"));
+    AddField(QStringLiteral("ceo"), QStringLiteral("CEO"));
+    AddField(QStringLiteral("developer"), QStringLiteral("Developer"));
+    AddField(QStringLiteral("plugin"), QStringLiteral("Telemetry plugin attribution"));
+    AddField(QStringLiteral("licenses"), QStringLiteral("Third-party notices"));
 }
 
 void AboutPage::UpdateState(const telemetry::TelemetryUiState&) {
     SetValue(QStringLiteral("product"), QStringLiteral("NLSI Exclusive Logbook"));
-    SetValue(QStringLiteral("version"), version_);
+    const QString app_version = QCoreApplication::applicationVersion();
+    SetValue(QStringLiteral("version"), app_version.isEmpty() ? version_ : app_version);
     SetValue(QStringLiteral("channel"), QStringLiteral("Alpha"));
     SetValue(QStringLiteral("framework"),
         QStringLiteral("Qt %1 Widgets").arg(QString::fromLatin1(qVersion())));
-    SetValue(QStringLiteral("backend"), QStringLiteral("C++20 · SCS Telemetry SDK"));
+    SetValue(QStringLiteral("backend"), QStringLiteral("TruckSim GPS shared-memory telemetry"));
+    SetExternalLink(QStringLiteral("discord"), QStringLiteral("NLSI Discord Server"),
+        QUrl(QStringLiteral("https://discord.gg/gerAGTS6YB")));
+    SetExternalLink(QStringLiteral("ceo"), QStringLiteral("Follow CEO on TikTok"),
+        QUrl(QStringLiteral("https://www.tiktok.com/@nabskiplays")));
+    SetExternalLink(QStringLiteral("developer"), QStringLiteral("Follow Developer on TikTok"),
+        QUrl(QStringLiteral("https://www.tiktok.com/@kape_073")));
+    SetExternalLink(QStringLiteral("plugin"), QStringLiteral("TruckSim GPS project (MIT license)"),
+        QUrl(QStringLiteral("https://github.com/TruckSim-GPS/trucksim-gps-plugin")));
+    SetValue(QStringLiteral("licenses"),
+        QStringLiteral("TruckSim GPS and SCS SDK notices are installed in the licenses folder."));
 }
 
 } // namespace nlsi::gui

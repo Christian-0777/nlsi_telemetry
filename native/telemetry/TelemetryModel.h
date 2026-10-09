@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
@@ -88,11 +89,22 @@ struct TelemetrySnapshot {
 };
 
 struct ProviderStatus {
-    ProviderState nlsi = ProviderState::Disconnected;
-    ProviderState rencloud = ProviderState::Disconnected;
+    ProviderState trucksim = ProviderState::Disconnected;
     CombinedProviderState combined = CombinedProviderState::Disconnected;
     std::wstring telemetry_freshness;
     std::wstring last_error;
+    std::wstring storage_error;
+    std::wstring trucksim_stage = L"Not checked";
+    std::wstring trucksim_layout = L"Unknown";
+    std::wstring trucksim_mapping_name = L"Local\\TSGPSTelemetry";
+    std::wstring trucksim_last_read;
+    std::wstring trucksim_data_age = L"Unknown";
+    std::wstring trucksim_source_timestamp;
+    std::wstring trucksim_error;
+    std::uint32_t trucksim_revision = 0;
+    std::uint32_t trucksim_win32_error = 0;
+    bool trucksim_mapping_open = false;
+    bool trucksim_view_mapped = false;
 };
 
 double MetersToKilometers(double meters);

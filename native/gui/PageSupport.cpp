@@ -7,6 +7,9 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLocale>
+#include <QDateTime>
+#include <QUrl>
 #include <QSizePolicy>
 #include <QVBoxLayout>
 
@@ -23,7 +26,7 @@ QString NumberText(const telemetry::TelemetryField<double>& field, int precision
     if (!field.available || !std::isfinite(field.value)) {
         return QStringLiteral("--");
     }
-    const QString value = QString::number(field.value, 'f', precision) + suffix;
+    const QString value = FormatNumber(field.value, precision) + suffix;
     return value + (field.stale ? QStringLiteral("  · stale") : QString());
 }
 
@@ -31,35 +34,58 @@ QString OptionalNumberText(const std::optional<double>& value, int precision, co
     if (!value || !std::isfinite(*value)) {
         return QStringLiteral("--");
     }
-    return QString::number(*value, 'f', precision) + suffix;
+    return FormatNumber(*value, precision) + suffix;
 }
 
 QString DurationText(const std::optional<double>& seconds) {
     if (!seconds || !std::isfinite(*seconds) || *seconds < 0.0) {
         return QStringLiteral("--");
     }
-    const auto whole_seconds = static_cast<quint64>(*seconds);
+    const auto total_milliseconds = static_cast<quint64>(std::llround(*seconds * 1000.0));
+    const auto whole_seconds = total_milliseconds / 1000;
     const quint64 hours = whole_seconds / 3600;
     const quint64 minutes = (whole_seconds % 3600) / 60;
-    return QStringLiteral("%1:%2")
+    const quint64 remainder_seconds = whole_seconds % 60;
+    const quint64 milliseconds = total_milliseconds % 1000;
+    return QStringLiteral("%1:%2:%3.%4")
         .arg(hours, 2, 10, QLatin1Char('0'))
-        .arg(minutes, 2, 10, QLatin1Char('0'));
+        .arg(minutes, 2, 10, QLatin1Char('0'))
+        .arg(remainder_seconds, 2, 10, QLatin1Char('0'))
+        .arg(milliseconds, 3, 10, QLatin1Char('0'));
 }
 
-DetailPage::DetailPage(const QString& title, const QString& description, QWidget* parent)
+QString FormatNumber(double value, int precision) {
+    return QLocale(QLocale::English, QLocale::UnitedStates).toString(value, 'f', precision);
+}
+
+QString NumericText(const QString& value) {
+    bool valid = false;
+    const double number = value.trimmed().toDouble(&valid);
+    if (!valid || !std::isfinite(number)) {
+        return value;
+    }
+    const bool integer = !value.contains(QLatin1Char('.'))
+        && !value.contains(QLatin1Char('e'), Qt::CaseInsensitive);
+    return FormatNumber(number, integer ? 0 : 2);
+}
+
+QString TimestampText(const QString& value) {
+    QDateTime timestamp = QDateTime::fromString(value, Qt::ISODateWithMs);
+    if (!timestamp.isValid()) {
+        timestamp = QDateTime::fromString(value, Qt::ISODate);
+    }
+    if (!timestamp.isValid()) {
+        return value;
+    }
+    return timestamp.toOffsetFromUtc(8 * 60 * 60)
+        .toString(QStringLiteral("MM/dd/yy HH:mm:ss.zzz"));
+}
+
+DetailPage::DetailPage(QWidget* parent)
     : StatePage(parent) {
     auto* page_layout = new QVBoxLayout(this);
     page_layout->setContentsMargins(4, 4, 4, 4);
-    page_layout->setSpacing(18);
-
-    auto* heading = new QLabel(title, this);
-    heading->setObjectName(QStringLiteral("pageTitle"));
-    page_layout->addWidget(heading);
-
-    auto* subtitle = new QLabel(description, this);
-    subtitle->setObjectName(QStringLiteral("pageDescription"));
-    subtitle->setWordWrap(true);
-    page_layout->addWidget(subtitle);
+    page_layout->setSpacing(14);
 
     auto* fields_frame = new QFrame(this);
     fields_frame->setObjectName(QStringLiteral("contentCard"));
@@ -95,6 +121,19 @@ void DetailPage::AddField(const QString& key, const QString& label) {
     }
     fields_layout_->addWidget(row);
     values_.insert(key, value);
+}
+
+void DetailPage::SetExternalLink(const QString& key, const QString& label, const QUrl& url) {
+    QLabel* value = values_.value(key, nullptr);
+    if (!value) {
+        return;
+    }
+    value->setTextFormat(Qt::RichText);
+    value->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::LinksAccessibleByKeyboard);
+    value->setOpenExternalLinks(true);
+    const QString safe_label = label.toHtmlEscaped();
+    const QString safe_url = url.toString(QUrl::FullyEncoded).toHtmlEscaped();
+    SetValue(key, QStringLiteral("<a href=\"%1\">%2</a>").arg(safe_url, safe_label));
 }
 
 void DetailPage::SetValue(const QString& key, const QString& value) {

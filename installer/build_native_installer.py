@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import shutil
 import subprocess
@@ -18,6 +19,20 @@ CHANNEL = str(VERSION_METADATA["channel"]).lower()
 RELEASE_TAG = f"v{VERSION}-{CHANNEL}"
 RELEASE_DIR = ROOT / "build" / "releases" / RELEASE_TAG
 APP_EXE = "NLSI-Exclusive-Logbook.exe"
+TRUCKSIM_PLUGIN_FILES = (
+    (
+        ROOT / "includes" / "trucksim-gps-plugin" / "win_x64" / "plugins"
+        / "trucksim-gps-telemetry.dll",
+        "4F1A1DD5B879773161C23D657249775D60C9AA362CED171D74C74A16F1AB0F0A",
+        Path("plugins/trucksim/win_x64/plugins/trucksim-gps-telemetry.dll"),
+    ),
+    (
+        ROOT / "includes" / "trucksim-gps-plugin" / "win_x86" / "plugins"
+        / "trucksim-gps-telemetry.dll",
+        "01E5D1CD6AF7C239A7B9E80E9911DE447FC8E80F66EE8F415D859A89F4A403BF",
+        Path("plugins/trucksim/win_x86/plugins/trucksim-gps-telemetry.dll"),
+    ),
+)
 PAYLOAD_DIR = ROOT / "build" / "intermediate" / f"installer-payload-{RELEASE_TAG}"
 ISS_FILE = ROOT / "installer" / "NLSI-Exclusive-Logbook.iss"
 ASSET_SCRIPT = ROOT / "installer" / "prepare_native_installer_assets.ps1"
@@ -42,6 +57,21 @@ def verify_version() -> None:
     payload = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
     if payload.get("version") != VERSION or str(payload.get("channel", "")).lower() != CHANNEL:
         raise ValueError(f"version.json must describe {VERSION} {CHANNEL}.")
+
+def verify_installer_policy() -> None:
+    installer_text = ISS_FILE.read_text(encoding="utf-8")
+    plugin_installer = ROOT / "installer" / "InstallTruckSimPlugin.ps1"
+    script_text = plugin_installer.read_text(encoding="utf-8")
+    if "InstallTruckSimPlugin.ps1" not in installer_text or "Tasks: trucksimplugin" in installer_text:
+        raise ValueError("TruckSim GPS plugin installation must run automatically from the installer.")
+    if "InstallRenCloudPlugin.ps1" in installer_text or "RenCloud" in installer_text:
+        raise ValueError("The native installer must not contain RenCloud integration.")
+    if ".bak" not in script_text or "[System.IO.File]::Replace($temporary, $destination, $backup)" not in script_text:
+        raise ValueError("Managed plugin replacement must retain a recovery backup.")
+    if "win_x64" not in script_text or "win_x86" not in script_text:
+        raise ValueError("The installer must handle both supported plugin architectures.")
+    if "SCSSdkClient.Demo.exe" in script_text or "TruckSim GPS Telemetry Server" in installer_text:
+        raise ValueError("The TruckSim GPS server GUI must not be included or launched.")
 
 
 def verify_executable_version(app_exe: Path) -> None:
@@ -118,6 +148,38 @@ def copy_runtime_payload(app_exe: Path) -> None:
     shutil.copy2(ROOT / "img" / "logo.png", logo_directory / "logo.png")
     shutil.copy2(ROOT / "version.json", PAYLOAD_DIR / "version.json")
 
+    for source, expected_hash, relative_destination in TRUCKSIM_PLUGIN_FILES:
+        if not source.is_file():
+            raise FileNotFoundError(f"The official TruckSim GPS plugin is missing: {source}")
+        actual_hash = hashlib.sha256(source.read_bytes()).hexdigest().upper()
+        if actual_hash != expected_hash:
+            raise ValueError(
+                f"TruckSim GPS plugin hash mismatch for {source}: "
+                f"expected {expected_hash}, got {actual_hash}."
+            )
+        destination = PAYLOAD_DIR / relative_destination
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        if hashlib.sha256(destination.read_bytes()).hexdigest().upper() != expected_hash:
+            raise ValueError(f"The staged TruckSim GPS plugin failed hash verification: {destination}")
+
+    license_payload = PAYLOAD_DIR / "licenses"
+    license_payload.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        ROOT / "includes" / "trucksim-gps-plugin" / "LICENSE.txt",
+        license_payload / "TruckSim-GPS-MIT.txt",
+    )
+    shutil.copy2(
+        ROOT / "includes" / "trucksim-gps-plugin" / "SCS-SDK-LICENSE.txt",
+        license_payload / "SCS-SDK-MIT.txt",
+    )
+    tools_payload = PAYLOAD_DIR / "tools"
+    tools_payload.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        ROOT / "installer" / "InstallTruckSimPlugin.ps1",
+        tools_payload / "InstallTruckSimPlugin.ps1",
+    )
+
 
 def copy_msvc_runtime() -> None:
     redist_roots = [
@@ -164,7 +226,6 @@ def prepare_runtime(app_exe: Path) -> None:
     print("Deploying Qt plugins and the MSVC runtime into the installer payload...")
     subprocess.run(command, cwd=ROOT, check=True)
     copy_msvc_runtime()
-
     missing = [
         name
         for name in REQUIRED_RUNTIME_FILES
@@ -208,6 +269,7 @@ def compile_installer() -> None:
 def main() -> int:
     try:
         verify_version()
+        verify_installer_policy()
         app_exe = RELEASE_DIR / APP_EXE
         if not app_exe.is_file():
             raise FileNotFoundError(f"Build the native Release application first: {app_exe}")

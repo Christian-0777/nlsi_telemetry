@@ -220,7 +220,7 @@ class TelemetryAgentTests(unittest.TestCase):
         self.assertNotEqual(first_id, self.agent.session_id)
         self.assertEqual(0.0, self.agent._session_metrics(120.0)["duration_seconds"])
 
-    def test_provider_values_fallback_across_nlsi_and_rencloud(self) -> None:
+    def test_unsupported_telemetry_provider_is_ignored(self) -> None:
         self.agent.process_message(
             {
                 "type": "telemetry",
@@ -234,10 +234,11 @@ class TelemetryAgentTests(unittest.TestCase):
             },
             now=0.0,
         )
+        packet_count = self.agent.packets_received
         self.agent.process_message(
             {
                 "type": "telemetry",
-                "provider": "rencloud",
+                "provider": "unsupported",
                 "game": GAME,
                 "state": "driving",
                 "timestamp": "2026-01-01T00:00:01.000Z",
@@ -248,9 +249,12 @@ class TelemetryAgentTests(unittest.TestCase):
             now=1.0,
         )
 
-        merged = self.agent.combined_telemetry(now=1.0)
-        self.assertEqual(32.0, merged["truck"]["speed_kmh"])
-        self.assertEqual(42.5, merged["truck"]["remaining_distance_km"])
+        current = self.agent.combined_telemetry(now=1.0)
+        self.assertEqual(32.0, current["truck"]["speed_kmh"])
+        self.assertIsNone(current["truck"].get("remaining_distance_km"))
+        self.assertEqual("CONNECTED", self.agent._combined_connection_state(now=1.0))
+        self.assertEqual({"nlsi"}, self.agent.provider_states.keys())
+        self.assertEqual(packet_count, self.agent.packets_received)
 
     def test_lifecycle_message_updates_timeout_window(self) -> None:
         self.agent.process_message(

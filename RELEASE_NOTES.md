@@ -1,3 +1,71 @@
+# NLSI Exclusive Logbook v1.3.8 Alpha
+
+The v1.3.8 Alpha update makes TruckSim GPS the native application's only active
+game telemetry provider and adds structured logs, formatted job history, PDF
+export, and an automatically installed game plugin.
+
+## What's new
+
+- Use the verified official TruckSim GPS revision-13 shared-memory layout exclusively in the native application; the separate TruckSim GPS Server GUI is not required or packaged. RenCloud and the native NLSI UDP provider are no longer active or packaged.
+- Add versioned UTF-8 `.nlsi` JSON Lines logging alongside the existing TXT log format, with strict schema and incomplete-record handling; retain prior user data during upgrades.
+- Add Asia/Manila live date/time with millisecond precision, actual ping only when available (N/A for the current local telemetry interface), thousands separators, and two-place decimal formatting.
+- Show cruise-control status/set speed and retarder status/level only when verified TruckSim fields are available.
+- Add completed-job PDF export with recorded route, earnings, dates, and available statistics. Export leaves the original records unchanged and paginates long content.
+- Add dynamic About version display, NLSI Discord/creator links, and TruckSim GPS/SCS attribution.
+- Automatically install the hash-verified official x64/x86 plugin into matching architecture folders of detected Steam ETS2/ATS installations. Preserve conflicting DLLs and back up a previously managed DLL before replacing it.
+- Keep the 900×600 minimum/default window size, app files in Program Files, and all logs/history under `%LOCALAPPDATA%\NLSI\Exclusive Logbook`.
+- Package plugin/SCS license notices and omit GPL server implementation and GUI files.
+
+## Validation notes
+
+- Build, test, and installer compilation results will be recorded after running the release checks for this version.
+- **NOT TESTED:** Installation into actual ETS2/ATS game folders and live ETS2/ATS gameplay telemetry.
+- The installer target is `build/releases/v1.3.8-alpha/NLSI-Exclusive-Logbook-v1.3.8-alpha-Setup.exe`.
+
+---
+
+# NLSI Exclusive Logbook v1.3.6 Alpha
+
+The v1.3.6 Alpha update removes duplicate page headings, improves job-history
+reliability, and makes RenCloud mapping diagnostics explicit.
+
+## What's new
+
+- Kept the shared top header as the single source of page title and subtitle on every page; preserved the existing sidebar, NLSI branding, pink/white theme, and 900×600 minimum/default size.
+- Used fresh driving evidence to classify an active job when its loaded flag is unavailable, persisted only identified terminal-job events, and made job-ID event persistence idempotent.
+- Distinguished an open/mapped RenCloud shared-memory object from decoded telemetry. Unsupported revisions show unavailable freshness instead of being labeled as connected or stale.
+- Verified the bundled RenCloud DLL's imported runtime dependencies and stage `MSVCP140.dll` and `VCRUNTIME140.dll` beside the optional game plugin. Plugin and dependency files remain hash-protected during install and uninstall.
+- Updated the native application and installer to v1.3.6-alpha.
+
+## Validation notes
+
+- Revision 539 was not decoded: no running game/mapping or authoritative revision-539 layout definition was available to verify its offsets and field semantics. Compatibility remains NOT TESTED.
+- Live ETS2/ATS telemetry and optional installation into actual Steam game folders require runtime validation.
+- The installer target is `build/releases/v1.3.6-alpha/NLSI-Exclusive-Logbook-v1.3.6-alpha-Setup.exe`.
+
+---
+
+# NLSI Exclusive Logbook v1.3.5 Alpha
+
+The v1.3.5 Alpha release restores local logging and history, implements
+RenCloud shared-memory telemetry, and improves provider and page diagnostics.
+
+## What's new
+
+- Added a Windows shared-memory reader for the verified RenCloud SDK revision-12 layout, with mapping, layout, freshness, source-timestamp, and Win32 error diagnostics under Settings → Providers.
+- Kept NLSI first in field-level selection and use fresh RenCloud data only as fallback. The installer can optionally place the genuine, MIT-licensed RenCloud plugin in detected ETS2/ATS Steam plugin folders without replacing a different DLL.
+- Initialized per-user `logs` and `session_logs`, restored UTF-8 TXT logging, and persisted NLSI provider events, session lifecycles, and reliable delivered/cancelled job events.
+- Populated Events, Sessions & trips, and Completed jobs views from persisted records and added explicit empty/error messages.
+- Classified job status from available loaded/driving evidence even when optional job identity fields are absent.
+- Added a distinct title and description for every top-level page while retaining the existing pink/white sidebar and 900×600 default/minimum window size.
+
+## Validation notes
+
+- RenCloud live mapping availability, current plugin revision, game-driven values, and installation behavior require ETS2/ATS runtime validation; consult Settings → Providers for diagnostics.
+- The installer target is `build/releases/v1.3.5-alpha/NLSI-Exclusive-Logbook-v1.3.5-alpha-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.3.4 Alpha
 
 The v1.3.4 Alpha release refines the native Qt 6 Widgets layout and updates the Windows installer.
