@@ -1,12 +1,15 @@
 # NLSI Exclusive Logbook
 
-NLSI Exclusive Logbook is a native Windows desktop telemetry and logging application for Euro Truck Simulator 2 (ETS2) and American Truck Simulator (ATS). Version 1.4.5-beta is built with C++ and Qt 6 Widgets. The existing Python implementation is retained as reference-only code and is not part of the active native telemetry pipeline.
+NLSI Exclusive Logbook is a native Windows desktop telemetry and logging application for Euro Truck Simulator 2 (ETS2) and American Truck Simulator (ATS). Version 1.5.3-beta is built with C++ and Qt 6 Widgets. The existing Python implementation is retained as reference-only code and is not part of the active native telemetry pipeline.
 
 ## What It Does
 
 - Displays vehicle, navigation, job, driving-session, and telemetry-provider information supported by the native telemetry decoder.
-- Reads the TruckSim GPS plugin's revision-13 shared-memory mapping directly.
+- Reads the TruckSim GPS plugin's revision-13 shared-memory mapping directly and supports a separate NLSI SCS Telemetry SDK 1.15 plugin for verified SDK channels.
 - Provides a responsive Dashboard for driving telemetry, current-job information, and verified current-position availability.
+- Calculates low-fuel percentage from valid SDK fuel amount and truck fuel capacity, and displays parking-brake status without replacing the service-brake reading.
+- Supports Metric (default) and US customary presentation settings in supported dashboard, history, travel-summary, and PDF views.
+- Reports recorded fines, tolls, ferry crossings, and train charges only when supported source event data is available.
 - Reads active Workshop mods from ETS2/ATS game logs in Documents and links to valid Steam Workshop item pages.
 - Records telemetry samples, source metadata, normalized values, and the complete shared-memory mapping in versioned v2 `.nlsi` telemetry files.
 - Preserves application logs, events, session history, and job history locally.
@@ -20,18 +23,16 @@ NLSI Exclusive Logbook is a native Windows desktop telemetry and logging applica
 - Euro Truck Simulator 2 (ETS2)
 - American Truck Simulator (ATS)
 
-The native application reads the TruckSim GPS plugin's `Local\TSGPTelemetry` shared-memory mapping and validates its revision before decoding it. The supported mapping revision is 13.
+The native application reads the TruckSim GPS plugin's `Local\TSGPTelemetry` shared-memory mapping and validates revision 13 before decoding it. It also supports the separately built NLSI SCS Telemetry SDK 1.15 plugin for channels documented by the SDK, including truck fuel amount, truck fuel capacity from configuration, parking-brake state, and world placement. The two sources remain separate; unsupported or stale values are not substituted across sources.
 
-TruckSim GPS is the only active game telemetry provider in the native application. The separate TruckSim GPS Telemetry Server GUI is not required and is not included.
+The separate TruckSim GPS Telemetry Server GUI is not required and is not included. The installer packages the applicable x64/x86 game plugins and their required runtime components for the release. Existing game plugins are handled according to the installer's backup and replacement logic.
 
-The installer installs the official TruckSim GPS plugin into compatible x64/x86 folders for detected supported Steam game installations. Existing game plugins are handled according to the installer's backup and replacement logic. A replaced installer-managed plugin is retained as a recovery backup.
-
-The official plugin binaries are distributed with their applicable notices. The SCS SDK and other third-party components remain subject to their respective licenses. The separate GPL-3.0 TruckSim GPS Telemetry Server application and its code are not redistributed.
+Plugin binaries and SDK components remain subject to their applicable licenses. The separate GPL-3.0 TruckSim GPS Telemetry Server application and its code are not redistributed.
 
 ## Current Release
 
 - **Product:** NLSI Exclusive Logbook
-- **Version:** v1.5.2-beta
+- **Version:** v1.5.3-beta
 - **Release channel:** Beta
 - **Supported games:** ETS2 and ATS
 - **Technology:** C++, Qt 6 Widgets, CMake
@@ -82,12 +83,13 @@ The Dashboard combines the driving workspace and supported live telemetry into o
 Depending on source availability, it displays:
 
 - Connection, game, and telemetry-provider status.
-- Vehicle speed, RPM, selected gear, throttle, brake, and fuel.
+- Vehicle speed, RPM, selected gear, throttle, service brake, fuel, and parking-brake state when supported by valid sources.
+- A low-fuel warning at or below 20% when both SDK fuel amount and fuel capacity are valid and current; missing, invalid, or stale readings suppress the warning.
 - Current-job identification, cargo, source, destination, and job status.
 - Navigation distance and estimated travel time when valid source data is available.
 - Cruise-control and retarder information when the corresponding source values are available and valid.
 
-The application must not infer cruise-control activation solely from a configured speed. Retarder-active status is derived from a positive SDK retarder level because the documented revision-13 mapping does not provide a separate active boolean.
+The application must not infer cruise-control activation solely from a configured speed. Retarder-active status is derived from a positive SDK retarder level because the documented revision-13 mapping does not provide a separate active boolean. Parking-brake state is reported independently from the service-brake value. Fuel percentage is calculated only from valid SDK fuel amount and configured tank capacity; raw values and historical records are not rewritten by display-unit conversion.
 
 Disconnected, stale, unsupported, or invalid telemetry must not be presented as current driving data.
 
@@ -97,7 +99,7 @@ These sections display locally recorded job information, completed or cancelled 
 
 Completed jobs can be exported to PDF without modifying their original source records.
 
-Toll fees and ferry or train crossing information must only be displayed when actual recorded source data is available. These values are not fabricated when the active telemetry provider does not expose them.
+Recorded fines, toll fees, and ferry or train charges are included in travel history and expense notifications only when supported source event data is available. Missing amounts are shown as unavailable rather than inferred. Display-unit preferences affect presentation, not stored raw values.
 
 ### Settings and Provider Diagnostics
 
@@ -190,12 +192,14 @@ See [SQL Schema Design](docs/SQL-SCHEMA.md) for the proposed database mapping, v
 
 ## Telemetry Limitations
 
-The native decoder rejects unsupported shared-memory revisions rather than guessing their layouts.
+The native decoder rejects unsupported shared-memory revisions rather than guessing their layouts. SCS SDK fuel and parking-brake fields are used only when the relevant SDK values are available, valid, and current.
 
 The documented revision-13 mapping does not provide verified latitude/longitude coordinates, authenticated-account identity, game version, or a delivery-time source field. These values remain unavailable unless a separate reliable source is implemented and verified.
 
 Other limitations include:
 
+- The low-fuel warning is suppressed when fuel amount or truck fuel capacity is missing, invalid, unsupported, or stale.
+- Expense amounts depend on actual event data supplied by the supported source; no missing charge is fabricated.
 - Adaptive cruise-control information is not reliably exposed by the documented active decoder.
 - Active mod enumeration is unavailable through the supported telemetry interface.
 - Retarder-active state is derived from retarder level rather than a separate source boolean.
@@ -220,6 +224,9 @@ The application version is separate from the telemetry API or mapping revision r
 
 ## Release History
 
+- **v1.5.3-beta** — Adds SDK-backed fuel-percentage warning and parking-brake status, Metric/US customary display preferences, supported travel expense reporting, and updated x64/x86 SCS plugin and runtime packaging. Automated validation passed (46 Python tests, 2/2 Release CTest targets, and 3 consecutive GUI test passes). Fresh install/upgrade and live ETS2/ATS gameplay remain unverified.
+- **v1.5.2-beta** — Previous beta release; see its release assets and changelog for the exact changes.
+- **v1.4.8-beta** — Dashboard layout, verified live driving fields, and installer metadata updates.
 - **v1.4.5-beta** — Fixes local telemetry recovery and shutdown draining, applies IANA Asia/Manila time consistently, and preserves distinct legacy and telemetry log formats.
 - **v1.4.3-beta** — Responsive Dashboard cards, Current Position/active-job destination, game-log-based active Workshop mods, and exact telemetry-event filtering. The revision-13 TruckSim map does not expose current coordinates; v1.4.4 adds a separate SCS SDK source.
 - **v1.4.2-beta** — Beta release focused on the unified driving Dashboard, interface refinements, single-instance behavior, exit confirmation, and GitHub release checking. Confirm the included build and changelog for the exact implemented features.
