@@ -13,20 +13,19 @@
 class QLabel;
 class QTableView;
 class QStandardItemModel;
-class QTabWidget;
 class QPushButton;
+class QVBoxLayout;
+class QWidget;
+class QTabWidget;
 class QNetworkAccessManager;
 class QFileSystemWatcher;
 class QTimer;
-class QVBoxLayout;
 class QShowEvent;
 class QHideEvent;
 template <typename T>
 class QFutureWatcher;
 
 namespace nlsi::gui {
-
-class CurrentJobPage;
 
 class JobHistoryPage final : public StatePage {
 public:
@@ -36,8 +35,8 @@ public:
 
 private:
     QLabel* message_ = nullptr;
-    QStandardItemModel* model_ = nullptr;
-    QPushButton* export_button_ = nullptr;
+    QVBoxLayout* cards_layout_ = nullptr;
+    QWidget* cards_container_ = nullptr;
     QVector<session::JobRecord> jobs_;
     std::uint64_t history_revision_ = static_cast<std::uint64_t>(-1);
 };
@@ -63,8 +62,10 @@ public:
 
 private:
     QLabel* message_ = nullptr;
-    QStandardItemModel* model_ = nullptr;
+    QWidget* entries_container_ = nullptr;
+    QVBoxLayout* entries_layout_ = nullptr;
     std::uint64_t history_revision_ = static_cast<std::uint64_t>(-1);
+    qsizetype event_count_ = -1;
 };
 
 class TripEventsPage final : public StatePage {
@@ -129,8 +130,6 @@ public:
     void UpdateHistory(const session::HistorySnapshot& history) override;
 
 private:
-    QTabWidget* tabs_ = nullptr;
-    CurrentJobPage* current_job_ = nullptr;
     JobHistoryPage* completed_jobs_ = nullptr;
 };
 
@@ -143,7 +142,6 @@ public:
 private:
     QTabWidget* tabs_ = nullptr;
     SessionsPage* sessions_ = nullptr;
-    JobHistoryPage* completed_jobs_ = nullptr;
     TripEventsPage* trip_events_ = nullptr;
 };
 

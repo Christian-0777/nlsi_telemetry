@@ -125,7 +125,7 @@ void DetailPage::AddField(const QString& key, const QString& label) {
     auto* row_layout = new QHBoxLayout(row);
     row_layout->setContentsMargins(0, 8, 0, 8);
     row_layout->setSpacing(16);
-    auto* name = new QLabel(label, row);
+    auto* name = new QLabel(label.toUpper(), row);
     name->setObjectName(QStringLiteral("detailLabel"));
     name->setWordWrap(true);
     name->setMinimumWidth(0);

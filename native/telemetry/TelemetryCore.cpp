@@ -115,6 +115,7 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
         trucksim_snapshot_ = {};
         ui_state_ = {};
         previous_job_identity_.clear();
+        newly_completed_job_notifications_.clear();
         shutdown_started_ = false;
         shutdown_error_.clear();
         trucksim_state_ = ProviderState::Connecting;
@@ -309,6 +310,13 @@ session::HistorySnapshot TelemetryCore::History() const {
     return history_store_ ? history_store_->Snapshot() : session::HistorySnapshot{};
 }
 
+std::vector<std::wstring> TelemetryCore::TakeNewlyCompletedJobNotifications() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::wstring> notifications;
+    notifications.swap(newly_completed_job_notifications_);
+    return notifications;
+}
+
 bool TelemetryCore::FlushLocalWrites(std::chrono::milliseconds timeout) const {
     logging::TelemetryRecorder* recorder = nullptr;
     {
@@ -384,8 +392,18 @@ void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
     }
     if (event_type == QStringLiteral("job.delivered")
         || event_type == QStringLiteral("job.cancelled")) {
+        const std::uint64_t previous_revision = history_store_->Snapshot().revision;
         persisted = history_store_->RecordJob(ui_state_.job, event_type, timestamp, details)
             && persisted;
+        const session::HistorySnapshot updated_history = history_store_->Snapshot();
+        if (persisted && updated_history.revision != previous_revision) {
+            const QString identity = !details.value(QStringLiteral("job_id")).toString().isEmpty()
+                ? details.value(QStringLiteral("job_id")).toString()
+                : QString::fromStdWString(ui_state_.job.identity);
+            newly_completed_job_notifications_.push_back(
+                (identity + QLatin1Char('|') + event_type + QLatin1Char('|') + timestamp)
+                    .toStdWString());
+        }
         if (!persisted) {
             status_.storage_error = history_store_->Snapshot().error.toStdWString();
         }

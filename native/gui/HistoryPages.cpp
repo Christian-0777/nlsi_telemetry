@@ -23,6 +23,7 @@
 #include <QJsonValue>
 #include <QRegularExpression>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QStandardPaths>
 #include <QStandardItem>
@@ -34,6 +35,8 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QSet>
+#include <QGridLayout>
+#include <QFile>
 
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -48,29 +51,270 @@ QString GameJobId(const QJsonObject& details) {
         return direct.toString();
     }
     const QJsonValue job = details.value(QStringLiteral("job"));
-    return job.isObject()
-        ? job.toObject().value(QStringLiteral("id")).toString()
-        : QString();
+    if (job.isObject()) {
+        return job.toObject().value(QStringLiteral("id")).toString();
+    }
+    if (details.value(QStringLiteral("cargo_id")).isString()) {
+        return details.value(QStringLiteral("cargo_id")).toString();
+    }
+    const QJsonObject data = details.value(QStringLiteral("data")).toObject();
+    return data.value(QStringLiteral("job_id")).toString(
+        data.value(QStringLiteral("cargo_id")).toString());
 }
 
 QString EventFieldText(const QJsonObject& details, const QStringList& keys) {
-    for (const QString& key : keys) {
-        QJsonValue value = details.value(key);
-        if (key.contains(QLatin1Char('.'))) {
-            const QStringList path = key.split(QLatin1Char('.'));
-            value = details.value(path.front());
-            for (qsizetype index = 1; index < path.size() && value.isObject(); ++index) {
-                value = value.toObject().value(path[index]);
+    const auto find_value = [&keys](const QJsonObject& object) {
+        for (const QString& key : keys) {
+            QJsonValue value = object.value(key);
+            if (key.contains(QLatin1Char('.'))) {
+                const QStringList path = key.split(QLatin1Char('.'));
+                value = object.value(path.front());
+                for (qsizetype index = 1; index < path.size() && value.isObject(); ++index) {
+                    value = value.toObject().value(path[index]);
+                }
+            }
+            if (value.isString() && !value.toString().trimmed().isEmpty()) {
+                return value.toString().trimmed();
+            }
+            if (value.isDouble()) {
+                return value.toVariant().toString();
             }
         }
-        if (value.isString() && !value.toString().trimmed().isEmpty()) {
-            return value.toString().trimmed();
-        }
-        if (value.isDouble()) {
-            return value.toVariant().toString();
-        }
+        return QString();
+    };
+    const QString direct_value = find_value(details);
+    if (!direct_value.isEmpty()) {
+        return direct_value;
     }
-    return {};
+    const QJsonValue data = details.value(QStringLiteral("data"));
+    return data.isObject() ? find_value(data.toObject()) : QString();
+}
+
+QString CompletedJobField(const session::JobRecord& job, const QStringList& keys) {
+    const QString value = EventFieldText(job.details, keys);
+    return value.isEmpty() ? QStringLiteral("N/A") : value;
+}
+
+QString WithUnit(const QString& value, const QString& unit) {
+    if (value == QStringLiteral("N/A") || value.endsWith(unit, Qt::CaseInsensitive)) {
+        return value;
+    }
+    return value + QLatin1Char(' ') + unit;
+}
+
+QString WrapLongTokens(const QString& text);
+
+class ResponsiveJobFields final : public QWidget {
+public:
+    explicit ResponsiveJobFields(QWidget* parent)
+        : QWidget(parent), grid_(new QGridLayout(this)) {
+        setObjectName(QStringLiteral("completedJobFields"));
+        grid_->setContentsMargins(0, 0, 0, 0);
+        grid_->setHorizontalSpacing(20);
+        grid_->setVerticalSpacing(8);
+        setMinimumWidth(0);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    }
+
+    void AddField(const QString& label, const QString& value) {
+        auto* field = new QWidget(this);
+        field->setMinimumWidth(0);
+        field->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        auto* field_layout = new QVBoxLayout(field);
+        field_layout->setContentsMargins(0, 0, 0, 0);
+        field_layout->setSpacing(2);
+        auto* field_label = new QLabel(label.toUpper(), field);
+        field_label->setObjectName(QStringLiteral("completedJobFieldLabel"));
+        auto* field_value = new QLabel(WrapLongTokens(value), field);
+        field_value->setObjectName(QStringLiteral("completedJobFieldValue"));
+        field_value->setWordWrap(true);
+        field_value->setMinimumWidth(0);
+        field_value->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        field_layout->addWidget(field_label);
+        field_layout->addWidget(field_value);
+        fields_.push_back(field);
+        arranged_columns_ = 0;
+        ArrangeFields();
+    }
+
+protected:
+    void resizeEvent(QResizeEvent* event) override {
+        QWidget::resizeEvent(event);
+        ArrangeFields();
+    }
+
+private:
+    void ArrangeFields() {
+        const int columns = width() < 700 ? 1 : 2;
+        if (columns == arranged_columns_) {
+            return;
+        }
+        arranged_columns_ = columns;
+        setProperty("columnCount", columns);
+        for (qsizetype index = 0; index < fields_.size(); ++index) {
+            grid_->removeWidget(fields_[index]);
+            grid_->addWidget(
+                fields_[index],
+                static_cast<int>(index) / columns,
+                static_cast<int>(index) % columns);
+        }
+        grid_->setColumnStretch(0, 1);
+        grid_->setColumnStretch(1, columns == 2 ? 1 : 0);
+    }
+
+    QGridLayout* grid_ = nullptr;
+    QVector<QWidget*> fields_;
+    int arranged_columns_ = 0;
+};
+
+QWidget* MakeCompletedJobCard(const session::JobRecord& job, QWidget* parent) {
+    auto* card = new QFrame(parent);
+    card->setObjectName(QStringLiteral("completedJobCard"));
+    card->setMinimumWidth(0);
+    card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto* layout = new QVBoxLayout(card);
+    layout->setContentsMargins(16, 14, 16, 14);
+    layout->setSpacing(10);
+
+    auto* header = new QHBoxLayout();
+    auto* job_id = new QLabel(
+        QStringLiteral("JOB ID: %1").arg(
+            job.nlsi_job_id.isEmpty() ? job.identity : job.nlsi_job_id),
+        card);
+    job_id->setObjectName(QStringLiteral("completedJobId"));
+    const QString game_job_id = GameJobId(job.details);
+    auto* game_id = new QLabel(
+        QStringLiteral("GAME JOB ID: %1").arg(
+            game_job_id.isEmpty() ? QStringLiteral("N/A") : game_job_id),
+        card);
+    game_id->setObjectName(QStringLiteral("completedGameJobId"));
+    game_id->setWordWrap(true);
+    game_id->setMinimumWidth(0);
+    auto* status = new QLabel(QStringLiteral("STATUS: %1").arg(job.status), card);
+    status->setObjectName(QStringLiteral("completedJobStatus"));
+    status->setProperty("terminalStatus", job.status.toLower());
+    status->setWordWrap(true);
+    status->setMinimumWidth(0);
+    job_id->setWordWrap(true);
+    job_id->setMinimumWidth(0);
+    job_id->setText(WrapLongTokens(job_id->text()));
+    game_id->setText(WrapLongTokens(game_id->text()));
+    header->addWidget(job_id, 1);
+    header->addWidget(game_id, 1);
+    header->addWidget(status, 0, Qt::AlignRight);
+    layout->addLayout(header);
+    auto* recorded_at = new QLabel(
+        QStringLiteral("RECORDED AT: %1").arg(TimestampText(job.timestamp)), card);
+    recorded_at->setObjectName(QStringLiteral("completedJobFieldLabel"));
+    layout->addWidget(recorded_at);
+
+    auto* fields = new ResponsiveJobFields(card);
+
+    const auto field = [&job](const QStringList& keys) {
+        return CompletedJobField(job, keys);
+    };
+    fields->AddField(QStringLiteral("Cargo"),
+        job.cargo.isEmpty()
+            ? field({QStringLiteral("cargo"), QStringLiteral("cargo_name"),
+                QStringLiteral("cargo.id")})
+            : job.cargo);
+    fields->AddField(QStringLiteral("Weight"),
+        field({QStringLiteral("weight"), QStringLiteral("cargo_weight")}));
+    fields->AddField(QStringLiteral("From"),
+        field({QStringLiteral("source_city"), QStringLiteral("source.city")}));
+    fields->AddField(QStringLiteral("To"),
+        field({QStringLiteral("destination_city"), QStringLiteral("destination.city")}));
+    fields->AddField(QStringLiteral("From company"),
+        field({QStringLiteral("source_company"), QStringLiteral("source.company")}));
+    fields->AddField(QStringLiteral("To company"),
+        field({QStringLiteral("destination_company"), QStringLiteral("destination.company")}));
+    fields->AddField(QStringLiteral("Planned distance"),
+        WithUnit(field({QStringLiteral("planned_distance_km"),
+            QStringLiteral("planned_distance")}), QStringLiteral("km")));
+    fields->AddField(QStringLiteral("Driven distance"),
+        WithUnit(field({QStringLiteral("driven_distance_km"),
+            QStringLiteral("distance_driven_km")}), QStringLiteral("km")));
+    fields->AddField(QStringLiteral("Income"), field({QStringLiteral("income")}));
+    fields->AddField(QStringLiteral("Offences"),
+        field({QStringLiteral("offences"), QStringLiteral("offenses")}));
+    fields->AddField(QStringLiteral("XP"),
+        field({QStringLiteral("xp"), QStringLiteral("experience")}));
+    fields->AddField(QStringLiteral("Damage"),
+        field({QStringLiteral("damage"), QStringLiteral("damage_percent")}));
+    fields->AddField(QStringLiteral("Time taken (real)"),
+        field({QStringLiteral("real_elapsed_time"), QStringLiteral("elapsed_time")}));
+    fields->AddField(QStringLiteral("Max speed"),
+        WithUnit(field({QStringLiteral("max_speed_kmh"),
+            QStringLiteral("maximum_speed_kmh")}), QStringLiteral("km/h")));
+    layout->addWidget(fields);
+
+    auto* vehicle_title = new QLabel(QStringLiteral("VEHICLE AND FUEL"), card);
+    vehicle_title->setObjectName(QStringLiteral("completedJobSectionTitle"));
+    layout->addWidget(vehicle_title);
+    auto* vehicle_fields = new ResponsiveJobFields(card);
+    vehicle_fields->AddField(QStringLiteral("Truck used"),
+        field({QStringLiteral("truck"), QStringLiteral("truck_name"),
+            QStringLiteral("vehicle")}));
+    vehicle_fields->AddField(QStringLiteral("Trailer used"),
+        field({QStringLiteral("trailer"), QStringLiteral("trailer_name")}));
+    vehicle_fields->AddField(QStringLiteral("Truck licence plate"),
+        field({QStringLiteral("truck_license_plate"),
+            QStringLiteral("truck_licence_plate")}));
+    vehicle_fields->AddField(QStringLiteral("Trailer licence plate"),
+        field({QStringLiteral("trailer_license_plate"),
+            QStringLiteral("trailer_licence_plate")}));
+    vehicle_fields->AddField(QStringLiteral("Fuel usage"),
+        WithUnit(field({QStringLiteral("fuel_used_liters"),
+            QStringLiteral("fuel_usage_liters")}), QStringLiteral("L")));
+    vehicle_fields->AddField(QStringLiteral("Refueled"),
+        WithUnit(field({QStringLiteral("refueled_liters"),
+            QStringLiteral("fuel_added_liters")}), QStringLiteral("L")));
+    vehicle_fields->AddField(QStringLiteral("Refuel cost"),
+        field({QStringLiteral("refuel_cost")}));
+    vehicle_fields->AddField(QStringLiteral("Average consumption"),
+        WithUnit(field({QStringLiteral("average_consumption"),
+            QStringLiteral("average_consumption_l_per_100km")}), QStringLiteral("L/100 km")));
+    layout->addWidget(vehicle_fields);
+
+    auto* actions = new QHBoxLayout();
+    actions->addStretch(1);
+    auto* export_button = new QPushButton(QStringLiteral("EXPORT PDF"), card);
+    export_button->setObjectName(QStringLiteral("exportJobPdfButton"));
+    export_button->setProperty("persistedJobId", job.identity);
+    actions->addWidget(export_button);
+    layout->addLayout(actions);
+    QObject::connect(export_button, &QPushButton::clicked, card, [card, job] {
+        const QString raw_id = job.nlsi_job_id.isEmpty() ? job.identity : job.nlsi_job_id;
+        QString safe_id = raw_id;
+        safe_id.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_-]")), QStringLiteral("-"));
+        if (safe_id.isEmpty()) {
+            safe_id = QStringLiteral("completed-job");
+        }
+        QString path = QFileDialog::getSaveFileName(
+            card, QStringLiteral("Export completed job"),
+            QStringLiteral("NLSI-%1.pdf").arg(safe_id), QStringLiteral("PDF files (*.pdf)"));
+        if (path.isEmpty()) {
+            return;
+        }
+        if (QFileInfo::exists(path)) {
+            const auto answer = QMessageBox::question(
+                card, QStringLiteral("Confirm overwrite"),
+                QStringLiteral("The selected file already exists. Overwrite it?"),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+            if (answer != QMessageBox::Yes) {
+                return;
+            }
+        }
+        QString error;
+        if (!ExportJobToPdf(path, job, &error)) {
+            QMessageBox::critical(card, QStringLiteral("PDF export failed"), error);
+            return;
+        }
+        QMessageBox::information(
+            card, QStringLiteral("PDF exported"),
+            QStringLiteral("The completed job report was exported to %1.").arg(path));
+    });
+    return card;
 }
 
 QString TripEventCategory(const session::EventRecord& event) {
@@ -126,6 +370,60 @@ QString WrapLongTokens(const QString& text) {
     return wrapped;
 }
 
+QString EventDataText(const session::EventRecord& event) {
+    QJsonParseError parse_error;
+    const QJsonDocument document = QJsonDocument::fromJson(event.details.toUtf8(), &parse_error);
+    if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+        const QString details = event.details.trimmed();
+        return details.isEmpty() ? QStringLiteral("N/A (no event data recorded)") : details;
+    }
+
+    QJsonObject data = document.object();
+    if (data.value(QStringLiteral("data")).isObject()) {
+        data = data.value(QStringLiteral("data")).toObject();
+    } else {
+        data.remove(QStringLiteral("provider"));
+    }
+    if (data.isEmpty()) {
+        return QStringLiteral("N/A (no event data recorded)");
+    }
+    return QString::fromUtf8(QJsonDocument(data).toJson(QJsonDocument::Indented)).trimmed();
+}
+
+QWidget* MakeEventEntry(const session::EventRecord& event, QWidget* parent) {
+    auto* entry = new QFrame(parent);
+    entry->setObjectName(QStringLiteral("eventEntry"));
+    entry->setMinimumWidth(0);
+    entry->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto* layout = new QVBoxLayout(entry);
+    layout->setContentsMargins(12, 10, 12, 10);
+    layout->setSpacing(6);
+
+    const auto add_field = [entry, layout](
+                               const QString& label,
+                               const QString& value,
+                               const QString& object_name) {
+        auto* field_label = new QLabel(label.toUpper(), entry);
+        field_label->setObjectName(QStringLiteral("eventFieldLabel"));
+        auto* field_value = new QLabel(WrapLongTokens(
+            value.trimmed().isEmpty() ? QStringLiteral("N/A") : value), entry);
+        field_value->setObjectName(object_name);
+        field_value->setWordWrap(true);
+        field_value->setMinimumWidth(0);
+        field_value->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        field_value->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        layout->addWidget(field_label);
+        layout->addWidget(field_value);
+    };
+
+    add_field(QStringLiteral("Timestamp"), TimestampText(event.timestamp),
+        QStringLiteral("eventTimestamp"));
+    add_field(QStringLiteral("Source"), event.source, QStringLiteral("eventSource"));
+    add_field(QStringLiteral("Event"), event.type, QStringLiteral("eventType"));
+    add_field(QStringLiteral("Data"), EventDataText(event), QStringLiteral("eventData"));
+    return entry;
+}
+
 void ConfigureTable(QTableView* table, QStandardItemModel* model) {
     table->setModel(model);
     table->setAlternatingRowColors(true);
@@ -162,7 +460,12 @@ QWidget* MakeHistoryPage(
     auto* table = new QTableView(page);
     table->setObjectName(QStringLiteral("dataTable"));
     model = new QStandardItemModel(table);
-    model->setHorizontalHeaderLabels(columns);
+    QStringList uppercase_columns;
+    uppercase_columns.reserve(columns.size());
+    for (const QString& column : columns) {
+        uppercase_columns.push_back(column.toUpper());
+    }
+    model->setHorizontalHeaderLabels(uppercase_columns);
     ConfigureTable(table, model);
     layout->addWidget(table, 1);
     return page;
@@ -171,84 +474,57 @@ QWidget* MakeHistoryPage(
 } // namespace
 
 JobHistoryPage::JobHistoryPage(QWidget* parent) : StatePage(parent) {
-    auto* content = MakeHistoryPage(
-        {QStringLiteral("Job ID"), QStringLiteral("Game job ID"),
-            QStringLiteral("Timestamp"), QStringLiteral("Cargo"), QStringLiteral("Source"),
-            QStringLiteral("Destination"), QStringLiteral("Earnings"),
-            QStringLiteral("Planned distance"), QStringLiteral("Status")},
-        message_,
-        model_,
-        this);
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    export_button_ = new QPushButton(QStringLiteral("Export to PDF"), this);
-    export_button_->setObjectName(QStringLiteral("exportJobsPdfButton"));
-    export_button_->setEnabled(false);
-    layout->addWidget(export_button_, 0, Qt::AlignRight);
-    layout->addWidget(content);
-    connect(export_button_, &QPushButton::clicked, this, [this] {
-        if (jobs_.isEmpty()) {
-            return;
-        }
-        const QString path = QFileDialog::getSaveFileName(
-            this,
-            QStringLiteral("Export completed jobs"),
-            QStringLiteral("completed-jobs.pdf"),
-            QStringLiteral("PDF files (*.pdf)"));
-        if (path.isEmpty()) {
-            return;
-        }
-        QString error;
-        if (!ExportJobsToPdf(path, jobs_, &error)) {
-            QMessageBox::critical(this, QStringLiteral("PDF export failed"), error);
-            return;
-        }
-        QMessageBox::information(
-            this,
-            QStringLiteral("PDF exported"),
-            QStringLiteral("Completed job records were exported to %1.").arg(path));
-    });
+    message_ = new QLabel(this);
+    message_->setObjectName(QStringLiteral("detailLabel"));
+    message_->setWordWrap(true);
+    layout->addWidget(message_);
+    auto* scroll = new QScrollArea(this);
+    scroll->setObjectName(QStringLiteral("completedJobsScroll"));
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    cards_container_ = new QWidget(scroll);
+    cards_container_->setObjectName(QStringLiteral("completedJobsCards"));
+    cards_container_->setMinimumWidth(0);
+    cards_layout_ = new QVBoxLayout(cards_container_);
+    cards_layout_->setContentsMargins(2, 2, 2, 2);
+    cards_layout_->setSpacing(14);
+    cards_layout_->addStretch(1);
+    scroll->setWidget(cards_container_);
+    layout->addWidget(scroll, 1);
 }
 
 void JobHistoryPage::UpdateState(const telemetry::TelemetryUiState&) {
 }
 
 void JobHistoryPage::UpdateHistory(const session::HistorySnapshot& history) {
-    jobs_ = history.jobs;
-    export_button_->setEnabled(!jobs_.isEmpty());
     if (history_revision_ != history.revision) {
-        model_->removeRows(0, model_->rowCount());
+        jobs_.clear();
+        while (cards_layout_->count() > 1) {
+            QLayoutItem* item = cards_layout_->takeAt(0);
+            delete item->widget();
+            delete item;
+        }
         for (const auto& job : history.jobs) {
-            const int row = model_->rowCount();
-            model_->insertRow(row);
-            model_->setItem(row, 0, new QStandardItem(
-                job.nlsi_job_id.isEmpty() ? job.identity : job.nlsi_job_id));
-            model_->setItem(row, 1, new QStandardItem(GameJobId(job.details)));
-            model_->setItem(row, 2, new QStandardItem(TimestampText(job.timestamp)));
-            model_->setItem(row, 3, new QStandardItem(job.cargo));
-            model_->setItem(row, 4, new QStandardItem(job.source));
-            model_->setItem(row, 5, new QStandardItem(job.destination));
-            const QJsonValue income = job.details.value(QStringLiteral("income"));
-            const QJsonValue planned_distance =
-                job.details.value(QStringLiteral("planned_distance_km"));
-            model_->setItem(row, 6, new QStandardItem(
-                income.isUndefined() || income.isNull()
-                    ? QStringLiteral("--")
-                    : NumericText(income.toVariant().toString())));
-            const QString planned_text = planned_distance.isUndefined() || planned_distance.isNull()
-                ? QStringLiteral("--")
-                : NumericText(planned_distance.toVariant().toString()) + QStringLiteral(" km");
-            model_->setItem(row, 7, new QStandardItem(planned_text));
-            model_->setItem(row, 8, new QStandardItem(job.status));
+            const QString status = job.status.trimmed();
+            if (status.compare(QStringLiteral("Delivered"), Qt::CaseInsensitive) != 0
+                && status.compare(QStringLiteral("Cancelled"), Qt::CaseInsensitive) != 0) {
+                continue;
+            }
+            jobs_.push_back(job);
+            cards_layout_->insertWidget(cards_layout_->count() - 1,
+                MakeCompletedJobCard(job, cards_container_));
         }
         history_revision_ = history.revision;
     }
     const QString text = !history.error.isEmpty()
         ? QStringLiteral("History error: %1").arg(history.error)
-        : history.jobs.isEmpty()
+        : jobs_.isEmpty()
             ? QStringLiteral("No completed or cancelled jobs have been recorded.")
         : QStringLiteral("%1 completed or cancelled job records.")
-            .arg(QLocale(QLocale::English, QLocale::UnitedStates).toString(history.jobs.size()));
+            .arg(QLocale(QLocale::English, QLocale::UnitedStates).toString(jobs_.size()));
     if (message_->text() != text) message_->setText(text);
 }
 
@@ -291,15 +567,28 @@ void SessionsPage::UpdateHistory(const session::HistorySnapshot& history) {
 }
 
 EventsPage::EventsPage(QWidget* parent) : StatePage(parent) {
-    auto* content = MakeHistoryPage(
-        {QStringLiteral("Timestamp"), QStringLiteral("Source"), QStringLiteral("Event"),
-            QStringLiteral("Details")},
-        message_,
-        model_,
-        this);
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(content);
+    layout->setSpacing(8);
+    message_ = new QLabel(this);
+    message_->setObjectName(QStringLiteral("detailLabel"));
+    message_->setWordWrap(true);
+    layout->addWidget(message_);
+
+    auto* scroll = new QScrollArea(this);
+    scroll->setObjectName(QStringLiteral("eventsScroll"));
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    entries_container_ = new QWidget(scroll);
+    entries_container_->setObjectName(QStringLiteral("eventEntries"));
+    entries_container_->setMinimumWidth(0);
+    entries_layout_ = new QVBoxLayout(entries_container_);
+    entries_layout_->setContentsMargins(2, 2, 2, 2);
+    entries_layout_->setSpacing(8);
+    entries_layout_->setAlignment(Qt::AlignTop);
+    scroll->setWidget(entries_container_);
+    layout->addWidget(scroll, 1);
 }
 
 void EventsPage::UpdateState(const telemetry::TelemetryUiState&) {
@@ -307,23 +596,41 @@ void EventsPage::UpdateState(const telemetry::TelemetryUiState&) {
 
 void EventsPage::UpdateHistory(const session::HistorySnapshot& history) {
     if (history_revision_ != history.revision) {
-        model_->removeRows(0, model_->rowCount());
-        for (const auto& event : history.events) {
-            const int row = model_->rowCount();
-            model_->insertRow(row);
-            model_->setItem(row, 0, new QStandardItem(TimestampText(event.timestamp)));
-            model_->setItem(row, 1, new QStandardItem(event.source));
-            model_->setItem(row, 2, new QStandardItem(event.type));
-            model_->setItem(row, 3, new QStandardItem(event.details));
+        const qsizetype current_count = history.events.size();
+        constexpr qsizetype max_visible_events = 500;
+        if (event_count_ < 0 || current_count < event_count_) {
+            while (QLayoutItem* item = entries_layout_->takeAt(0)) {
+                delete item->widget();
+                delete item;
+            }
+            const qsizetype visible_count = qMin(current_count, max_visible_events);
+            for (qsizetype index = 0; index < visible_count; ++index) {
+                entries_layout_->addWidget(
+                    MakeEventEntry(history.events[index], entries_container_));
+            }
+        } else if (current_count > event_count_) {
+            const qsizetype added_count = current_count - event_count_;
+            for (qsizetype index = added_count; index > 0; --index) {
+                entries_layout_->insertWidget(0,
+                    MakeEventEntry(history.events[index - 1], entries_container_));
+            }
+            while (entries_layout_->count() > max_visible_events) {
+                QLayoutItem* item = entries_layout_->takeAt(entries_layout_->count() - 1);
+                delete item->widget();
+                delete item;
+            }
         }
+        event_count_ = current_count;
         history_revision_ = history.revision;
     }
     const QString text = !history.error.isEmpty()
         ? QStringLiteral("History error: %1").arg(history.error)
         : history.events.isEmpty()
             ? QStringLiteral("No provider events have been recorded.")
-            : QStringLiteral("%1 provider events.")
-                .arg(QLocale(QLocale::English, QLocale::UnitedStates).toString(history.events.size()));
+            : QStringLiteral("%1 provider events; showing the newest %2.")
+                .arg(QLocale(QLocale::English, QLocale::UnitedStates)
+                    .toString(history.events.size()))
+                .arg(qMin(history.events.size(), qsizetype(500)));
     if (message_->text() != text) message_->setText(text);
 }
 
@@ -788,19 +1095,11 @@ void ActiveModsPage::UpdateState(const telemetry::TelemetryUiState&) {
 JobsPage::JobsPage(QWidget* parent) : StatePage(parent) {
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
-    layout->setSpacing(14);
-
-    tabs_ = new QTabWidget(this);
-    tabs_->setObjectName(QStringLiteral("contentTabs"));
-    current_job_ = new CurrentJobPage(tabs_);
-    completed_jobs_ = new JobHistoryPage(tabs_);
-    tabs_->addTab(current_job_, QStringLiteral("Current job"));
-    tabs_->addTab(completed_jobs_, QStringLiteral("Completed jobs"));
-    layout->addWidget(tabs_, 1);
+    completed_jobs_ = new JobHistoryPage(this);
+    layout->addWidget(completed_jobs_, 1);
 }
 
 void JobsPage::UpdateState(const telemetry::TelemetryUiState& state) {
-    current_job_->UpdateState(state);
     completed_jobs_->UpdateState(state);
 }
 
@@ -816,23 +1115,19 @@ HistoryPage::HistoryPage(QWidget* parent) : StatePage(parent) {
     tabs_ = new QTabWidget(this);
     tabs_->setObjectName(QStringLiteral("contentTabs"));
     sessions_ = new SessionsPage(tabs_);
-    completed_jobs_ = new JobHistoryPage(tabs_);
     trip_events_ = new TripEventsPage(tabs_);
-    tabs_->addTab(sessions_, QStringLiteral("Sessions & trips"));
-    tabs_->addTab(completed_jobs_, QStringLiteral("Completed jobs"));
-    tabs_->addTab(trip_events_, QStringLiteral("Tolls & transport"));
+    tabs_->addTab(sessions_, QStringLiteral("SESSIONS & TRIPS"));
+    tabs_->addTab(trip_events_, QStringLiteral("TOLLS & TRANSPORT"));
     layout->addWidget(tabs_, 1);
 }
 
 void HistoryPage::UpdateState(const telemetry::TelemetryUiState& state) {
     sessions_->UpdateState(state);
-    completed_jobs_->UpdateState(state);
     trip_events_->UpdateState(state);
 }
 
 void HistoryPage::UpdateHistory(const session::HistorySnapshot& history) {
     sessions_->UpdateHistory(history);
-    completed_jobs_->UpdateHistory(history);
     trip_events_->UpdateHistory(history);
 }
 

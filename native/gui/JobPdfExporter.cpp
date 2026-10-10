@@ -39,33 +39,59 @@ QString JsonDisplayValue(const QJsonValue& value) {
 
 QString DetailsHtml(const QJsonObject& details) {
     struct DetailField {
-        const char* key;
+        const char* keys;
         const char* label;
         const char* suffix;
     };
     static constexpr DetailField fields[] = {
-        {"income", "Earnings", ""},
-        {"planned_distance_km", "Planned distance", " km"},
-        {"odometer_km", "Odometer at event", " km"},
-        {"remaining_navigation_km", "Remaining navigation distance", " km"},
-        {"fuel_liters", "Fuel at event", " L"},
-        {"market", "Job market", ""},
-        {"special_job", "Special job", ""},
+        {"weight|cargo_weight", "WEIGHT", ""},
+        {"source_city|source.city", "FROM", ""},
+        {"destination_city|destination.city", "TO", ""},
+        {"source_company|source.company", "FROM COMPANY", ""},
+        {"destination_company|destination.company", "TO COMPANY", ""},
+        {"planned_distance_km", "PLANNED DISTANCE", " km"},
+        {"driven_distance_km|distance_driven_km", "DRIVEN DISTANCE", " km"},
+        {"income", "INCOME", ""},
+        {"offences|offenses", "OFFENCES", ""},
+        {"xp|experience", "XP", ""},
+        {"damage|damage_percent", "DAMAGE", ""},
+        {"real_elapsed_time|elapsed_time", "TIME TAKEN (REAL)", ""},
+        {"max_speed_kmh|maximum_speed_kmh", "MAX SPEED", " km/h"},
+        {"truck|truck_name|vehicle", "TRUCK USED", ""},
+        {"trailer|trailer_name", "TRAILER USED", ""},
+        {"truck_license_plate|truck_licence_plate", "TRUCK LICENCE PLATE", ""},
+        {"trailer_license_plate|trailer_licence_plate", "TRAILER LICENCE PLATE", ""},
+        {"fuel_used_liters|fuel_usage_liters", "FUEL USAGE", " L"},
+        {"refueled_liters|fuel_added_liters", "REFUELED", " L"},
+        {"refuel_cost", "REFUEL COST", ""},
+        {"average_consumption|average_consumption_l_per_100km", "AVERAGE CONSUMPTION", " L/100 km"},
+        {"odometer_km", "ODOMETER AT EVENT", " km"},
+        {"remaining_navigation_km", "REMAINING NAVIGATION DISTANCE", " km"},
+        {"fuel_liters", "FUEL AT EVENT", " L"},
+        {"market", "JOB MARKET", ""},
+        {"special_job", "SPECIAL JOB", ""},
     };
 
     QString html;
     for (const DetailField& field : fields) {
-        const QJsonValue value = details.value(QLatin1String(field.key));
-        if (value.isUndefined() || value.isNull()) {
-            continue;
+        QJsonValue value;
+        for (const QString& key : QString::fromLatin1(field.keys).split(QLatin1Char('|'))) {
+            value = details.value(key);
+            if (key.contains(QLatin1Char('.'))) {
+                const QStringList path = key.split(QLatin1Char('.'));
+                value = details.value(path.front());
+                for (qsizetype i = 1; i < path.size() && value.isObject(); ++i) {
+                    value = value.toObject().value(path[i]);
+                }
+            }
+            if (!value.isUndefined() && !value.isNull()) {
+                break;
+            }
         }
         const QString display = JsonDisplayValue(value);
-        if (display.isEmpty()) {
-            continue;
-        }
         html += QStringLiteral("<tr><th>%1</th><td>%2%3</td></tr>")
             .arg(QString::fromLatin1(field.label).toHtmlEscaped(),
-                display.toHtmlEscaped(),
+                (display.isEmpty() ? QStringLiteral("N/A") : display).toHtmlEscaped(),
                 QString::fromLatin1(field.suffix).toHtmlEscaped());
     }
     return html;
@@ -109,15 +135,18 @@ bool ExportJobsToPdf(
         "th,td{text-align:left;vertical-align:top;padding:4px 7px;border-bottom:1px solid #eee}"
         "th{width:28%;color:#514854;font-weight:bold}"
         "</style></head><body><h1>NLSI Exclusive Logbook</h1>"
-        "<div class=\"generated\">Completed job records · %1 records · Generated %2</div>")
-        .arg(FormatNumber(jobs.size(), 0).toHtmlEscaped(),
-            (generated_at.toString(QStringLiteral("MM/dd/yy HH:mm:ss.zzz"))
-                + QStringLiteral(" Asia/Manila")).toHtmlEscaped());
+        "<div class=\"generated\">%1 · Generated %2</div>")
+        .arg(jobs.size() == 1
+                    ? QStringLiteral("Completed job report")
+                    : QStringLiteral("%1 completed job records")
+                        .arg(FormatNumber(jobs.size(), 0))
+                        .toHtmlEscaped(),
+            (generated_at.toString(QStringLiteral("MMMM d, yyyy hh:mm:ss AP"))
+                    + QStringLiteral(" Asia/Manila")).toHtmlEscaped());
 
-    for (qsizetype index = 0; index < jobs.size(); ++index) {
-        const nlsi::session::JobRecord& job = jobs[index];
-        html += QStringLiteral("<section class=\"job\"><h2>Job %1 · %2</h2><table>")
-            .arg(FormatNumber(index + 1, 0).toHtmlEscaped(),
+    for (const nlsi::session::JobRecord& job : jobs) {
+        html += QStringLiteral("<section class=\"job\"><h2>JOB %1 · %2</h2><table>")
+            .arg((job.nlsi_job_id.isEmpty() ? job.identity : job.nlsi_job_id).toHtmlEscaped(),
                 job.status.toHtmlEscaped());
         const auto add_row = [&html](const QString& label, const QString& value) {
             if (!value.isEmpty()) {
@@ -125,16 +154,16 @@ bool ExportJobsToPdf(
                     .arg(label.toHtmlEscaped(), value.toHtmlEscaped());
             }
         };
-        add_row(QStringLiteral("Job ID"),
+        add_row(QStringLiteral("JOB ID"),
             job.nlsi_job_id.isEmpty() ? job.identity : job.nlsi_job_id);
         const QJsonValue game_job_id = job.details.value(QStringLiteral("job_id"));
         if (game_job_id.isString()) {
-            add_row(QStringLiteral("Game job ID"), game_job_id.toString());
+            add_row(QStringLiteral("GAME JOB ID"), game_job_id.toString());
         }
-        add_row(QStringLiteral("Cargo"), job.cargo);
-        add_row(QStringLiteral("Origin"), job.source);
-        add_row(QStringLiteral("Destination"), job.destination);
-        add_row(QStringLiteral("Recorded at"), TimestampText(job.timestamp));
+        add_row(QStringLiteral("CARGO"), job.cargo.isEmpty() ? QStringLiteral("N/A") : job.cargo);
+        add_row(QStringLiteral("ORIGIN"), job.source.isEmpty() ? QStringLiteral("N/A") : job.source);
+        add_row(QStringLiteral("DESTINATION"), job.destination.isEmpty() ? QStringLiteral("N/A") : job.destination);
+        add_row(QStringLiteral("RECORDED AT"), TimestampText(job.timestamp));
         html += DetailsHtml(job.details);
         html += QStringLiteral("</table></section>");
     }
@@ -172,6 +201,13 @@ bool ExportJobsToPdf(
         return false;
     }
     return true;
+}
+
+bool ExportJobToPdf(
+    const QString& path,
+    const nlsi::session::JobRecord& job,
+    QString* error) {
+    return ExportJobsToPdf(path, QVector<nlsi::session::JobRecord>{job}, error);
 }
 
 } // namespace nlsi::gui

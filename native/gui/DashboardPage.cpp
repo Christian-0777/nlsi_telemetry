@@ -66,18 +66,6 @@ QString PercentValue(const telemetry::TelemetryField<double>& field) {
     return value;
 }
 
-QString GameIdentity(const telemetry::TelemetrySnapshot& snapshot) {
-    const QString name = FieldValue(snapshot.game_name);
-    const QString id = FieldValue(snapshot.game_id);
-    if (name == QStringLiteral("N/A")) {
-        return id;
-    }
-    if (id == QStringLiteral("N/A")) {
-        return name;
-    }
-    return QStringLiteral("%1 (%2)").arg(name, id);
-}
-
 QString ProgressValue(const std::optional<double>& progress) {
     if (!progress || !std::isfinite(*progress) || *progress < 0.0 || *progress > 100.0) {
         return QStringLiteral("N/A");
@@ -110,7 +98,6 @@ DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
     special_job_indicator_->setObjectName(QStringLiteral("specialJobIndicator"));
     special_job_indicator_->setAlignment(Qt::AlignCenter);
     special_job_indicator_->setVisible(false);
-    RegisterResponsiveLabel(special_job_indicator_, 2);
     job->addWidget(special_job_indicator_, 6, 0, 1, 2, Qt::AlignCenter);
 
     QGridLayout* driving = AddSection(
@@ -122,15 +109,16 @@ DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
     AddMetric(driving, 2, 0, QStringLiteral("cruiseControl"), QStringLiteral("CC"));
     AddMetric(driving, 2, 1, QStringLiteral("retarder"), QStringLiteral("RETARDER"), true);
 
-    QGridLayout* connection = AddSection(
-        QStringLiteral("connectionSection"), QStringLiteral("CONNECTION"));
-    AddMetric(connection, 0, 0, QStringLiteral("connection"), QStringLiteral("PROVIDER"));
-    AddMetric(connection, 0, 1, QStringLiteral("game"), QStringLiteral("GAME"));
-    AddMetric(connection, 1, 0, QStringLiteral("gameVersion"), QStringLiteral("VERSION"));
-    AddMetric(connection, 1, 1, QStringLiteral("vehicle"), QStringLiteral("VEHICLE"));
+    QGridLayout* game_config = AddSection(
+        QStringLiteral("gameConfigSection"), QStringLiteral("GAME CONFIG"));
+    AddMetric(game_config, 0, 0, QStringLiteral("game"), QStringLiteral("GAME NAME"));
+    AddMetric(game_config, 0, 1, QStringLiteral("gameVersion"), QStringLiteral("GAME VERSION"));
+    AddMetric(game_config, 1, 0, QStringLiteral("vehicle"), QStringLiteral("VEHICLE MAKE/MODEL"));
+    AddMetric(game_config, 1, 1, QStringLiteral("vehiclePlate"), QStringLiteral("VEHICLE LICENCE PLATE"));
+    AddMetric(game_config, 2, 0, QStringLiteral("trailer"), QStringLiteral("TRAILER DETAILS"));
+    AddMetric(game_config, 2, 1, QStringLiteral("trailerPlate"), QStringLiteral("TRAILER LICENCE PLATE"));
 
     page_layout->addStretch(1);
-    ApplyResponsiveFontSize();
 }
 
 QGridLayout* DashboardPage::AddSection(const QString& key, const QString& title) {
@@ -148,7 +136,6 @@ QGridLayout* DashboardPage::AddSection(const QString& key, const QString& title)
     auto* heading = new QLabel(title, section);
     heading->setObjectName(QStringLiteral("dashboardSectionTitle"));
     heading->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    RegisterResponsiveLabel(heading, 1);
     layout->addWidget(heading, 0, 0, 1, 2);
     layout->setRowMinimumHeight(1, 2);
     static_cast<QVBoxLayout*>(this->layout())->addWidget(section);
@@ -175,7 +162,6 @@ void DashboardPage::AddMetric(
     field_label->setObjectName(QStringLiteral("dashboardFieldLabel"));
     field_label->setWordWrap(true);
     field_label->setMinimumWidth(0);
-    RegisterResponsiveLabel(field_label);
     metric_layout->addWidget(field_label);
 
     auto* value_row = new QWidget(metric);
@@ -189,7 +175,6 @@ void DashboardPage::AddMetric(
     value->setMinimumWidth(0);
     value->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     value->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    RegisterResponsiveLabel(value, 2);
     value_layout->addWidget(value, 0, Qt::AlignLeft | Qt::AlignVCenter);
     values_.insert(key, value);
 
@@ -201,7 +186,6 @@ void DashboardPage::AddMetric(
         indicator->setAlignment(Qt::AlignCenter);
         indicator->setMinimumWidth(18);
         indicator->setVisible(false);
-        RegisterResponsiveLabel(indicator, 2);
         value_layout->addWidget(indicator, 0, Qt::AlignLeft | Qt::AlignVCenter);
         cruise_indicators_.insert(key, indicator);
     }
@@ -209,35 +193,6 @@ void DashboardPage::AddMetric(
     value_layout->addStretch(1);
     metric_layout->addWidget(value_row);
     grid->addWidget(metric, row + 1, column);
-}
-
-void DashboardPage::RegisterResponsiveLabel(QLabel* label, int emphasis) {
-    label->setProperty("fontEmphasis", emphasis);
-    responsive_labels_.push_back(label);
-}
-
-void DashboardPage::resizeEvent(QResizeEvent* event) {
-    StatePage::resizeEvent(event);
-    ApplyResponsiveFontSize();
-}
-
-void DashboardPage::ApplyResponsiveFontSize() {
-    const QWidget* app_window = window();
-    const int window_width = app_window ? app_window->width() : width();
-    const int growth = qBound(0, window_width - 900, 900);
-    const int base_size = qBound(8, 8 + growth * 6 / 900, 14);
-    if (base_size == responsive_font_size_) {
-        return;
-    }
-    responsive_font_size_ = base_size;
-    for (QLabel* label : responsive_labels_) {
-        const int emphasis = label->property("fontEmphasis").toInt();
-        const int pixel_size = qMin(14, base_size + emphasis);
-        const QString style = QStringLiteral("font-size: %1px;").arg(pixel_size);
-        if (label->styleSheet() != style) {
-            label->setStyleSheet(style);
-        }
-    }
 }
 
 void DashboardPage::SetValue(const QString& key, const QString& value) {
@@ -307,16 +262,12 @@ void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
         it.value()->setVisible(cruise_control_confirmed && cruise_control.value);
     }
 
-    const QString provider_status = QString::fromStdWString(
-        telemetry::FormatStatus(state.providers.trucksim));
-    SetValue(QStringLiteral("connection"),
-        QStringLiteral("%1 · TruckSim GPS (%2)")
-            .arg(snapshot.connected ? QStringLiteral("CONNECTED")
-                                    : QStringLiteral("NOT CONNECTED"),
-                provider_status));
-    SetValue(QStringLiteral("game"), GameIdentity(snapshot));
+    SetValue(QStringLiteral("game"), FieldValue(snapshot.game_name));
     SetValue(QStringLiteral("gameVersion"), QStringLiteral("N/A"));
     SetValue(QStringLiteral("vehicle"), QStringLiteral("N/A"));
+    SetValue(QStringLiteral("vehiclePlate"), QStringLiteral("N/A"));
+    SetValue(QStringLiteral("trailer"), QStringLiteral("N/A"));
+    SetValue(QStringLiteral("trailerPlate"), QStringLiteral("N/A"));
 }
 
 } // namespace nlsi::gui

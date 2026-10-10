@@ -21,6 +21,7 @@
 #include <QScrollArea>
 #include <QStandardItemModel>
 #include <QSize>
+#include <QSet>
 #include <QStandardPaths>
 #include <QScrollBar>
 #include <QStackedWidget>
@@ -110,7 +111,7 @@ QToolButton* FindButton(QWidget& window, const QString& title) {
 
 QAbstractButton* FindMessageBoxButton(QMessageBox& message_box, const QString& text) {
     for (QAbstractButton* button : message_box.buttons()) {
-        if (button->text() == text) {
+        if (button->text().compare(text, Qt::CaseInsensitive) == 0) {
             return button;
         }
     }
@@ -576,6 +577,7 @@ bool TestMonitorStartsBeforeGame() {
 
 bool TestHistoryPagesLoadPersistedRows() {
     nlsi::gui::HistoryPage history_page;
+    nlsi::gui::JobsPage jobs_page;
     nlsi::session::HistorySnapshot history;
     history.revision = 1;
     history.sessions.push_back({
@@ -592,34 +594,101 @@ bool TestHistoryPagesLoadPersistedRows() {
         QStringLiteral("Paris"),
         QStringLiteral("Delivered"),
         QStringLiteral("2026-10-07T08:29:00Z"),
+        {{QStringLiteral("source_city"), QStringLiteral("Berlin")},
+            {QStringLiteral("destination_city"), QStringLiteral("Paris")},
+            {QStringLiteral("income"), QStringLiteral("25000")},
+            {QStringLiteral("planned_distance"), QStringLiteral("1200")}},
+    });
+    history.jobs.push_back({
+        QStringLiteral("job-pending"),
+        QStringLiteral("Pending cargo"),
+        QStringLiteral("Berlin"),
+        QStringLiteral("Paris"),
+        QStringLiteral("Pending"),
+        QStringLiteral("2026-10-07T08:28:00Z"),
+    });
+    history.jobs.push_back({
+        QStringLiteral("job-active"),
+        QStringLiteral("Active cargo"),
+        QStringLiteral("Berlin"),
+        QStringLiteral("Paris"),
+        QStringLiteral("In progress"),
+        QStringLiteral("2026-10-07T08:27:00Z"),
+    });
+    history.jobs.push_back({
+        QStringLiteral("job-2"),
+        QStringLiteral("Wood"),
+        QStringLiteral("Oslo"),
+        QStringLiteral("Stockholm"),
+        QStringLiteral("Cancelled"),
+        QStringLiteral("2026-10-07T08:26:00Z"),
     });
     history_page.UpdateState({});
     history_page.UpdateHistory(history);
+    jobs_page.UpdateState({});
+    jobs_page.UpdateHistory(history);
 
     auto* tabs = history_page.findChild<QTabWidget*>(QStringLiteral("contentTabs"));
-    if (!tabs || tabs->count() != 3) {
-        std::cerr << "Session, completed-job, and trip-event history tabs are missing.\n";
+    if (!tabs || tabs->count() != 2
+        || tabs->tabText(0) == QStringLiteral("COMPLETED JOBS")
+        || tabs->tabText(1) == QStringLiteral("COMPLETED JOBS")) {
+        std::cerr << "The History page still contains a Completed Jobs tab.\n";
         return false;
     }
     QTableView* sessions_table = nullptr;
-    QTableView* jobs_table = nullptr;
     for (auto* table : history_page.findChildren<QTableView*>()) {
         auto* model = qobject_cast<QStandardItemModel*>(table->model());
         if (!model || model->rowCount() != 1) {
             continue;
         }
         const QString first_column = model->headerData(0, Qt::Horizontal).toString();
-        if (first_column == QStringLiteral("Game")) {
+        if (first_column == QStringLiteral("GAME")) {
             sessions_table = table;
-        } else if (first_column == QStringLiteral("Job ID")) {
-            jobs_table = table;
         }
     }
-    if (!sessions_table || !jobs_table
-        || jobs_table->model()->headerData(2, Qt::Horizontal).toString()
-            != QStringLiteral("Timestamp")
-        || jobs_table->model()->index(0, 0).data().toString() != QStringLiteral("job-1")) {
-        std::cerr << "Persisted session or completed-job records did not load into their tables.\n";
+    const auto history_job_cards = history_page.findChildren<QFrame*>(
+        QStringLiteral("completedJobCard"));
+    const auto job_cards = jobs_page.findChildren<QFrame*>(
+        QStringLiteral("completedJobCard"));
+    const auto job_exports = jobs_page.findChildren<QPushButton*>(
+        QStringLiteral("exportJobPdfButton"));
+    if (!sessions_table || !history_job_cards.isEmpty()
+        || job_cards.size() != 2 || job_exports.size() != 2) {
+        std::cerr << "Only delivered/cancelled persisted jobs should render on Jobs with per-job exports.\n";
+        return false;
+    }
+    QSet<QString> exported_job_ids;
+    for (const QPushButton* export_button : job_exports) {
+        exported_job_ids.insert(export_button->property("persistedJobId").toString());
+    }
+    if (exported_job_ids != QSet<QString>{
+            QStringLiteral("job-1"), QStringLiteral("job-2")}) {
+        std::cerr << "Each completed-job export is not tied to its own persisted job ID.\n";
+        return false;
+    }
+    QFrame* delivered_card = nullptr;
+    for (QFrame* card : job_cards) {
+        const QLabel* job_id = card->findChild<QLabel*>(
+            QStringLiteral("completedJobId"));
+        if (job_id && job_id->text().contains(QStringLiteral("job-1"))) {
+            delivered_card = card;
+            break;
+        }
+    }
+    QStringList delivered_values;
+    if (delivered_card) {
+        for (const QLabel* value : delivered_card->findChildren<QLabel*>(
+                 QStringLiteral("completedJobFieldValue"))) {
+            delivered_values.push_back(value->text());
+        }
+    }
+    if (!delivered_card
+        || !delivered_values.contains(QStringLiteral("Berlin"))
+        || !delivered_values.contains(QStringLiteral("Paris"))
+        || !delivered_values.contains(QStringLiteral("25000"))
+        || !delivered_values.contains(QStringLiteral("1200 km"))
+        || !delivered_values.contains(QStringLiteral("N/A"))) {
+        std::cerr << "Completed-job cards did not map available fields or mark missing data N/A.\n";
         return false;
     }
     if (!history_page.findChildren<QLabel*>(QStringLiteral("pageTitle")).isEmpty()
@@ -627,16 +696,26 @@ bool TestHistoryPagesLoadPersistedRows() {
         std::cerr << "History tabs contain redundant page headings below the shared header.\n";
         return false;
     }
-    tabs->setCurrentIndex(1);
-    if (tabs->currentIndex() != 1) {
-        std::cerr << "The completed-job history tab could not be selected.\n";
+    jobs_page.resize(500, 650);
+    jobs_page.show();
+    QApplication::processEvents();
+    auto* jobs_scroll = jobs_page.findChild<QScrollArea*>(
+        QStringLiteral("completedJobsScroll"));
+    const auto job_fields = jobs_page.findChildren<QWidget*>(
+        QStringLiteral("completedJobFields"));
+    if (!jobs_scroll || jobs_scroll->horizontalScrollBarPolicy() != Qt::ScrollBarAlwaysOff
+        || job_fields.isEmpty()
+        || job_fields.front()->property("columnCount").toInt() != 1) {
+        std::cerr << "Completed-job fields did not use a wrapped, single-column narrow layout.\n";
         return false;
     }
-    tabs->setCurrentIndex(0);
-    if (tabs->currentIndex() != 0) {
-        std::cerr << "The session history tab could not be selected.\n";
+    jobs_page.resize(1200, 900);
+    QApplication::processEvents();
+    if (job_fields.front()->property("columnCount").toInt() != 2) {
+        std::cerr << "Completed-job fields did not expand into balanced columns.\n";
         return false;
     }
+    jobs_page.hide();
 
     nlsi::gui::EventsPage events_page;
     history.events.push_back({
@@ -687,19 +766,82 @@ bool TestHistoryPagesLoadPersistedRows() {
     ++history.revision;
     history_page.UpdateHistory(history);
     events_page.UpdateHistory(history);
-    const auto event_tables = events_page.findChildren<QTableView*>();
-    if (event_tables.size() != 1
-        || !event_tables.front()->model()
-        || event_tables.front()->model()->rowCount() != 7) {
-        std::cerr << "Persisted event details did not load into the Events table.\n";
+    const auto event_entries = events_page.findChildren<QFrame*>(
+        QStringLiteral("eventEntry"));
+    if (events_page.findChildren<QTableView*>().size() != 0
+        || event_entries.size() != 7) {
+        std::cerr << "Persisted events were not rendered as wrapped event entries.\n";
         return false;
     }
-    tabs->setCurrentIndex(2);
+    const auto first_event_entry = event_entries.front();
+    if (!first_event_entry->findChild<QLabel*>(QStringLiteral("eventTimestamp"))
+        || first_event_entry->findChild<QLabel*>(QStringLiteral("eventTimestamp"))->text()
+            != QStringLiteral("10/07/26 16:25:00.000 Asia/Manila")
+        || first_event_entry->findChild<QLabel*>(QStringLiteral("eventSource"))->text()
+            != QStringLiteral("TruckSim GPS")
+        || first_event_entry->findChild<QLabel*>(QStringLiteral("eventType"))->text()
+            != QStringLiteral("player.tollgate.paid")
+        || !first_event_entry->findChild<QLabel*>(QStringLiteral("eventData"))->text()
+            .contains(QStringLiteral("job_id"))) {
+        std::cerr << "An event entry omitted its timestamp, source, event type, or event data.\n";
+        return false;
+    }
+    bool empty_data_explicit = false;
+    for (QFrame* entry : event_entries) {
+        const QLabel* type = entry->findChild<QLabel*>(QStringLiteral("eventType"));
+        const QLabel* data = entry->findChild<QLabel*>(QStringLiteral("eventData"));
+        empty_data_explicit = empty_data_explicit
+            || (type && type->text() == QStringLiteral("player.use.train")
+                && data && data->text() == QStringLiteral("N/A (no event data recorded)"));
+    }
+    if (!empty_data_explicit) {
+        std::cerr << "An event with empty data was not explicitly marked unavailable.\n";
+        return false;
+    }
+
+    const QString long_event_data(360, QLatin1Char('X'));
+    history.events.prepend({
+        QStringLiteral("2026-10-07T08:30:00Z"),
+        QStringLiteral("TruckSim GPS"),
+        QStringLiteral("player.long_message"),
+        QStringLiteral("{\"provider\":\"TruckSim GPS\",\"data\":{\"message\":\"")
+            + long_event_data + QStringLiteral("\"}}"),
+    });
+    ++history.revision;
+    events_page.UpdateHistory(history);
+    QApplication::processEvents();
+    const auto updated_entries = events_page.findChildren<QFrame*>(
+        QStringLiteral("eventEntry"));
+    auto* event_scroll = events_page.findChild<QScrollArea*>(
+        QStringLiteral("eventsScroll"));
+    QFrame* newest_event_entry = nullptr;
+    for (QFrame* entry : updated_entries) {
+        const QLabel* event_type = entry->findChild<QLabel*>(
+            QStringLiteral("eventType"));
+        if (event_type && event_type->text() == QStringLiteral("player.long_message")) {
+            newest_event_entry = entry;
+            break;
+        }
+    }
+    QLabel* newest_event_data = newest_event_entry
+        ? newest_event_entry->findChild<QLabel*>(QStringLiteral("eventData"))
+        : nullptr;
+    QString wrapped_long_data = newest_event_data ? newest_event_data->text() : QString();
+    wrapped_long_data.remove(QChar(0x200b));
+    if (updated_entries.size() != 8 || !event_scroll
+        || event_scroll->horizontalScrollBarPolicy() != Qt::ScrollBarAlwaysOff
+        || !newest_event_data || !newest_event_data->wordWrap()
+        || !wrapped_long_data.contains(long_event_data)
+        || newest_event_data->text().contains(QStringLiteral("provider"))) {
+        std::cerr << "New events, long wrapped data, or event-only data handling failed.\n";
+        return false;
+    }
+    tabs->setCurrentIndex(1);
     QTableView* trip_events_table = nullptr;
     for (auto* table : history_page.findChildren<QTableView*>()) {
         auto* model = qobject_cast<QStandardItemModel*>(table->model());
         if (model && model->horizontalHeaderItem(0)
-            && model->horizontalHeaderItem(0)->text() == QStringLiteral("Event type")) {
+            && model->horizontalHeaderItem(0)->text() == QStringLiteral("EVENT TYPE")) {
             trip_events_table = table;
         }
     }
@@ -744,6 +886,103 @@ bool TestNumberAndTimeFormatting() {
     return true;
 }
 
+bool TestGlobalTypographySizes() {
+    nlsi::gui::DashboardPage dashboard;
+    dashboard.show();
+    QApplication::processEvents();
+    const auto section_titles = dashboard.findChildren<QLabel*>(
+        QStringLiteral("dashboardSectionTitle"));
+    const auto dashboard_labels = dashboard.findChildren<QLabel*>(
+        QStringLiteral("dashboardFieldLabel"));
+    const auto dashboard_values = dashboard.findChildren<QLabel*>(
+        QStringLiteral("dashboardValue"));
+    if (section_titles.isEmpty() || dashboard_labels.isEmpty()
+        || dashboard_values.isEmpty()) {
+        std::cerr << "Dashboard typography test could not locate its labels.\n";
+        return false;
+    }
+    for (const QLabel* label : section_titles) {
+        if (label->font().pixelSize() != 12) {
+            std::cerr << "Dashboard section titles are not 12 px.\n";
+            return false;
+        }
+    }
+    for (const QLabel* label : dashboard_labels) {
+        if (label->font().pixelSize() != 11) {
+            std::cerr << "Dashboard field labels are not 11 px.\n";
+            return false;
+        }
+    }
+    for (const QLabel* label : dashboard_values) {
+        if (label->font().pixelSize() != 11) {
+            std::cerr << "Dashboard telemetry values are not 11 px.\n";
+            return false;
+        }
+    }
+
+    nlsi::gui::JobsPage jobs;
+    jobs.show();
+    nlsi::session::HistorySnapshot history;
+    history.jobs.push_back({
+        QStringLiteral("typography-job"),
+        QStringLiteral("Cargo"),
+        QStringLiteral("Origin"),
+        QStringLiteral("Destination"),
+        QStringLiteral("Delivered"),
+        QStringLiteral("2026-10-07T08:29:00Z"),
+    });
+    jobs.UpdateHistory(history);
+    QApplication::processEvents();
+    for (const QLabel* label : jobs.findChildren<QLabel*>(
+             QStringLiteral("completedJobFieldLabel"))) {
+        if (label->font().pixelSize() != 11) {
+            std::cerr << "Completed-job field labels are not 11 px.\n";
+            return false;
+        }
+    }
+    for (const QLabel* label : jobs.findChildren<QLabel*>(
+             QStringLiteral("completedJobFieldValue"))) {
+        if (label->font().pixelSize() != 11) {
+            std::cerr << "Completed-job field values are not 11 px.\n";
+            return false;
+        }
+    }
+    const auto completed_titles = jobs.findChildren<QLabel*>(
+        QStringLiteral("completedJobId"));
+    if (completed_titles.isEmpty() || completed_titles.front()->font().pixelSize() != 12) {
+        std::cerr << "Completed-job card titles are not 12 px.\n";
+        return false;
+    }
+
+    nlsi::gui::EventsPage events;
+    history.events.push_back({
+        QStringLiteral("2026-10-07T08:30:00Z"),
+        QStringLiteral("TruckSim GPS"),
+        QStringLiteral("event.test"),
+        QStringLiteral("{\"message\":\"value\"}"),
+    });
+    events.UpdateHistory(history);
+    events.show();
+    QApplication::processEvents();
+    const auto event_labels = events.findChildren<QLabel*>(
+        QStringLiteral("eventFieldLabel"));
+    const auto event_values = events.findChildren<QLabel*>(
+        QStringLiteral("eventData"));
+    if (event_labels.isEmpty() || event_values.isEmpty()
+        || event_labels.front()->font().pixelSize() != 12
+        || event_values.front()->font().pixelSize() != 11) {
+        std::cerr << "Event-entry headings or data do not use the shared typography sizes.\n";
+        return false;
+    }
+    QPushButton button(QStringLiteral("Button"));
+    button.ensurePolished();
+    if (button.font().pixelSize() != 11) {
+        std::cerr << "Button text is not 11 px.\n";
+        return false;
+    }
+    return true;
+}
+
 bool TestShutdownIsIdempotent() {
     nlsi::telemetry::TelemetryCore telemetry_core;
     const auto first = telemetry_core.PollShutdown();
@@ -762,7 +1001,7 @@ bool TestProviderSurfaceSelectsTruckSimOnly() {
     bool found_trucksim = false;
     for (const QLabel* label : labels) {
         const QString text = label->text();
-        found_trucksim = found_trucksim || text == QStringLiteral("TruckSim GPS");
+        found_trucksim = found_trucksim || text == QStringLiteral("TRUCKSIM GPS");
         if (text.contains(QStringLiteral("RenCloud"), Qt::CaseInsensitive)
             || text == QStringLiteral("NLSI")) {
             std::cerr << "An inactive telemetry provider remains exposed in Settings.\n";
@@ -1112,15 +1351,32 @@ bool TestDashboardLayoutAndResponsiveText() {
         {QStringLiteral("remainingDistance"), QStringLiteral("100.00 km")},
         {QStringLiteral("progress"), QStringLiteral("25.0%")},
         {QStringLiteral("eta"), QStringLiteral("01:01:01")},
-        {QStringLiteral("game"), QStringLiteral("Euro Truck Simulator 2 (ets2)")},
+        {QStringLiteral("game"), QStringLiteral("Euro Truck Simulator 2")},
         {QStringLiteral("gameVersion"), QStringLiteral("N/A")},
         {QStringLiteral("vehicle"), QStringLiteral("N/A")},
+        {QStringLiteral("vehiclePlate"), QStringLiteral("N/A")},
+        {QStringLiteral("trailer"), QStringLiteral("N/A")},
+        {QStringLiteral("trailerPlate"), QStringLiteral("N/A")},
     };
     for (auto it = expected.cbegin(); it != expected.cend(); ++it) {
         const QLabel* field = FindDashboardField(page, it.key());
         if (!field || field->text() != it.value()) {
             std::cerr << "Dashboard field did not match its telemetry source: "
                       << it.key().toStdString() << '\n';
+            return false;
+        }
+        const auto sections = page.findChildren<QFrame*>();
+        QFrame* game_config = nullptr;
+        for (QFrame* section : sections) {
+            if (section->property("sectionKey").toString() == QStringLiteral("gameConfigSection")) {
+                game_config = section;
+                break;
+            }
+        }
+        if (!game_config
+            || game_config->findChildren<QLabel*>(QStringLiteral("dashboardFieldLabel")).size() != 6
+            || !page.findChildren<QFrame*>(QStringLiteral("connectionSection")).isEmpty()) {
+            std::cerr << "Dashboard Game Config does not contain only the six required fields.\n";
             return false;
         }
     }
@@ -1148,7 +1404,7 @@ bool TestDashboardLayoutAndResponsiveText() {
         QSize(1366, 768),
         QSize(1920, 1080),
     };
-    int previous_value_size = 0;
+    int dashboard_value_size = 0;
     for (const auto& size : window_sizes) {
         page.resize(size.width(), size.height());
         page.show();
@@ -1163,8 +1419,11 @@ bool TestDashboardLayoutAndResponsiveText() {
                 continue;
             }
             const int pixel_size = label->font().pixelSize();
-            if (pixel_size < 8 || pixel_size > 14) {
-                std::cerr << "Dashboard font size escaped the 8-14 px bounds: "
+            const int expected_size = label->objectName()
+                    == QStringLiteral("dashboardSectionTitle")
+                ? 12 : 11;
+            if (pixel_size != expected_size) {
+                std::cerr << "Dashboard typography differs from the shared 11/12 px sizes: "
                           << pixel_size << ".\n";
                 return false;
             }
@@ -1176,11 +1435,12 @@ bool TestDashboardLayoutAndResponsiveText() {
                 }
             }
         }
-        if (value_size <= previous_value_size) {
-            std::cerr << "Dashboard values did not scale upward with window size.\n";
+        if (value_size != 11
+            || (dashboard_value_size != 0 && value_size != dashboard_value_size)) {
+            std::cerr << "Dashboard values did not retain the shared 11 px size while resizing.\n";
             return false;
         }
-        previous_value_size = value_size;
+        dashboard_value_size = value_size;
     }
 
     state.progress.eta_seconds = -1.0;
@@ -1214,7 +1474,7 @@ bool TestCompletedJobsPdfExport() {
         QJsonDocument(job.details).toJson(QJsonDocument::Compact));
     const QString path = directory.filePath(QStringLiteral("completed-jobs.pdf"));
     QString error;
-    if (!nlsi::gui::ExportJobsToPdf(path, {job}, &error)) {
+    if (!nlsi::gui::ExportJobToPdf(path, job, &error)) {
         std::cerr << "Completed jobs PDF export failed: " << error.toStdString() << '\n';
         return false;
     }
@@ -1225,6 +1485,26 @@ bool TestCompletedJobsPdfExport() {
         || QString::fromUtf8(QJsonDocument(job.details).toJson(QJsonDocument::Compact))
             != original_details) {
         std::cerr << "PDF output is invalid or export modified the source job record.\n";
+        return false;
+    }
+    nlsi::session::JobRecord cancelled_job{
+        QStringLiteral("job-456"),
+        QStringLiteral("Steel"),
+        QStringLiteral("Hamburg"),
+        QStringLiteral("Lyon"),
+        QStringLiteral("Cancelled"),
+        QStringLiteral("2026-10-07T09:36:46.123Z"),
+        {{QStringLiteral("income"), QStringLiteral("12500")}},
+        QStringLiteral("JOB-NLSI-0042"),
+    };
+    const QString cancelled_path = directory.filePath(QStringLiteral("cancelled-job.pdf"));
+    if (!nlsi::gui::ExportJobToPdf(cancelled_path, cancelled_job, &error)
+        || !QFileInfo::exists(cancelled_path)
+        || QFileInfo(cancelled_path).size() < 1000
+        || !cancelled_job.details.contains(QStringLiteral("income"))
+        || job.identity != QStringLiteral("job-123")
+        || cancelled_job.identity != QStringLiteral("job-456")) {
+        std::cerr << "Per-job PDF exports did not remain isolated to their selected records.\n";
         return false;
     }
     return true;
@@ -1313,7 +1593,7 @@ bool TestSingleInstanceGuard(QApplication& application) {
 
 bool TestOfflineUpdateCheck() {
     nlsi::updater::GitHubUpdater updater(
-        QStringLiteral("1.4.8-beta"),
+        QStringLiteral("1.5.0-beta"),
         nullptr,
         QUrl(QStringLiteral("http://127.0.0.1:1/releases")));
     QEventLoop loop;
@@ -1351,7 +1631,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.4.8-beta"));
+    application.setApplicationVersion(QStringLiteral("v1.5.0-beta"));
     if (!TestModLogParsingAndSourceLinks()
         || !TestIncrementalGameLogMonitoring()
         || !TestMonitorStartsBeforeGame()
@@ -1359,6 +1639,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     if (!TestNumberAndTimeFormatting()
+        || !TestGlobalTypographySizes()
         || !TestShutdownIsIdempotent()
         || !TestProviderSurfaceSelectsTruckSimOnly()
         || !TestDashboardCruiseControlIndicators()
@@ -1367,7 +1648,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.8-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.5.0-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -1384,12 +1665,18 @@ int main(int argc, char** argv) {
     auto* brand_subtitle = window.findChild<QLabel*>(QStringLiteral("brandSubtitle"));
     auto* sidebar = window.findChild<QFrame*>(QStringLiteral("sidebar"));
     auto* page_title = window.findChild<QLabel*>(QStringLiteral("headerTitle"));
-    auto* page_subtitle = window.findChild<QLabel*>(QStringLiteral("headerSubtitle"));
     auto* page_stack = window.findChild<QStackedWidget*>(QStringLiteral("pageStack"));
     auto* header_clock = window.findChild<QLabel*>(QStringLiteral("headerClock"));
+    auto* history_refresh_timer = window.findChild<QTimer*>(
+        QStringLiteral("historyRefreshTimer"));
     if (!logo || !brand_title || !brand_subtitle || !sidebar ||
-        !page_title || !page_subtitle || !page_stack || !header_clock) {
+        !page_title || !page_stack || !header_clock || !history_refresh_timer) {
         std::cerr << "The brand or shared page stack is missing.\n";
+        return 1;
+    }
+    if (history_refresh_timer->interval() != 250
+        || history_refresh_timer->thread() != window.thread()) {
+        std::cerr << "Persisted history is not polled for GUI refresh on the GUI thread.\n";
         return 1;
     }
     if (!window.findChildren<QLabel*>(QStringLiteral("versionBadge")).isEmpty()) {
@@ -1397,14 +1684,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     const QRegularExpression clock_pattern(
-        QStringLiteral("^\\d{2}/\\d{2}/\\d{2} - \\d{2}:\\d{2}:\\d{2}"
-            "\\nAsia/Manila - Ping: N/A$"));
-    if (!clock_pattern.match(header_clock->text()).hasMatch()) {
+        QStringLiteral("^[A-Z]{3,9} \\d{1,2}, \\d{4} - \\d{2}:\\d{2}:\\d{2} "
+            "- ASIA/MANILA \\| PING: --$"));
+    if (!clock_pattern.match(header_clock->text()).hasMatch()
+        || header_clock->wordWrap()
+        || page_title->text() != QStringLiteral("DASHBOARD")
+        || page_title->font().pixelSize() != 14
+        || header_clock->geometry().intersects(page_title->geometry())) {
         std::cerr << "The Manila wall clock or unavailable ping display is incorrect.\n";
-        return 1;
-    }
-    if (page_title->font().pixelSize() < 8 || page_title->font().pixelSize() > 14) {
-        std::cerr << "Dashboard header text is outside the 8-14 px bounds.\n";
         return 1;
     }
     if (brand_title->text() != QStringLiteral("NABSKI") ||
@@ -1433,9 +1720,9 @@ int main(int argc, char** argv) {
                   << '\n';
         return 1;
     }
-    auto* about_button = FindButton(window, QStringLiteral("About"));
-    auto* dashboard_button = FindButton(window, QStringLiteral("Dashboard"));
-    auto* jobs_button = FindButton(window, QStringLiteral("Jobs"));
+    auto* about_button = FindButton(window, QStringLiteral("ABOUT"));
+    auto* dashboard_button = FindButton(window, QStringLiteral("DASHBOARD"));
+    auto* jobs_button = FindButton(window, QStringLiteral("COMPLETED JOBS"));
     if (!about_button) {
         std::cerr << "The About navigation item is missing.\n";
         return 1;
@@ -1460,6 +1747,7 @@ int main(int argc, char** argv) {
     jobs_button->click();
     application.processEvents();
     if (!jobs_button->isChecked()
+        || page_title->text() != QStringLiteral("COMPLETED JOBS")
         || !icon_has_color(jobs_button->icon(), QColor(QStringLiteral("#FFFFFF")))
         || !icon_has_color(dashboard_button->icon(), QColor(QStringLiteral("#F896B9")))) {
         std::cerr << "Navigation icon colors did not update immediately on selection.\n";
@@ -1467,6 +1755,10 @@ int main(int argc, char** argv) {
     }
     about_button->click();
     application.processEvents();
+    if (page_title->text() != QStringLiteral("ABOUT")) {
+        std::cerr << "The shared header did not update its title when the page changed.\n";
+        return 1;
+    }
     bool found_discord = false;
     bool found_ceo = false;
     bool found_developer = false;
@@ -1489,10 +1781,10 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.4.8-beta");
+            || label->text() == QStringLiteral("v1.5.0-beta");
         found_beta_channel = found_beta_channel
             || label->text() == QStringLiteral("Beta");
-        if (label->text() == QStringLiteral("Product") && label->parentWidget()) {
+        if (label->text() == QStringLiteral("PRODUCT") && label->parentWidget()) {
             QLabel* value = label->parentWidget()->findChild<QLabel*>(
                 QStringLiteral("detailValue"));
             found_product = value
@@ -1526,7 +1818,7 @@ int main(int argc, char** argv) {
     QLabel* product_value = nullptr;
     if (about_page) {
         for (QLabel* label : about_page->findChildren<QLabel*>()) {
-            if (label->text() == QStringLiteral("Product") && label->parentWidget()) {
+            if (label->text() == QStringLiteral("PRODUCT") && label->parentWidget()) {
                 product_value = label->parentWidget()->findChild<QLabel*>(
                     QStringLiteral("detailValue"));
                 break;
@@ -1539,7 +1831,7 @@ int main(int argc, char** argv) {
         std::cerr << "About two-column rows wrap, overlap, or clip the product value.\n";
         return 1;
     }
-    auto* settings_button = FindButton(window, QStringLiteral("Settings"));
+    auto* settings_button = FindButton(window, QStringLiteral("SETTINGS"));
     settings_button->click();
     application.processEvents();
     auto* settings_scroll = qobject_cast<QScrollArea*>(page_stack->widget(4));
@@ -1561,20 +1853,12 @@ int main(int argc, char** argv) {
     }
 
     const QList<QString> page_titles = {
-        QStringLiteral("Dashboard"),
-        QStringLiteral("Jobs"),
-        QStringLiteral("History"),
-        QStringLiteral("Events"),
-        QStringLiteral("Settings"),
-        QStringLiteral("About"),
-    };
-    const QList<QString> page_subtitles = {
-        QStringLiteral("Driving telemetry, current job, and navigation status."),
-        QStringLiteral("Current delivery details and completed job records."),
-        QStringLiteral("Recorded sessions, trips, and completed deliveries."),
-        QStringLiteral("Provider events and recorded event details."),
-        QStringLiteral("Application preferences and provider diagnostics."),
-        QStringLiteral("Product information, release details, and acknowledgements."),
+        QStringLiteral("DASHBOARD"),
+        QStringLiteral("COMPLETED JOBS"),
+        QStringLiteral("HISTORY"),
+        QStringLiteral("EVENTS"),
+        QStringLiteral("SETTINGS"),
+        QStringLiteral("ABOUT"),
     };
     for (qsizetype index = 0; index < page_titles.size(); ++index) {
         auto* button = FindButton(window, page_titles[index]);
@@ -1592,7 +1876,6 @@ int main(int argc, char** argv) {
         application.processEvents();
         if (page_stack->currentIndex() != index ||
             page_title->text() != page_titles[index] ||
-            page_subtitle->text() != page_subtitles[index] ||
             !button->isChecked()) {
             std::cerr << "Navigation did not activate the expected page: "
                       << page_titles[index].toStdString() << '\n';
@@ -1609,7 +1892,7 @@ int main(int argc, char** argv) {
     for (const QSize size : {QSize(900, 600), QSize(1280, 800), QSize(1920, 1080)}) {
         window.showNormal();
         window.resize(size);
-        FindButton(window, QStringLiteral("Dashboard"))->click();
+        FindButton(window, QStringLiteral("DASHBOARD"))->click();
         application.processEvents();
         if (!CheckLayout(window)) {
             std::cerr << "Sidebar or page layout failed at "
@@ -1628,14 +1911,14 @@ int main(int argc, char** argv) {
     }
 
     window.showMaximized();
-    FindButton(window, QStringLiteral("Dashboard"))->click();
+    FindButton(window, QStringLiteral("DASHBOARD"))->click();
     application.processEvents();
     if (!CheckLayout(window)) {
         std::cerr << "Sidebar or page layout failed when maximized.\n";
         return 1;
     }
 
-    auto* close_button = FindButton(window, QStringLiteral("Close"));
+    auto* close_button = FindButton(window, QStringLiteral("CLOSE"));
     if (!close_button) {
         std::cerr << "The bottom Close action is missing.\n";
         return 1;

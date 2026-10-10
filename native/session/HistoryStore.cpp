@@ -27,7 +27,7 @@ QString ToQString(const std::wstring& value) {
 }
 
 QString FieldText(const telemetry::TelemetryField<std::wstring>& field) {
-    return field.available ? ToQString(field.value) : QString();
+    return field.available && !field.stale ? ToQString(field.value) : QString();
 }
 
 QString EventText(const QJsonObject& object, std::initializer_list<QString> keys) {
@@ -50,20 +50,6 @@ QString EventText(const QJsonObject& object, std::initializer_list<QString> keys
         }
     }
     return {};
-}
-
-QString JobRoute(
-    const telemetry::TelemetryField<std::wstring>& company,
-    const telemetry::TelemetryField<std::wstring>& city) {
-    const QString company_text = FieldText(company);
-    const QString city_text = FieldText(city);
-    if (company_text.isEmpty()) {
-        return city_text;
-    }
-    if (city_text.isEmpty() || company_text == city_text) {
-        return company_text;
-    }
-    return company_text + QStringLiteral(" · ") + city_text;
 }
 
 bool ParseRecord(
@@ -622,10 +608,16 @@ bool HistoryStore::RecordJob(
         SetError(QStringLiteral("Could not allocate a unique NLSI job ID; all four-digit IDs are in use."));
         return false;
     }
-    const QString cargo = FieldText(job.cargo).isEmpty()
-        ? EventText(event_details, {
-            QStringLiteral("cargo"), QStringLiteral("cargo_name"), QStringLiteral("cargo.id")})
-        : FieldText(job.cargo);
+    const QString snapshot_cargo_id = FieldText(job.cargo_id);
+    const QString event_job_identity = !job_id.isEmpty() ? job_id : event_identity;
+    const bool snapshot_matches_event = !snapshot_cargo_id.isEmpty()
+        && snapshot_cargo_id == event_job_identity;
+    const auto snapshot_field = [snapshot_matches_event](const auto& field) {
+        return snapshot_matches_event ? FieldText(field) : QString();
+    };
+    const QString event_cargo = EventText(event_details, {
+        QStringLiteral("cargo"), QStringLiteral("cargo_name"), QStringLiteral("cargo.id")});
+    const QString cargo = event_cargo.isEmpty() ? snapshot_field(job.cargo) : event_cargo;
     const QString event_source_company = EventText(event_details, {
         QStringLiteral("source_company"), QStringLiteral("source.company")});
     const QString event_source_city = EventText(event_details, {
@@ -634,23 +626,63 @@ bool HistoryStore::RecordJob(
         QStringLiteral("destination_company"), QStringLiteral("destination.company")});
     const QString event_destination_city = EventText(event_details, {
         QStringLiteral("destination_city"), QStringLiteral("destination.city")});
-    const QString source = FieldText(job.source_company).isEmpty()
-            && FieldText(job.source_city).isEmpty()
+    const QString source_company = event_source_company.isEmpty()
+        ? snapshot_field(job.source_company) : event_source_company;
+    const QString source_city = event_source_city.isEmpty()
+        ? snapshot_field(job.source_city) : event_source_city;
+    const QString destination_company = event_destination_company.isEmpty()
+        ? snapshot_field(job.destination_company) : event_destination_company;
+    const QString destination_city = event_destination_city.isEmpty()
+        ? snapshot_field(job.destination_city) : event_destination_city;
+    const QString source = source_company.isEmpty() && source_city.isEmpty()
         ? ((event_source_company.isEmpty() || event_source_city.isEmpty()
                 || event_source_company == event_source_city)
             ? (event_source_company.isEmpty() ? event_source_city : event_source_company)
             : event_source_company + QStringLiteral(" · ") + event_source_city)
-        : JobRoute(job.source_company, job.source_city);
-    const QString destination = FieldText(job.destination_company).isEmpty()
-            && FieldText(job.destination_city).isEmpty()
+        : (source_company.isEmpty() || source_city.isEmpty()
+                || source_company == source_city
+            ? (source_company.isEmpty() ? source_city : source_company)
+            : source_company + QStringLiteral(" · ") + source_city);
+    const QString destination = destination_company.isEmpty() && destination_city.isEmpty()
         ? ((event_destination_company.isEmpty() || event_destination_city.isEmpty()
                 || event_destination_company == event_destination_city)
             ? (event_destination_company.isEmpty()
                 ? event_destination_city
                 : event_destination_company)
             : event_destination_company + QStringLiteral(" · ") + event_destination_city)
-        : JobRoute(job.destination_company, job.destination_city);
+        : (destination_company.isEmpty() || destination_city.isEmpty()
+                || destination_company == destination_city
+            ? (destination_company.isEmpty() ? destination_city : destination_company)
+            : destination_company + QStringLiteral(" · ") + destination_city);
     QJsonObject persisted_details = event_details;
+    const auto persist_snapshot_field = [&persisted_details, &event_details](
+                                            const QString& name,
+                                            const QString& value,
+                                            std::initializer_list<QString> event_keys) {
+        if (!value.isEmpty() && EventText(event_details, event_keys).isEmpty()) {
+            persisted_details.insert(name, value);
+        }
+    };
+    persist_snapshot_field(QStringLiteral("cargo"), snapshot_field(job.cargo), {
+        QStringLiteral("cargo"), QStringLiteral("cargo_name"), QStringLiteral("cargo.id")});
+    persist_snapshot_field(QStringLiteral("cargo_id"),
+        snapshot_matches_event ? snapshot_cargo_id : QString(), {
+        QStringLiteral("cargo_id"), QStringLiteral("cargo.id")});
+    persist_snapshot_field(QStringLiteral("source_company"), source_company, {
+        QStringLiteral("source_company"), QStringLiteral("source.company")});
+    persist_snapshot_field(QStringLiteral("source_city"), source_city, {
+        QStringLiteral("source_city"), QStringLiteral("source.city")});
+    persist_snapshot_field(QStringLiteral("destination_company"),
+        destination_company, {
+            QStringLiteral("destination_company"), QStringLiteral("destination.company")});
+    persist_snapshot_field(QStringLiteral("destination_city"),
+        destination_city, {
+            QStringLiteral("destination_city"), QStringLiteral("destination.city")});
+    persist_snapshot_field(QStringLiteral("income"), snapshot_field(job.income), {
+        QStringLiteral("income")});
+    persist_snapshot_field(QStringLiteral("planned_distance"),
+        snapshot_field(job.planned_distance), {
+            QStringLiteral("planned_distance"), QStringLiteral("planned_distance_km")});
     persisted_details.insert(QStringLiteral("nlsi_job_id"), nlsi_job_id);
     const QJsonObject record{
         {QStringLiteral("event_key"), event_key},

@@ -12,4 +12,9 @@ bool ExportJobsToPdf(
     const QVector<nlsi::session::JobRecord>& jobs,
     QString* error = nullptr);
 
+bool ExportJobToPdf(
+    const QString& path,
+    const nlsi::session::JobRecord& job,
+    QString* error = nullptr);
+
 } // namespace nlsi::gui

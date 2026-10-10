@@ -294,10 +294,10 @@ SettingsPage::SettingsPage(QWidget* parent) : StatePage(parent) {
     providers_ = new ProvidersPage(tabs_);
     telemetry_ = new TelemetryPage(tabs_);
     active_mods_ = new ActiveModsPage(tabs_);
-    tabs_->addTab(application_settings_, QStringLiteral("Application"));
-    tabs_->addTab(providers_, QStringLiteral("Providers"));
-    tabs_->addTab(telemetry_, QStringLiteral("Telemetry"));
-    tabs_->addTab(active_mods_, QStringLiteral("Active Mods"));
+    tabs_->addTab(application_settings_, QStringLiteral("APPLICATION"));
+    tabs_->addTab(providers_, QStringLiteral("PROVIDERS"));
+    tabs_->addTab(telemetry_, QStringLiteral("TELEMETRY"));
+    tabs_->addTab(active_mods_, QStringLiteral("ACTIVE MODS"));
     layout->addWidget(tabs_, 1);
 }
 

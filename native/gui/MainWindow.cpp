@@ -1,20 +1,26 @@
 #include "MainWindow.h"
 
 #include <QFrame>
+#include <QAbstractButton>
 #include <QCloseEvent>
+#include <QEvent>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QDebug>
 #include <QLabel>
+#include <QLocale>
 #include <QMessageBox>
 #include <QVBoxLayout>
 #include <QPixmap>
 #include <QPushButton>
 #include <QProgressDialog>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QStyle>
+#include <QSystemTrayIcon>
 #include <QToolButton>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -27,6 +33,27 @@
 #include "time/ApplicationTime.h"
 
 namespace nlsi::gui {
+namespace {
+
+class UppercaseButtonTextFilter final : public QObject {
+public:
+    using QObject::QObject;
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (event->type() == QEvent::Show || event->type() == QEvent::Paint) {
+            if (auto* button = qobject_cast<QAbstractButton*>(watched)) {
+                const QString upper = button->text().toUpper();
+                if (button->text() != upper) {
+                    button->setText(upper);
+                }
+            }
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
+
+} // namespace
 
 MainWindow::MainWindow(
     const std::wstring& title,
@@ -37,6 +64,7 @@ MainWindow::MainWindow(
       telemetry_core_(telemetry_core) {
     setWindowTitle(QString::fromStdWString(title));
     setWindowIcon(QIcon(QStringLiteral(":/icons/logo.ico")));
+    QCoreApplication::instance()->installEventFilter(new UppercaseButtonTextFilter(this));
     setMinimumSize(900, 600);
     resize(900, 600);
 
@@ -90,26 +118,21 @@ MainWindow::MainWindow(
     header->setObjectName(QStringLiteral("appHeader"));
     auto* header_layout = new QHBoxLayout(header);
     header_layout->setContentsMargins(18, 12, 18, 12);
-    auto* header_text = new QVBoxLayout();
-    header_text->setContentsMargins(0, 0, 0, 0);
-    header_text->setSpacing(2);
     active_page_title_ = new QLabel(QStringLiteral("Dashboard"), header);
     active_page_title_->setObjectName(QStringLiteral("headerTitle"));
-    active_page_title_->setWordWrap(true);
-    active_page_subtitle_ = new QLabel(
-        QStringLiteral("Driving telemetry, current job, and navigation status."), header);
-    active_page_subtitle_->setObjectName(QStringLiteral("headerSubtitle"));
-    active_page_subtitle_->setWordWrap(true);
-    header_text->addWidget(active_page_title_);
-    header_text->addWidget(active_page_subtitle_);
+    active_page_title_->setMinimumWidth(0);
+    active_page_title_->setWordWrap(false);
+    active_page_title_->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Preferred);
     const QString version_label = QString::fromStdWString(version);
     header_clock_ = new QLabel(header);
     header_clock_->setObjectName(QStringLiteral("headerClock"));
     header_clock_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     header_clock_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    header_layout->addLayout(header_text, 1);
-    header_layout->addStretch(1);
-    header_layout->addWidget(header_clock_);
+    header_clock_->setWordWrap(false);
+    header_clock_->setMinimumWidth(0);
+    header_clock_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    header_layout->addWidget(active_page_title_, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    header_layout->addWidget(header_clock_, 1);
     content_layout->addWidget(header);
 
     page_stack_ = new QStackedWidget(content);
@@ -121,35 +144,28 @@ MainWindow::MainWindow(
     struct NavigationEntry {
         QString key;
         QString title;
-        QString subtitle;
         QString icon;
         StatePage* page;
     };
     const QList<NavigationEntry> workspace_entries = {
-        {QStringLiteral("dashboard"), QStringLiteral("Dashboard"),
-            QStringLiteral("Driving telemetry, current job, and navigation status."),
+        {QStringLiteral("dashboard"), QStringLiteral("DASHBOARD"),
             QStringLiteral("dashboard"),
             new DashboardPage(this)},
-        {QStringLiteral("jobs"), QStringLiteral("Jobs"),
-            QStringLiteral("Current delivery details and completed job records."),
+        {QStringLiteral("jobs"), QStringLiteral("COMPLETED JOBS"),
             QStringLiteral("jobs"),
             new JobsPage(this)},
-        {QStringLiteral("history"), QStringLiteral("History"),
-            QStringLiteral("Recorded sessions, trips, and completed deliveries."),
+        {QStringLiteral("history"), QStringLiteral("HISTORY"),
             QStringLiteral("history"),
             new HistoryPage(this)},
-        {QStringLiteral("events"), QStringLiteral("Events"),
-            QStringLiteral("Provider events and recorded event details."),
+        {QStringLiteral("events"), QStringLiteral("EVENTS"),
             QStringLiteral("events"),
             new EventsPage(this)},
     };
     const QList<NavigationEntry> system_entries = {
-        {QStringLiteral("settings"), QStringLiteral("Settings"),
-            QStringLiteral("Application preferences and provider diagnostics."),
+        {QStringLiteral("settings"), QStringLiteral("SETTINGS"),
             QStringLiteral("settings"),
             new SettingsPage(this)},
-        {QStringLiteral("about"), QStringLiteral("About"),
-            QStringLiteral("Product information, release details, and acknowledgements."),
+        {QStringLiteral("about"), QStringLiteral("ABOUT"),
             QStringLiteral("about"),
             new AboutPage(version_label, this)},
     };
@@ -162,7 +178,7 @@ MainWindow::MainWindow(
                                           const NavigationEntry& entry) {
         auto* button = new QToolButton(sidebar);
         button->setObjectName(QStringLiteral("navigationButton"));
-        button->setText(entry.title);
+        button->setText(entry.title.toUpper());
         button->setIcon(NavigationIcon(entry.icon, false));
         button->setIconSize(QSize(18, 18));
         button->setToolTip(entry.title);
@@ -174,14 +190,13 @@ MainWindow::MainWindow(
         sidebar_layout->addWidget(button);
         navigation_buttons_.insert(entry.key, button);
         pages_.insert(entry.key, entry.page);
-        page_subtitles_.insert(entry.key, entry.subtitle);
         auto* page_scroll = new QScrollArea(page_stack_);
         page_scroll->setObjectName(QStringLiteral("pageScroll"));
         page_scroll->setWidgetResizable(true);
         page_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         page_scroll->setMinimumSize(0, 0);
         page_scroll->setFrameShape(QFrame::NoFrame);
-        page_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        page_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         page_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         page_scroll->setWidget(entry.page);
         page_scroll_areas_.insert(entry.key, page_scroll);
@@ -206,7 +221,7 @@ MainWindow::MainWindow(
     sidebar_layout->addStretch(1);
     auto* close_button = new QToolButton(sidebar);
     close_button->setObjectName(QStringLiteral("navigationButton"));
-    close_button->setText(QStringLiteral("Close"));
+    close_button->setText(QStringLiteral("CLOSE"));
     close_button->setIcon(NavigationIcon(QStringLiteral("close"), false));
     close_button->setIconSize(QSize(18, 18));
     close_button->setToolTip(QStringLiteral("Close NLSI Exclusive Logbook"));
@@ -224,8 +239,14 @@ MainWindow::MainWindow(
     connection_indicator_ = new QLabel(QStringLiteral("NOT CONNECTED"), this);
     connection_indicator_->setObjectName(QStringLiteral("statusIndicator"));
     statusBar()->addPermanentWidget(connection_indicator_);
+    if (QSystemTrayIcon::isSystemTrayAvailable()) {
+        notification_tray_ = new QSystemTrayIcon(windowIcon(), this);
+        notification_tray_->setToolTip(QStringLiteral("NLSI Exclusive Logbook"));
+        notification_tray_->show();
+    }
 
     refresh_timer_ = new QTimer(this);
+    refresh_timer_->setObjectName(QStringLiteral("historyRefreshTimer"));
     refresh_timer_->setInterval(250);
     connect(refresh_timer_, &QTimer::timeout, this, [this] {
         RefreshState();
@@ -250,17 +271,22 @@ void MainWindow::ActivatePage(const QString& key) {
         return;
     }
     page_stack_->setCurrentWidget(page_scroll_areas_.value(key));
-    active_page_title_->setText(navigation_buttons_.value(key)->text());
+    active_page_title_->setText(navigation_buttons_.value(key)->text().toUpper());
     active_page_title_->setProperty(
         "dashboardActive", key == QStringLiteral("dashboard"));
     active_page_title_->style()->unpolish(active_page_title_);
     active_page_title_->style()->polish(active_page_title_);
-    active_page_subtitle_->setText(page_subtitles_.value(key));
+    RefreshClock();
     for (auto it = navigation_buttons_.cbegin(); it != navigation_buttons_.cend(); ++it) {
         const bool selected = it.key() == key;
         it.value()->setChecked(selected);
         it.value()->setIcon(NavigationIcon(it.key(), selected));
     }
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    RefreshClock();
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -311,10 +337,16 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 void MainWindow::RefreshClock() {
     const QDateTime manila_time = nlsi::time::NowLocal();
+    const bool compact = header_clock_->width() < 400;
+    const QLocale english(QLocale::English, QLocale::UnitedStates);
     const QString text = manila_time.isValid()
-        ? manila_time.toString(QStringLiteral("MM/dd/yy - HH:mm:ss"))
-            + QStringLiteral("\nAsia/Manila - Ping: N/A")
-        : QStringLiteral("Time-zone data unavailable\nAsia/Manila - Ping: N/A");
+        ? QStringLiteral("%1 - %2 - ASIA/MANILA | PING: --")
+            .arg(english.toString(manila_time, compact
+                    ? QStringLiteral("MMM d, yyyy")
+                    : QStringLiteral("MMMM d, yyyy"))
+                    .toUpper(),
+                manila_time.toString(QStringLiteral("HH:mm:ss")))
+        : QStringLiteral("TIME UNAVAILABLE - ASIA/MANILA | PING: --");
     if (header_clock_->text() != text) {
         header_clock_->setText(text);
     }
@@ -393,6 +425,18 @@ void MainWindow::PollShutdown() {
 void MainWindow::RefreshState() {
     const auto state = telemetry_core_.UiState();
     const auto history = telemetry_core_.History();
+    for (const std::wstring& event_id : telemetry_core_.TakeNewlyCompletedJobNotifications()) {
+        if (!notification_tray_) {
+            qWarning("Desktop notification unavailable: Windows system tray is not available.");
+            continue;
+        }
+        Q_UNUSED(event_id);
+        notification_tray_->showMessage(
+            QStringLiteral("NLSI Exclusive Logbook"),
+            QStringLiteral("Job has finished"),
+            QSystemTrayIcon::Information,
+            5000);
+    }
 
     for (StatePage* page : pages_) {
         page->UpdateState(state);

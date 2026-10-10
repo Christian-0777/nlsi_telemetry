@@ -2,6 +2,23 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.5.0-beta
+
+- Persists available, non-stale final job snapshot fields with terminal job records; missing fields stay N/A without substituting current telemetry.
+- Shows only Delivered/Cancelled persisted job cards on the Jobs page and removes the duplicate Completed Jobs History tab without changing stored history or PDF export behavior.
+- Makes completed-job cards responsive with wrapping values and a single-column narrow layout; preserves each record's independent PDF export.
+- Replaces the Events table with a bounded, wrapped event log that presents only each event's timestamp, source, type, and data and refreshes through the existing GUI-thread history polling.
+- Uses a single-line Asia/Manila page header and consistent 11/12/14 px typography across the application.
+- Updates application, installer, release paths, tests, and release documentation while preserving installation and user-data directories.
+
+## v1.4.9-beta
+
+- Replaces the Jobs navigation page with Completed Jobs cards backed only by persisted Delivered/Cancelled records; pending and active jobs remain hidden.
+- Adds per-job PDF export, clear N/A values for unavailable event fields, and newly detected terminal-job desktop notifications deduplicated by the existing stable job ID.
+- Renames Dashboard Connection to Game Config and limits it to game, version, vehicle, and trailer fields without changing current-job behavior or provider diagnostics.
+- Removes shared page-header subtitles, adds a responsive Manila date/time header, and standardizes required UI labels, buttons, and table headers to uppercase.
+- Updates application and installer metadata to v1.4.9-beta while preserving installation and user-data locations and existing history formats.
+
 ## v1.4.8-beta
 
 - Replaces the generic Dashboard card grid with the specified two-column current-job, driving-telemetry, and connection sections.

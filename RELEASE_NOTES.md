@@ -1,3 +1,25 @@
+# NLSI Exclusive Logbook v1.5.0-beta
+
+This Beta release moves persisted Delivered/Cancelled job cards to the Jobs
+page, improves their responsive layout and recorded-field completeness, and
+replaces the Events table with a wrapped, automatically refreshed event log.
+The shared page header now keeps the page title and Asia/Manila time/ping
+placeholder on one line, and application typography is consistent across pages.
+
+Job values are sourced only from persisted terminal-event details and
+non-stale final `JobSnapshot` fields. Uncaptured historical values remain N/A;
+the full field-by-field source and limitation audit is in [layout.md](./layout.md).
+Completed-job IDs and records, persisted events, settings, telemetry logs, and
+the existing user-data directory are preserved. Dashboard current-job behavior
+and the default installation root remain unchanged.
+
+ETS2/ATS live telemetry and an in-place installer upgrade were not validated.
+
+Expected installer target:
+`build/releases/v1.5.0-beta/NLSI-Exclusive-Logbook-v1.5.0-beta-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.4.8-beta
 
 This Beta release replaces Dashboard's generic card grid with the specified

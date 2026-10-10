@@ -4,6 +4,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "TelemetryModel.h"
 #include "TelemetryUiState.h"
@@ -46,6 +47,7 @@ public:
     TelemetrySnapshot Snapshot() const;
     TelemetryUiState UiState() const;
     session::HistorySnapshot History() const;
+    std::vector<std::wstring> TakeNewlyCompletedJobNotifications();
     bool FlushLocalWrites(std::chrono::milliseconds timeout) const;
     bool IsFreshEnough() const;
 
@@ -80,6 +82,7 @@ private:
     std::unique_ptr<logging::Logger> logger_;
     std::unique_ptr<logging::TelemetryRecorder> telemetry_recorder_;
     std::unique_ptr<session::HistoryStore> history_store_;
+    std::vector<std::wstring> newly_completed_job_notifications_;
     session::SessionManager session_manager_;
     session::JobManager job_manager_;
     providers::TruckSimGpsProvider trucksim_provider_;

@@ -528,16 +528,20 @@ void TestHistoryAndTxtLogPersistence() {
     const QByteArray event = R"json({"type":"gameplay_event","provider":"NLSI","event":"job.delivered","timestamp":"2026-10-07T08:29:00.000Z","data":{"job_id":"job-test","cargo":"Furniture"}})json";
     Check(history.RecordProviderEvent(event), "provider event could not be persisted");
     nlsi::telemetry::JobSnapshot job;
+    job.cargo_id.Set(L"job-test", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
+    job.cargo.Set(L"Furniture", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
+    job.source_company.Set(L"Berlin Logistics", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
+    job.source_city.Set(L"Berlin", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
+    job.destination_company.Set(L"Paris Freight", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
+    job.destination_city.Set(L"Paris", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
+    job.income.Set(L"25000", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
+    job.planned_distance.Set(L"1200", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
     Check(history.RecordJob(
             job,
             QStringLiteral("job.delivered"),
             QStringLiteral("2026-10-07T08:29:00.000Z"),
             {{QStringLiteral("job_id"), QStringLiteral("job-test")},
-                {QStringLiteral("cargo"), QStringLiteral("Furniture")},
-                {QStringLiteral("source_city"), QStringLiteral("Berlin")},
-                {QStringLiteral("destination_city"), QStringLiteral("Paris")},
-                {QStringLiteral("income"), QStringLiteral("25000")},
-                {QStringLiteral("planned_distance_km"), QStringLiteral("1200")}}),
+                {QStringLiteral("weight"), QStringLiteral("18000")}}),
         "completed job could not be persisted");
     Check(history.RecordJob(
             job,
@@ -563,11 +567,21 @@ void TestHistoryAndTxtLogPersistence() {
         && snapshot.jobs.front().nlsi_job_id.startsWith(QStringLiteral("JOB-NLSI-"))
         && snapshot.jobs.front().nlsi_job_id.size() == 13
         && snapshot.jobs.front().cargo == QStringLiteral("Furniture")
-        && snapshot.jobs.front().source == QStringLiteral("Berlin")
-        && snapshot.jobs.front().destination == QStringLiteral("Paris")
+        && snapshot.jobs.front().source == QStringLiteral("Berlin Logistics · Berlin")
+        && snapshot.jobs.front().destination == QStringLiteral("Paris Freight · Paris")
+        && snapshot.jobs.front().details.value(QStringLiteral("source_city")).toString()
+            == QStringLiteral("Berlin")
+        && snapshot.jobs.front().details.value(QStringLiteral("destination_city")).toString()
+            == QStringLiteral("Paris")
         && snapshot.jobs.front().details.value(QStringLiteral("income")).toString()
-            == QStringLiteral("25000"),
-        "completed job or its event-provided details were missing from history");
+            == QStringLiteral("25000")
+        && snapshot.jobs.front().details.value(QStringLiteral("planned_distance")).toString()
+            == QStringLiteral("1200")
+        && snapshot.jobs.front().details.value(QStringLiteral("weight")).toString()
+            == QStringLiteral("18000")
+        && !snapshot.jobs.front().details.contains(QStringLiteral("driven_distance_km"))
+        && !snapshot.jobs.front().details.contains(QStringLiteral("truck")),
+        "completed job snapshot fields were not persisted or unavailable data was fabricated");
     const QString session_log = QDir(root).filePath(QStringLiteral("session_logs/session-test.txt"));
     QFile session_file(session_log);
     Check(session_file.open(QIODevice::ReadOnly | QIODevice::Text),
@@ -598,7 +612,7 @@ void TestHistoryAndTxtLogPersistence() {
     Check(reloaded_history.Initialize(root)
         && reloaded_history.Snapshot().jobs.size() == 1
         && reloaded_history.Snapshot().jobs.front().details
-            .value(QStringLiteral("planned_distance_km")).toString() == QStringLiteral("1200"),
+            .value(QStringLiteral("planned_distance")).toString() == QStringLiteral("1200"),
         "completed-job history did not survive a reload");
     Check(reloaded_history.Snapshot().jobs.front().nlsi_job_id
             == snapshot.jobs.front().nlsi_job_id,
@@ -611,6 +625,29 @@ void TestHistoryAndTxtLogPersistence() {
         "persisted duplicate job event could not be handled");
     Check(reloaded_history.Snapshot().jobs.size() == 1,
         "a duplicate completed-job event was recorded after reloading history");
+
+    QTemporaryDir mismatched_job_directory;
+    Check(mismatched_job_directory.isValid(),
+        "temporary mismatched-job history directory could not be created");
+    nlsi::logging::Logger mismatched_job_logger(
+        QDir(mismatched_job_directory.path())
+            .filePath(QStringLiteral("logs/application.txt")).toStdWString());
+    nlsi::session::HistoryStore mismatched_job_history(mismatched_job_logger);
+    Check(mismatched_job_history.Initialize(mismatched_job_directory.path())
+        && mismatched_job_history.RecordJob(
+            job,
+            QStringLiteral("job.delivered"),
+            QStringLiteral("2026-10-07T08:29:04.000Z"),
+            {{QStringLiteral("job_id"), QStringLiteral("different-job")}}),
+        "a terminal record with an unrelated current snapshot could not be recorded");
+    const auto mismatched_job_snapshot = mismatched_job_history.Snapshot();
+    Check(mismatched_job_snapshot.jobs.size() == 1
+        && mismatched_job_snapshot.jobs.front().cargo.isEmpty()
+        && !mismatched_job_snapshot.jobs.front().details.contains(QStringLiteral("source_city"))
+        && !mismatched_job_snapshot.jobs.front().details.contains(QStringLiteral("income"))
+        && !mismatched_job_snapshot.jobs.front().details.contains(
+            QStringLiteral("planned_distance")),
+        "an unrelated current job snapshot was copied into historical job data");
 }
 
 void TestStableNlsiJobIdsAndCollisionHandling() {
