@@ -9,7 +9,7 @@ publish or upload anything.
 ## Build and verify
 
 Configure a version-specific Visual Studio 2022 x64 CMake directory such as
-`build\cmake-v1.5.0-beta`. Do not reuse or reconfigure the existing
+`build\cmake-v1.5.1-beta`. Do not reuse or reconfigure the existing
 `build\cmake` cache or overwrite completed earlier release outputs.
 
 ```bat
@@ -23,16 +23,16 @@ metadata, official TruckSim GPS x64/x86 plugin hashes, license notices, and the
 automatic safe-install policy before staging Qt/MSVC dependencies and
 compiling the Inno Setup definition.
 
-Expected outputs for v1.5.0-beta:
+Expected outputs for v1.5.1-beta:
 
-- `build\releases\v1.5.0-beta\NLSI-Exclusive-Logbook.exe`
-- `build\releases\v1.5.0-beta\NLSI-Exclusive-Logbook-v1.5.0-beta-Setup.exe`
-- `build\intermediate\installer-payload-v1.5.0-beta`
+- `build\releases\v1.5.1-beta\NLSI-Exclusive-Logbook.exe`
+- `build\releases\v1.5.1-beta\NLSI-Exclusive-Logbook-v1.5.1-beta-Setup.exe`
+- `build\intermediate\installer-payload-v1.5.1-beta`
 
-Previously built release artifacts remain unchanged. The v1.5.0 Beta build
-adds responsive completed-job cards and wrapped event entries, and improves
-page headers and typography without changing the current-job Dashboard or
-telemetry behavior. No
+Previously built release artifacts remain unchanged. The v1.5.1 Beta build
+aligns the application metadata and release output with the current beta
+version while preserving the completed-job and installer safeguards from the
+existing release branch. No
 authenticated backend or gameplay upload endpoint is implemented; release
 notes and the installer must continue to describe synchronization as local
 Pending only. The updater reads public release metadata but does not download or

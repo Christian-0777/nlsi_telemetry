@@ -14,10 +14,10 @@ SPEC.loader.exec_module(BUILDER)
 
 class NativeReleasePackagingTests(unittest.TestCase):
     def test_version_and_automatic_plugin_installation_policy(self) -> None:
-        self.assertEqual("1.5.0", BUILDER.VERSION)
+        self.assertEqual("1.5.1", BUILDER.VERSION)
         self.assertEqual("beta", BUILDER.CHANNEL)
         self.assertEqual("beta", BUILDER.INSTALL_CHANNEL)
-        self.assertEqual("v1.5.0-beta", BUILDER.RELEASE_TAG)
+        self.assertEqual("v1.5.1-beta", BUILDER.RELEASE_TAG)
         self.assertIn("Qt6Concurrent.dll", BUILDER.REQUIRED_RUNTIME_FILES)
         self.assertEqual(
             r"C:\Program Files\NLSI Exclusive Logbook",
@@ -64,8 +64,8 @@ class NativeReleasePackagingTests(unittest.TestCase):
         self.assertEqual(2, len(BUILDER.SCS_POSITION_PLUGIN_FILES))
         self.assertEqual(
             [
-                ROOT / "build" / "plugins" / "v1.5.0-beta" / "win_x64" / "nlsi.dll",
-                ROOT / "build" / "plugins" / "v1.5.0-beta" / "win_x86" / "nlsi.dll",
+                ROOT / "build" / "plugins" / "v1.5.1-beta" / "win_x64" / "nlsi.dll",
+                ROOT / "build" / "plugins" / "v1.5.1-beta" / "win_x86" / "nlsi.dll",
             ],
             [source for source, _, _ in BUILDER.SCS_POSITION_PLUGIN_FILES],
         )
@@ -100,14 +100,53 @@ class NativeReleasePackagingTests(unittest.TestCase):
         self.assertIn('setOrganizationName(QStringLiteral("NLSI"))', app_source)
         self.assertIn('setApplicationName(QStringLiteral("Exclusive Logbook"))', app_source)
 
-    def test_scs_plugin_subscribes_only_to_player_world_placement(self) -> None:
+    def test_installer_detection_separates_fresh_update_and_recovery_paths(self) -> None:
+        installer_text = (ROOT / "installer" / "NLSI-Exclusive-Logbook.iss").read_text(
+            encoding="utf-8"
+        )
+        missing_executable_branch = installer_text.split(
+            "if not FileExists(ExistingInstallDir + '\\NLSI-Exclusive-Logbook.exe') then begin",
+            maxsplit=1,
+        )[1].split("RegistryVersionFound :=", maxsplit=1)[0]
+        self.assertIn(
+            "ReadManifestVersion(ExistingInstallDir, ManifestInstallVersion)",
+            missing_executable_branch,
+        )
+        self.assertIn("ExistingInstallRecovery := True;", missing_executable_branch)
+        self.assertIn("Result := False;", missing_executable_branch)
+        self.assertIn("DirectoryHasEntries(ExistingInstallDir)", missing_executable_branch)
+        self.assertIn("ExistingInstallDetected := True;", installer_text)
+        self.assertIn(
+            "(ExistingInstallDetected or ExistingInstallRecovery)",
+            installer_text,
+        )
+        self.assertNotIn("[UninstallDelete]", installer_text)
+        self.assertNotIn("DelTree(", installer_text)
+
+    def test_scs_plugin_captures_sdk_defined_job_and_travel_events(self) -> None:
         plugin_source = (ROOT / "scs_position_plugin" / "nlsi.cpp").read_text(
             encoding="utf-8"
         )
         self.assertEqual(1, plugin_source.count("register_for_channel("))
         self.assertIn("SCS_TELEMETRY_TRUCK_CHANNEL_world_placement", plugin_source)
         self.assertIn("SCS_VALUE_TYPE_dplacement", plugin_source)
-        self.assertNotIn("register_for_event(", plugin_source)
+        self.assertIn("SCS_TELEMETRY_EVENT_configuration", plugin_source)
+        self.assertIn("SCS_TELEMETRY_EVENT_gameplay", plugin_source)
+        sdk_events = (
+            ROOT / "includes" / "scs_sdk_1_15" / "include" / "common"
+            / "scssdk_telemetry_common_gameplay_events.h"
+        ).read_text(encoding="utf-8")
+        for event in (
+            "job_delivered",
+            "player_fined",
+            "player_tollgate_paid",
+            "player_use_ferry",
+            "player_use_train",
+        ):
+            self.assertIn(f"SCS_TELEMETRY_GAMEPLAY_EVENT_{event}", sdk_events)
+        self.assertIn("SCS_TELEMETRY_CONFIG_ATTRIBUTE_cargo_mass",
+            (ROOT / "includes" / "scs_sdk_1_15" / "include" / "common"
+                / "scssdk_telemetry_common_configs.h").read_text(encoding="utf-8"))
         self.assertNotIn("TSGPSTelemetry", plugin_source)
 
     def test_bundled_lucide_icons_have_a_local_license_notice(self) -> None:

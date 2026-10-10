@@ -3,6 +3,7 @@
 #include <cstring>
 #include <exception>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -28,7 +29,9 @@
 #include "providers/NLSIProvider.h"
 #include "providers/TruckSimGpsProvider.h"
 #include "providers/ScsPositionIpc.h"
+#include "providers/ScsTelemetryEventIpc.h"
 #include "session/HistoryStore.h"
+#include "telemetry/JobFuelTracker.h"
 #include "telemetry/TelemetryModel.h"
 #include "telemetry/TelemetryUiState.h"
 #include "time/ApplicationTime.h"
@@ -362,6 +365,102 @@ void TestScsPositionIpcDecodingAndFreshness() {
         "unsupported SCS position IPC version was accepted");
 }
 
+void TestScsTelemetryEventIpcValidation() {
+    using namespace nlsi::providers;
+    ScsTelemetryEventSlotV1 slot{};
+    const std::string expected = R"json({"event":"player.use.ferry"})json";
+    slot.sequence = 2;
+    slot.event_id = 7;
+    slot.payload_size = static_cast<std::uint32_t>(expected.size());
+    std::memcpy(slot.payload, expected.data(), expected.size());
+    slot.payload[expected.size()] = '\0';
+
+    std::string decoded;
+    Check(DecodeScsTelemetryEventSlot(slot, 7, decoded) && decoded == expected,
+        "valid SCS gameplay event IPC payload did not decode");
+    Check(!DecodeScsTelemetryEventSlot(slot, 8, decoded),
+        "SCS gameplay event IPC accepted a mismatched event sequence");
+    slot.payload_size = static_cast<std::uint32_t>(kScsTelemetryEventPayloadSize);
+    Check(!DecodeScsTelemetryEventSlot(slot, 7, decoded),
+        "SCS gameplay event IPC accepted an oversized payload");
+}
+
+void TestJobFuelCalculationsAndInvalidSamples() {
+    using nlsi::telemetry::JobFuelTracker;
+    using nlsi::telemetry::ProviderState;
+    using nlsi::telemetry::TelemetrySnapshot;
+    const auto start = JobFuelTracker::Clock::time_point{} + std::chrono::seconds(10);
+    const auto make_sample = [](double fuel, double odometer) {
+        TelemetrySnapshot snapshot;
+        snapshot.connected = true;
+        snapshot.has_job.Set(true, L"test", L"sample");
+        snapshot.paused.Set(false, L"test", L"sample");
+        snapshot.cargo_id.Set(L"cargo-a", L"test", L"sample");
+        snapshot.fuel_liters.Set(fuel, L"test", L"sample");
+        snapshot.odometer_km.Set(odometer, L"test", L"sample");
+        return snapshot;
+    };
+
+    JobFuelTracker tracker;
+    tracker.Observe(make_sample(500.0, 1000.0), ProviderState::Connected, start);
+    tracker.Observe(
+        make_sample(490.0, 1010.0), ProviderState::Connected, start + std::chrono::seconds(1));
+    tracker.Observe(
+        make_sample(600.0, 1010.0), ProviderState::Connected, start + std::chrono::seconds(2));
+    tracker.Observe(
+        make_sample(590.0, 1020.0), ProviderState::Connected, start + std::chrono::seconds(3));
+    const auto result = tracker.Finish(L"cargo-a", 20.0);
+    Check(result
+        && std::abs(result->fuel_used_liters - 20.0) < 0.000001
+        && std::abs(result->refueled_liters - 110.0) < 0.000001
+        && result->average_consumption_l_per_100km
+        && std::abs(*result->average_consumption_l_per_100km - 100.0) < 0.000001
+        && result->average_uses_reported_distance,
+        "per-job fuel, refueled volume, or consumption did not use valid samples");
+
+    JobFuelTracker gap_tracker;
+    gap_tracker.Observe(make_sample(500.0, 1000.0), ProviderState::Connected, start);
+    gap_tracker.Observe(
+        make_sample(490.0, 1010.0), ProviderState::Connected, start + std::chrono::seconds(6));
+    Check(!gap_tracker.Finish(L"cargo-a", 10.0),
+        "a telemetry gap was accepted as a reliable job fuel calculation");
+
+    JobFuelTracker reset_tracker;
+    reset_tracker.Observe(make_sample(500.0, 1000.0), ProviderState::Connected, start);
+    reset_tracker.Observe(
+        make_sample(490.0, 5.0), ProviderState::Connected, start + std::chrono::seconds(1));
+    Check(!reset_tracker.Finish(L"cargo-a", std::nullopt),
+        "an odometer reset was accepted as a reliable job fuel calculation");
+
+    JobFuelTracker invalid_tracker;
+    invalid_tracker.Observe(make_sample(500.0, 1000.0), ProviderState::Connected, start);
+    invalid_tracker.Observe(
+        make_sample(std::numeric_limits<double>::quiet_NaN(), 1010.0),
+        ProviderState::Connected, start + std::chrono::seconds(1));
+    Check(!invalid_tracker.Finish(L"cargo-a", 10.0),
+        "an invalid fuel sample was accepted as a reliable job fuel calculation");
+
+    JobFuelTracker pause_state_tracker;
+    auto missing_pause = make_sample(500.0, 1000.0);
+    missing_pause.paused.available = false;
+    pause_state_tracker.Observe(missing_pause, ProviderState::Connected, start);
+    pause_state_tracker.Observe(
+        make_sample(490.0, 1010.0), ProviderState::Connected, start + std::chrono::seconds(1));
+    Check(!pause_state_tracker.Finish(L"cargo-a", 10.0),
+        "fuel telemetry without pause state was treated as reliable");
+
+    JobFuelTracker odometer_average_tracker;
+    odometer_average_tracker.Observe(
+        make_sample(500.0, 1000.0), ProviderState::Connected, start);
+    odometer_average_tracker.Observe(
+        make_sample(490.0, 1010.0), ProviderState::Connected, start + std::chrono::seconds(1));
+    const auto odometer_average = odometer_average_tracker.Finish(L"cargo-a", std::nullopt);
+    Check(odometer_average && odometer_average->average_consumption_l_per_100km
+        && !odometer_average->average_uses_reported_distance
+        && std::abs(*odometer_average->average_consumption_l_per_100km - 100.0) < 0.000001,
+        "the calculated average did not fall back to continuous odometer telemetry");
+}
+
 void TestUiJobIdentityProgressAndSessionStates() {
     nlsi::telemetry::TelemetrySnapshot snapshot;
     Check(nlsi::providers::NLSIProvider::ParseTelemetryPacket(kValidPacket, snapshot),
@@ -525,8 +624,11 @@ void TestHistoryAndTxtLogPersistence() {
     Check(history.EndSession(L"session-test", end, L"gameplay_ended", 1800.0),
         "session completion could not be persisted");
 
-    const QByteArray event = R"json({"type":"gameplay_event","provider":"NLSI","event":"job.delivered","timestamp":"2026-10-07T08:29:00.000Z","data":{"job_id":"job-test","cargo":"Furniture"}})json";
-    Check(history.RecordProviderEvent(event), "provider event could not be persisted");
+    const QByteArray event = R"json({"type":"gameplay_event","provider":"SCS SDK","event":"job.delivered","provider_event_id":1,"timestamp":"2026-10-07T08:29:00.000Z","data":{"cargo_id":"job-test","cargo":"Furniture"}})json";
+    Check(history.RecordProviderEvent(event)
+        && history.RecordProviderEvent(event)
+        && history.Snapshot().events.size() == 1,
+        "duplicate provider events were persisted more than once");
     nlsi::telemetry::JobSnapshot job;
     job.cargo_id.Set(L"job-test", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
     job.cargo.Set(L"Furniture", L"TruckSim GPS", L"2026-10-07T08:29:00.000Z");
@@ -558,7 +660,8 @@ void TestHistoryAndTxtLogPersistence() {
         "job event without an identity could not be ignored safely");
 
     const auto snapshot = history.Snapshot();
-    Check(snapshot.events.size() == 1 && snapshot.events.front().details.contains(QStringLiteral("job_id")),
+    Check(snapshot.events.size() == 1
+        && snapshot.events.front().details.contains(QStringLiteral("cargo_id")),
         "event details were not retained");
     Check(snapshot.sessions.size() == 1 && snapshot.sessions.front().ended_at == QString::fromStdWString(end),
         "completed session was missing from history");
@@ -1181,6 +1284,8 @@ int main() {
         {"paused state and zero-speed ETA", TestPausedStateAndZeroSpeedEta},
         {"stale telemetry", TestStaleTelemetryStopsDriving},
         {"SCS position IPC decoding and stale data", TestScsPositionIpcDecodingAndFreshness},
+        {"SCS telemetry event IPC validation", TestScsTelemetryEventIpcValidation},
+        {"job fuel calculations and invalid samples", TestJobFuelCalculationsAndInvalidSamples},
         {"UI job identity, progress, and session states", TestUiJobIdentityProgressAndSessionStates},
         {"history and TXT log persistence", TestHistoryAndTxtLogPersistence},
         {"stable NLSI job IDs and collision handling", TestStableNlsiJobIdsAndCollisionHandling},

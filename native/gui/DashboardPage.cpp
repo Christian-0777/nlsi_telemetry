@@ -1,11 +1,16 @@
 #include "DashboardPage.h"
 
 #include <cmath>
+#include <algorithm>
 
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
+#include <QJsonParseError>
+#include <QPlainTextEdit>
 #include <QResizeEvent>
 #include <QSizePolicy>
 #include <QVBoxLayout>
@@ -79,7 +84,7 @@ DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
     setObjectName(QStringLiteral("dashboardPage"));
     auto* page_layout = new QVBoxLayout(this);
     page_layout->setContentsMargins(2, 2, 2, 2);
-    page_layout->setSpacing(8);
+    page_layout->setSpacing(6);
 
     QGridLayout* job = AddSection(
         QStringLiteral("currentJobSection"), QStringLiteral("CURRENT JOB"));
@@ -118,6 +123,19 @@ DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
     AddMetric(game_config, 2, 0, QStringLiteral("trailer"), QStringLiteral("TRAILER DETAILS"));
     AddMetric(game_config, 2, 1, QStringLiteral("trailerPlate"), QStringLiteral("TRAILER LICENCE PLATE"));
 
+    QGridLayout* travel = AddSection(
+        QStringLiteral("travelExpenseSection"), QStringLiteral("TRAVEL & EXPENSE SUMMARY"));
+    travel_expense_summary_ = new QPlainTextEdit(
+        QStringLiteral("NO RECORDED TRAVEL OR REFUELING EVENTS."),
+        travel->parentWidget());
+    travel_expense_summary_->setObjectName(QStringLiteral("travelExpenseSummary"));
+    travel_expense_summary_->setReadOnly(true);
+    travel_expense_summary_->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    travel_expense_summary_->setFixedHeight(36);
+    travel_expense_summary_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    travel_expense_summary_->setFrameShape(QFrame::NoFrame);
+    travel->addWidget(travel_expense_summary_, 1, 0, 1, 2);
+
     page_layout->addStretch(1);
 }
 
@@ -127,7 +145,7 @@ QGridLayout* DashboardPage::AddSection(const QString& key, const QString& title)
     section->setProperty("sectionKey", key);
     section->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto* layout = new QGridLayout(section);
-    layout->setContentsMargins(10, 7, 10, 8);
+    layout->setContentsMargins(8, 4, 8, 4);
     layout->setHorizontalSpacing(16);
     layout->setVerticalSpacing(5);
     layout->setColumnStretch(0, 1);
@@ -268,6 +286,95 @@ void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("vehiclePlate"), QStringLiteral("N/A"));
     SetValue(QStringLiteral("trailer"), QStringLiteral("N/A"));
     SetValue(QStringLiteral("trailerPlate"), QStringLiteral("N/A"));
+}
+
+void DashboardPage::UpdateHistory(const session::HistorySnapshot& history) {
+    struct TravelEvent {
+        QString timestamp;
+        QString summary;
+    };
+    QVector<TravelEvent> travel_events;
+    for (const session::EventRecord& event : history.events) {
+        const QString type = event.type.trimmed().toLower();
+        QString label;
+        if (type == QStringLiteral("player.tollgate.paid")) {
+            label = QStringLiteral("TOLL");
+        } else if (type == QStringLiteral("player.use.ferry")) {
+            label = QStringLiteral("FERRY");
+        } else if (type == QStringLiteral("player.use.train")) {
+            label = QStringLiteral("TRAIN");
+        } else {
+            continue;
+        }
+
+        QJsonParseError parse_error;
+        const QJsonDocument document =
+            QJsonDocument::fromJson(event.details.toUtf8(), &parse_error);
+        if (parse_error.error != QJsonParseError::NoError || !document.isObject()) {
+            continue;
+        }
+        const QJsonObject details = document.object();
+        QJsonObject event_data = details.value(QStringLiteral("data")).toObject();
+        if (event_data.isEmpty()) {
+            event_data = details;
+        }
+        const auto first_text = [&event_data](const QStringList& keys) {
+            for (const QString& key : keys) {
+                const QString value =
+                    event_data.value(key).toVariant().toString().trimmed();
+                if (!value.isEmpty()) {
+                    return value;
+                }
+            }
+            return QStringLiteral("N/A");
+        };
+        const QString route = first_text({QStringLiteral("source_name")})
+            + QStringLiteral(" → ")
+            + first_text({QStringLiteral("target_name")});
+        QString amount = first_text({
+            QStringLiteral("amount"), QStringLiteral("pay.amount")});
+        if (amount != QStringLiteral("N/A")) {
+            amount += QStringLiteral(" ") + first_text({
+                QStringLiteral("currency"), QStringLiteral("currency_code")});
+        }
+        travel_events.push_back({
+            event.timestamp,
+            QStringLiteral("%1 | %2 | FEE: %3")
+                .arg(label, route, amount),
+        });
+    }
+    std::sort(travel_events.begin(), travel_events.end(),
+        [](const TravelEvent& left, const TravelEvent& right) {
+            return left.timestamp < right.timestamp;
+        });
+
+    QStringList lines;
+    for (const TravelEvent& event : travel_events) {
+        lines.push_back(QStringLiteral("%1 | %2")
+            .arg(event.timestamp, event.summary));
+    }
+    double refueled_liters = 0.0;
+    bool has_refueled_amount = false;
+    for (const session::JobRecord& job : history.jobs) {
+        const QJsonValue value = job.details.value(QStringLiteral("refueled_liters"));
+        if (!value.isDouble() || !std::isfinite(value.toDouble()) || value.toDouble() < 0.0) {
+            continue;
+        }
+        refueled_liters += value.toDouble();
+        has_refueled_amount = true;
+    }
+    lines.push_back(QStringLiteral("CALCULATED REFUELED LITRES (COMPLETED JOBS): %1")
+        .arg(has_refueled_amount
+                ? FormatNumber(refueled_liters, 2) + QStringLiteral(" L")
+                : QStringLiteral("N/A")));
+    lines.push_back(QStringLiteral("REFUELING COST: N/A (NOT PROVIDED BY SCS SDK 1.15)"));
+    if (travel_events.isEmpty()) {
+        lines.prepend(QStringLiteral("NO RECORDED FERRY, TRAIN, OR TOLL EVENTS."));
+    }
+    const QString text = lines.join(QLatin1Char('\n'));
+    if (travel_expense_summary_ && travel_expense_summary_->toPlainText() != text) {
+        travel_expense_summary_->setPlainText(text);
+    }
 }
 
 } // namespace nlsi::gui

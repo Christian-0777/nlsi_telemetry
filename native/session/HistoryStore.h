@@ -105,6 +105,7 @@ private:
     std::function<std::uint32_t()> job_id_number_source_;
     mutable std::mutex mutex_;
     HistorySnapshot snapshot_;
+    QSet<QString> recorded_provider_events_;
     QSet<QString> recorded_job_events_;
     QSet<QString> used_job_ids_;
     QHash<QString, QString> job_ids_;

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "TelemetryModel.h"
+#include "JobFuelTracker.h"
 #include "TelemetryUiState.h"
 #include "logging/Logger.h"
 #include "logging/TelemetryRecorder.h"
@@ -83,6 +84,7 @@ private:
     std::unique_ptr<logging::TelemetryRecorder> telemetry_recorder_;
     std::unique_ptr<session::HistoryStore> history_store_;
     std::vector<std::wstring> newly_completed_job_notifications_;
+    JobFuelTracker job_fuel_tracker_;
     session::SessionManager session_manager_;
     session::JobManager job_manager_;
     providers::TruckSimGpsProvider trucksim_provider_;

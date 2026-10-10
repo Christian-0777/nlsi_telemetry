@@ -2,6 +2,11 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.5.1-beta
+
+- Aligns the application and installer metadata to the 1.5.1-beta release while preserving the existing SCS SDK plugin, historical job data model, and user-data paths.
+- Keeps the completed-job capture, fuel calculations, travel/expense summaries, and installer validation behaviors from the 1.5.0-beta release without introducing fabricated values.
+
 ## v1.5.0-beta
 
 - Persists available, non-stale final job snapshot fields with terminal job records; missing fields stay N/A without substituting current telemetry.

@@ -1,10 +1,9 @@
-# NLSI Exclusive Logbook v1.5.0-beta
+# NLSI Exclusive Logbook v1.5.1-beta
 
-This Beta release moves persisted Delivered/Cancelled job cards to the Jobs
-page, improves their responsive layout and recorded-field completeness, and
-replaces the Events table with a wrapped, automatically refreshed event log.
-The shared page header now keeps the page title and Asia/Manila time/ping
-placeholder on one line, and application typography is consistent across pages.
+This beta release keeps the completed-job capture, fuel, route, and installer
+validation work aligned with the 1.5.1 release metadata while preserving the
+existing application, plugin, and user-data paths. It maintains the historical
+job-only source rules and N/A handling introduced in the prior beta builds.
 
 Job values are sourced only from persisted terminal-event details and
 non-stale final `JobSnapshot` fields. Uncaptured historical values remain N/A;
@@ -16,7 +15,7 @@ and the default installation root remain unchanged.
 ETS2/ATS live telemetry and an in-place installer upgrade were not validated.
 
 Expected installer target:
-`build/releases/v1.5.0-beta/NLSI-Exclusive-Logbook-v1.5.0-beta-Setup.exe`.
+`build/releases/v1.5.1-beta/NLSI-Exclusive-Logbook-v1.5.1-beta-Setup.exe`.
 
 ---
 

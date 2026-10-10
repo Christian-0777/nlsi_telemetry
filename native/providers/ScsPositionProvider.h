@@ -28,21 +28,24 @@ struct ScsPositionSnapshot {
 class ScsPositionProvider {
 public:
     using UpdateCallback = std::function<void(const ScsPositionSnapshot&)>;
+    using EventCallback = std::function<void(const std::string&)>;
 
     ScsPositionProvider() = default;
     ~ScsPositionProvider();
     ScsPositionProvider(const ScsPositionProvider&) = delete;
     ScsPositionProvider& operator=(const ScsPositionProvider&) = delete;
 
-    bool Start(UpdateCallback callback);
+    bool Start(UpdateCallback callback, EventCallback event_callback = {});
     void Stop();
 
 private:
     void ReadLoop();
     void Publish(const ScsPositionSnapshot& snapshot);
+    void PublishEvent(const std::string& packet);
 
     std::atomic_bool stopping_{false};
     UpdateCallback callback_;
+    EventCallback event_callback_;
     std::thread worker_;
 };
 

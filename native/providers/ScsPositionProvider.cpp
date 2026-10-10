@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "ScsPositionIpc.h"
+#include "ScsTelemetryEventIpc.h"
 
 namespace nlsi::providers {
 
@@ -16,16 +17,20 @@ ScsPositionProvider::~ScsPositionProvider() {
     Stop();
 }
 
-bool ScsPositionProvider::Start(UpdateCallback callback) {
+bool ScsPositionProvider::Start(
+    UpdateCallback callback,
+    EventCallback event_callback) {
     if (worker_.joinable()) {
         return false;
     }
     callback_ = std::move(callback);
+    event_callback_ = std::move(event_callback);
     stopping_.store(false);
     try {
         worker_ = std::thread(&ScsPositionProvider::ReadLoop, this);
     } catch (const std::system_error&) {
         callback_ = {};
+        event_callback_ = {};
         return false;
     }
     return true;
@@ -37,6 +42,7 @@ void ScsPositionProvider::Stop() {
         worker_.join();
     }
     callback_ = {};
+    event_callback_ = {};
 }
 
 void ScsPositionProvider::Publish(const ScsPositionSnapshot& snapshot) {
@@ -45,13 +51,89 @@ void ScsPositionProvider::Publish(const ScsPositionSnapshot& snapshot) {
     }
 }
 
+void ScsPositionProvider::PublishEvent(const std::string& packet) {
+    if (event_callback_) {
+        event_callback_(packet);
+    }
+}
+
 void ScsPositionProvider::ReadLoop() {
     HANDLE mapping = nullptr;
     const ScsPositionIpcV1* view = nullptr;
+    HANDLE event_mapping = nullptr;
+    const ScsTelemetryEventIpcV1* event_view = nullptr;
+    std::uint64_t last_event_id = 0;
     ScsPositionSnapshot last{};
     last.error = L"Position plugin mapping has not been opened.";
 
     while (!stopping_.load()) {
+        if (!event_mapping) {
+            event_mapping = OpenFileMappingW(
+                FILE_MAP_READ, FALSE, kScsTelemetryEventMappingName);
+            if (event_mapping) {
+                event_view = static_cast<const ScsTelemetryEventIpcV1*>(
+                    MapViewOfFile(
+                        event_mapping,
+                        FILE_MAP_READ,
+                        0,
+                        0,
+                        sizeof(ScsTelemetryEventIpcV1)));
+                if (!event_view) {
+                    CloseHandle(event_mapping);
+                    event_mapping = nullptr;
+                }
+            }
+        }
+
+        if (event_view
+            && event_view->magic == kScsTelemetryEventIpcMagic
+            && event_view->version == kScsTelemetryEventIpcVersion
+            && event_view->struct_size == sizeof(ScsTelemetryEventIpcV1)
+            && event_view->slot_count == kScsTelemetryEventCapacity) {
+            const auto* latest_address =
+                reinterpret_cast<const volatile LONG64*>(&event_view->latest_event_id);
+            const std::uint64_t latest_event_id = static_cast<std::uint64_t>(
+                InterlockedCompareExchange64(
+                    const_cast<volatile LONG64*>(latest_address), 0, 0));
+            if (latest_event_id > last_event_id) {
+                if (latest_event_id - last_event_id > kScsTelemetryEventCapacity) {
+                    last_event_id = latest_event_id - kScsTelemetryEventCapacity;
+                }
+                while (last_event_id < latest_event_id) {
+                    const std::uint64_t expected_event_id = last_event_id + 1;
+                    const auto& slot = event_view->entries[
+                        (expected_event_id - 1) % kScsTelemetryEventCapacity];
+                    const auto* sequence_address =
+                        reinterpret_cast<const volatile LONG*>(&slot.sequence);
+                    const LONG sequence_before = InterlockedCompareExchange(
+                        const_cast<volatile LONG*>(sequence_address), 0, 0);
+                    if ((sequence_before & 1) != 0) {
+                        break;
+                    }
+                    ScsTelemetryEventSlotV1 copy{};
+                    std::memcpy(&copy, &slot, sizeof(copy));
+                    MemoryBarrier();
+                    const LONG sequence_after = InterlockedCompareExchange(
+                        const_cast<volatile LONG*>(sequence_address), 0, 0);
+                    std::string packet;
+                    if (sequence_before != sequence_after
+                        || (sequence_after & 1) != 0
+                        || copy.sequence != static_cast<std::uint32_t>(sequence_after)
+                        || !DecodeScsTelemetryEventSlot(
+                            copy, expected_event_id, packet)) {
+                        break;
+                    }
+                    PublishEvent(packet);
+                    last_event_id = expected_event_id;
+                }
+            }
+        } else if (event_view) {
+            UnmapViewOfFile(event_view);
+            event_view = nullptr;
+            CloseHandle(event_mapping);
+            event_mapping = nullptr;
+        }
+
         if (!mapping) {
             mapping = OpenFileMappingW(
                 FILE_MAP_READ, FALSE, kScsPositionMappingName);
@@ -124,6 +206,12 @@ void ScsPositionProvider::ReadLoop() {
     }
     if (mapping) {
         CloseHandle(mapping);
+    }
+    if (event_view) {
+        UnmapViewOfFile(event_view);
+    }
+    if (event_mapping) {
+        CloseHandle(event_mapping);
     }
 }
 

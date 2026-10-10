@@ -52,6 +52,20 @@ QString EventText(const QJsonObject& object, std::initializer_list<QString> keys
     return {};
 }
 
+QString ProviderEventKey(
+    const QString& timestamp,
+    const QString& source,
+    const QString& type,
+    const QJsonObject& details) {
+    const QString source_event_id = EventText(details, {
+        QStringLiteral("provider_event_id")});
+    const QString event_identity = source_event_id.isEmpty()
+        ? QString::fromUtf8(QJsonDocument(details).toJson(QJsonDocument::Compact))
+        : source_event_id;
+    return source + QLatin1Char('|') + type + QLatin1Char('|') + timestamp
+        + QLatin1Char('|') + event_identity;
+}
+
 bool ParseRecord(
     const QByteArray& line,
     const QString& path,
@@ -179,6 +193,7 @@ bool HistoryStore::MigrateLegacyDirectory(
 
 bool HistoryStore::Load() {
     snapshot_ = {};
+    recorded_provider_events_.clear();
     recorded_job_events_.clear();
     used_job_ids_.clear();
     job_ids_.clear();
@@ -210,12 +225,20 @@ bool HistoryStore::LoadEvents() {
             SetError(error);
             continue;
         }
+        const QString timestamp = object.value(QStringLiteral("timestamp")).toString();
+        const QString source = object.value(QStringLiteral("source")).toString();
+        const QString type = object.value(QStringLiteral("type")).toString();
+        const QJsonObject details = object.value(QStringLiteral("details")).toObject();
+        const QString event_key = ProviderEventKey(timestamp, source, type, details);
+        if (recorded_provider_events_.contains(event_key)) {
+            continue;
+        }
+        recorded_provider_events_.insert(event_key);
         snapshot_.events.push_back({
-            object.value(QStringLiteral("timestamp")).toString(),
-            object.value(QStringLiteral("source")).toString(),
-            object.value(QStringLiteral("type")).toString(),
-            QString::fromUtf8(QJsonDocument(object.value(QStringLiteral("details")).toObject())
-                .toJson(QJsonDocument::Compact)),
+            timestamp,
+            source,
+            type,
+            QString::fromUtf8(QJsonDocument(details).toJson(QJsonDocument::Compact)),
         });
     }
     return true;
@@ -440,6 +463,10 @@ bool HistoryStore::RecordProviderEvent(const QByteArray& raw_packet) {
     details.remove(QStringLiteral("timestamp"));
     const QString timestamp = packet.value(QStringLiteral("timestamp")).toString();
     const QString source = packet.value(QStringLiteral("provider")).toString(QStringLiteral("NLSI"));
+    const QString event_key = ProviderEventKey(timestamp, source, type, details);
+    if (recorded_provider_events_.contains(event_key)) {
+        return true;
+    }
     const QJsonObject record{
         {QStringLiteral("timestamp"), timestamp},
         {QStringLiteral("source"), source},
@@ -450,6 +477,7 @@ bool HistoryStore::RecordProviderEvent(const QByteArray& raw_packet) {
         return false;
     }
 
+    recorded_provider_events_.insert(event_key);
     snapshot_.events.prepend({
         timestamp,
         source,

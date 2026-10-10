@@ -37,7 +37,26 @@
 │ [Total refueling cost]            │ [Average fuel consumption]         │
 └───────────────────────────────────┴────────────────────────────────────┘
 
-## Completed-job data sources and historical limits
+| Terminal event details retain this provider value; the final snapshot is now persisted as a fallback |
+| Driven distance | Explicit terminal event driven-distance field | No driven-distance field exists in `JobSnapshot`; `odometer_km` is not a job distance and is not substituted |
+| Income | Final `JobSnapshot.income`, otherwise terminal event `income` | Terminal event details retain it; final snapshot value is now persisted as a fallback |
+| Offences | Explicit terminal event `offences` / `offenses` | Not modeled by the app; `N/A` if not present in terminal event data |
+| XP | Explicit terminal event `xp` / `experience` | Not modeled by the app; `N/A` if not present in terminal event data |
+| Damage | Explicit terminal event `damage` / `damage_percent` | Not modeled by the app; `N/A` if not present in terminal event data |
+| Time taken (real) | Explicit terminal event `real_elapsed_time` / `elapsed_time` | Not modeled or derived from session duration; `N/A` if not present in terminal event data |
+| Max speed | Explicit terminal event `max_speed_kmh` / `maximum_speed_kmh` | Not tracked per job; current speed is not substituted; `N/A` if absent |
+| Truck used | Explicit terminal event truck/vehicle name | Not in `JobSnapshot` or the terminal event currently emitted; `N/A` |
+| Trailer used | Explicit terminal event trailer details | Not in `JobSnapshot` or the terminal event currently emitted; `N/A` |
+| Truck licence plate | Explicit terminal event truck plate | Not in `JobSnapshot` or the terminal event currently emitted; `N/A` |
+| Trailer licence plate | Explicit terminal event trailer plate | Not in `JobSnapshot` or the terminal event currently emitted; `N/A` |
+| Fuel usage | Explicit per-job consumed-fuel event field | Not tracked per job; the current fuel gauge is not fuel consumed; `N/A` if absent |
+| Refueled | Explicit per-job refueled-fuel event field | Not tracked per job; `N/A` if absent |
+| Refuel cost | Explicit per-job refueling cost event field | Not tracked per job; `N/A` if absent |
+| Average consumption | Explicit per-job average-consumption event field | Not tracked per job; `N/A` if absent |
+
+The current TruckSim GPS terminal event provides cargo, route, income, planned
+distance, and current odometer/navigation/fuel readings. It does not provide
+weight, actual job-driven distance, offences, XP, dama## Completed-job data sources and historical limits
 
 The completed-job card is populated from the persisted terminal-job record.
 The authoritative capture point is the provider's `job.delivered` or
@@ -58,26 +77,7 @@ shown as `N/A`. No current Dashboard telemetry is used to backfill a job.
 | To city | Final `JobSnapshot.destination_city`, otherwise terminal event `destination_city` / `destination.city` | Now persisted from the final snapshot when available; older combined route text cannot reliably be split into city/company |
 | From company | Final `JobSnapshot.source_company`, otherwise terminal event `source_company` / `source.company` | Now persisted from the final snapshot when available; older combined route text cannot reliably be split into city/company |
 | To company | Final `JobSnapshot.destination_company`, otherwise terminal event `destination_company` / `destination.company` | Now persisted from the final snapshot when available; older combined route text cannot reliably be split into city/company |
-| Planned distance | Final `JobSnapshot.planned_distance`, otherwise terminal event `planned_distance_km` / `planned_distance` | Terminal event details retain this provider value; the final snapshot is now persisted as a fallback |
-| Driven distance | Explicit terminal event driven-distance field | No driven-distance field exists in `JobSnapshot`; `odometer_km` is not a job distance and is not substituted |
-| Income | Final `JobSnapshot.income`, otherwise terminal event `income` | Terminal event details retain it; final snapshot value is now persisted as a fallback |
-| Offences | Explicit terminal event `offences` / `offenses` | Not modeled by the app; `N/A` if not present in terminal event data |
-| XP | Explicit terminal event `xp` / `experience` | Not modeled by the app; `N/A` if not present in terminal event data |
-| Damage | Explicit terminal event `damage` / `damage_percent` | Not modeled by the app; `N/A` if not present in terminal event data |
-| Time taken (real) | Explicit terminal event `real_elapsed_time` / `elapsed_time` | Not modeled or derived from session duration; `N/A` if not present in terminal event data |
-| Max speed | Explicit terminal event `max_speed_kmh` / `maximum_speed_kmh` | Not tracked per job; current speed is not substituted; `N/A` if absent |
-| Truck used | Explicit terminal event truck/vehicle name | Not in `JobSnapshot` or the terminal event currently emitted; `N/A` |
-| Trailer used | Explicit terminal event trailer details | Not in `JobSnapshot` or the terminal event currently emitted; `N/A` |
-| Truck licence plate | Explicit terminal event truck plate | Not in `JobSnapshot` or the terminal event currently emitted; `N/A` |
-| Trailer licence plate | Explicit terminal event trailer plate | Not in `JobSnapshot` or the terminal event currently emitted; `N/A` |
-| Fuel usage | Explicit per-job consumed-fuel event field | Not tracked per job; the current fuel gauge is not fuel consumed; `N/A` if absent |
-| Refueled | Explicit per-job refueled-fuel event field | Not tracked per job; `N/A` if absent |
-| Refuel cost | Explicit per-job refueling cost event field | Not tracked per job; `N/A` if absent |
-| Average consumption | Explicit per-job average-consumption event field | Not tracked per job; `N/A` if absent |
-
-The current TruckSim GPS terminal event provides cargo, route, income, planned
-distance, and current odometer/navigation/fuel readings. It does not provide
-weight, actual job-driven distance, offences, XP, damage, real elapsed job
+| Planned distance | Final `JobSnapshot.planned_distance`, otherwise terminal event `planned_distance_km` / `planned_distance` ge, real elapsed job
 time, maximum speed, vehicle/trailer names or plates, or per-job fuel
 consumption/refueling/cost/average. Current odometer, navigation, and fuel
 readings are deliberately not represented as those historical job fields.

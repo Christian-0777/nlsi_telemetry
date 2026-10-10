@@ -234,6 +234,9 @@ QWidget* MakeCompletedJobCard(const session::JobRecord& job, QWidget* parent) {
     fields->AddField(QStringLiteral("Driven distance"),
         WithUnit(field({QStringLiteral("driven_distance_km"),
             QStringLiteral("distance_driven_km")}), QStringLiteral("km")));
+    fields->AddField(QStringLiteral("Delivery time (game minutes)"),
+        field({QStringLiteral("delivery_time_game_minutes"),
+            QStringLiteral("delivery.time")}));
     fields->AddField(QStringLiteral("Income"), field({QStringLiteral("income")}));
     fields->AddField(QStringLiteral("Offences"),
         field({QStringLiteral("offences"), QStringLiteral("offenses")}));
@@ -260,20 +263,32 @@ QWidget* MakeCompletedJobCard(const session::JobRecord& job, QWidget* parent) {
     vehicle_fields->AddField(QStringLiteral("Truck licence plate"),
         field({QStringLiteral("truck_license_plate"),
             QStringLiteral("truck_licence_plate")}));
+    vehicle_fields->AddField(QStringLiteral("Truck plate country"),
+        field({QStringLiteral("truck_license_plate_country"),
+            QStringLiteral("truck_license_plate_country_id")}));
     vehicle_fields->AddField(QStringLiteral("Trailer licence plate"),
         field({QStringLiteral("trailer_license_plate"),
             QStringLiteral("trailer_licence_plate")}));
+    vehicle_fields->AddField(QStringLiteral("Trailer plate country"),
+        field({QStringLiteral("trailer_license_plate_country"),
+            QStringLiteral("trailer_license_plate_country_id")}));
     vehicle_fields->AddField(QStringLiteral("Fuel usage"),
         WithUnit(field({QStringLiteral("fuel_used_liters"),
             QStringLiteral("fuel_usage_liters")}), QStringLiteral("L")));
+    vehicle_fields->AddField(QStringLiteral("Fuel usage basis"),
+        field({QStringLiteral("fuel_used_source")}));
     vehicle_fields->AddField(QStringLiteral("Refueled"),
         WithUnit(field({QStringLiteral("refueled_liters"),
             QStringLiteral("fuel_added_liters")}), QStringLiteral("L")));
+    vehicle_fields->AddField(QStringLiteral("Refueled amount basis"),
+        field({QStringLiteral("refueled_source")}));
     vehicle_fields->AddField(QStringLiteral("Refuel cost"),
         field({QStringLiteral("refuel_cost")}));
     vehicle_fields->AddField(QStringLiteral("Average consumption"),
         WithUnit(field({QStringLiteral("average_consumption"),
             QStringLiteral("average_consumption_l_per_100km")}), QStringLiteral("L/100 km")));
+    vehicle_fields->AddField(QStringLiteral("Average consumption basis"),
+        field({QStringLiteral("average_consumption_source")}));
     layout->addWidget(vehicle_fields);
 
     auto* actions = new QHBoxLayout();

@@ -268,7 +268,7 @@ std::string MakeJobEvent(
     const wchar_t* event_name,
     const std::wstring& timestamp) {
     QJsonObject details;
-    details.insert(QStringLiteral("job_id"), FieldString(snapshot.cargo_id));
+    details.insert(QStringLiteral("cargo_id"), FieldString(snapshot.cargo_id));
     details.insert(QStringLiteral("cargo"), FieldString(snapshot.cargo_name));
     details.insert(QStringLiteral("source_city"), FieldString(snapshot.source_city));
     details.insert(QStringLiteral("source_company"), FieldString(snapshot.source_company));

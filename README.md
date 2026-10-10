@@ -31,7 +31,7 @@ The official plugin binaries are distributed with their applicable notices. The 
 ## Current Release
 
 - **Product:** NLSI Exclusive Logbook
-- **Version:** v1.4.5-beta
+- **Version:** v1.5.1-beta
 - **Release channel:** Beta
 - **Supported games:** ETS2 and ATS
 - **Technology:** C++, Qt 6 Widgets, CMake

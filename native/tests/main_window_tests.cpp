@@ -11,6 +11,7 @@
 #include <QFutureWatcher>
 #include <QFrame>
 #include <QLabel>
+#include <QPlainTextEdit>
 #include <QFileInfo>
 #include <QImage>
 #include <QJsonDocument>
@@ -597,7 +598,15 @@ bool TestHistoryPagesLoadPersistedRows() {
         {{QStringLiteral("source_city"), QStringLiteral("Berlin")},
             {QStringLiteral("destination_city"), QStringLiteral("Paris")},
             {QStringLiteral("income"), QStringLiteral("25000")},
-            {QStringLiteral("planned_distance"), QStringLiteral("1200")}},
+            {QStringLiteral("planned_distance"), QStringLiteral("1200")},
+            {QStringLiteral("truck_license_plate_country"), QStringLiteral("Germany")},
+            {QStringLiteral("trailer_license_plate_country"), QStringLiteral("France")},
+            {QStringLiteral("fuel_used_source"),
+                QStringLiteral("CALCULATED FROM VALID FUEL-LEVEL TELEMETRY")},
+            {QStringLiteral("refueled_source"),
+                QStringLiteral("CALCULATED FROM FUEL-LEVEL INCREASES")},
+            {QStringLiteral("average_consumption_source"),
+                QStringLiteral("CALCULATED USING REPORTED SCS JOB DISTANCE")}},
     });
     history.jobs.push_back({
         QStringLiteral("job-pending"),
@@ -687,6 +696,12 @@ bool TestHistoryPagesLoadPersistedRows() {
         || !delivered_values.contains(QStringLiteral("Paris"))
         || !delivered_values.contains(QStringLiteral("25000"))
         || !delivered_values.contains(QStringLiteral("1200 km"))
+        || !delivered_values.contains(QStringLiteral("Germany"))
+        || !delivered_values.contains(QStringLiteral("France"))
+        || !delivered_values.contains(QStringLiteral(
+            "CALCULATED FROM VALID FUEL-LEVEL TELEMETRY"))
+        || !delivered_values.contains(QStringLiteral(
+            "CALCULATED USING REPORTED SCS JOB DISTANCE"))
         || !delivered_values.contains(QStringLiteral("N/A"))) {
         std::cerr << "Completed-job cards did not map available fields or mark missing data N/A.\n";
         return false;
@@ -1313,6 +1328,38 @@ bool TestDashboardCruiseControlIndicators() {
 
 bool TestDashboardLayoutAndResponsiveText() {
     nlsi::gui::DashboardPage page;
+    nlsi::session::HistorySnapshot history;
+    history.events = {
+        {QStringLiteral("2026-10-07T08:30:00Z"), QStringLiteral("SCS SDK"),
+            QStringLiteral("player.use.ferry"),
+            QStringLiteral("{\"data\":{\"source_name\":\"Calais\",\"target_name\":\"Dover\",\"amount\":45}}")},
+        {QStringLiteral("2026-10-07T08:10:00Z"), QStringLiteral("SCS SDK"),
+            QStringLiteral("player.tollgate.paid"),
+            QStringLiteral("{\"data\":{\"amount\":12.5}}")},
+        {QStringLiteral("2026-10-07T08:20:00Z"), QStringLiteral("SCS SDK"),
+            QStringLiteral("player.use.train"),
+            QStringLiteral("{\"data\":{\"source_name\":\"Rotterdam\",\"target_name\":\"Hull\",\"amount\":80}}")},
+    };
+    history.jobs.push_back({
+        QStringLiteral("job-1"), QStringLiteral("Cargo"), QStringLiteral("A"),
+        QStringLiteral("B"), QStringLiteral("Delivered"),
+        QStringLiteral("2026-10-07T08:40:00Z"),
+        {{QStringLiteral("refueled_liters"), 38.5}},
+    });
+    page.UpdateHistory(history);
+    const QPlainTextEdit* travel_summary =
+        page.findChild<QPlainTextEdit*>(QStringLiteral("travelExpenseSummary"));
+    if (!travel_summary
+        || travel_summary->toPlainText().indexOf(QStringLiteral("TOLL"))
+            >= travel_summary->toPlainText().indexOf(QStringLiteral("TRAIN"))
+        || travel_summary->toPlainText().indexOf(QStringLiteral("TRAIN"))
+            >= travel_summary->toPlainText().indexOf(QStringLiteral("FERRY"))
+        || !travel_summary->toPlainText().contains(QStringLiteral("38.50 L"))
+        || !travel_summary->toPlainText().contains(QStringLiteral(
+            "REFUELING COST: N/A (NOT PROVIDED BY SCS SDK 1.15)"))) {
+        std::cerr << "Travel summary did not preserve chronological events or explicit gaps.\n";
+        return false;
+    }
     nlsi::telemetry::TelemetryUiState state;
     auto& snapshot = state.fast.values;
     snapshot.connected = true;
@@ -1593,7 +1640,7 @@ bool TestSingleInstanceGuard(QApplication& application) {
 
 bool TestOfflineUpdateCheck() {
     nlsi::updater::GitHubUpdater updater(
-        QStringLiteral("1.5.0-beta"),
+        QStringLiteral("1.5.1-beta"),
         nullptr,
         QUrl(QStringLiteral("http://127.0.0.1:1/releases")));
     QEventLoop loop;
@@ -1631,7 +1678,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.5.0-beta"));
+    application.setApplicationVersion(QStringLiteral("v1.5.1-beta"));
     if (!TestModLogParsingAndSourceLinks()
         || !TestIncrementalGameLogMonitoring()
         || !TestMonitorStartsBeforeGame()
@@ -1648,7 +1695,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.5.0-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.5.1-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -1781,7 +1828,7 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.5.0-beta");
+            || label->text() == QStringLiteral("v1.5.1-beta");
         found_beta_channel = found_beta_channel
             || label->text() == QStringLiteral("Beta");
         if (label->text() == QStringLiteral("PRODUCT") && label->parentWidget()) {

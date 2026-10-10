@@ -10,6 +10,8 @@
 #include <chrono>
 #include <cmath>
 #include <iomanip>
+#include <initializer_list>
+#include <optional>
 #include <sstream>
 #include <type_traits>
 
@@ -92,6 +94,41 @@ QJsonObject NormalizedFields(const TelemetrySnapshot& snapshot) {
     return fields;
 }
 
+std::optional<double> JsonNumber(
+    const QJsonObject& object,
+    std::initializer_list<QString> keys) {
+    for (const QString& key : keys) {
+        const QJsonValue value = object.value(key);
+        if (value.isDouble()) {
+            const double number = value.toDouble();
+            if (std::isfinite(number) && number >= 0.0) {
+                return number;
+            }
+        } else if (value.isString()) {
+            bool converted = false;
+            const double number = value.toString().toDouble(&converted);
+            if (converted && std::isfinite(number) && number >= 0.0) {
+                return number;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+QString EventJobIdentity(const QJsonObject& details) {
+    for (const QString& key : {
+             QStringLiteral("cargo_id"),
+             QStringLiteral("cargo.id"),
+             QStringLiteral("job_id"),
+             QStringLiteral("job.id")}) {
+        const QString identity = details.value(key).toString().trimmed();
+        if (!identity.isEmpty()) {
+            return identity;
+        }
+    }
+    return {};
+}
+
 } // namespace
 
 namespace nlsi::telemetry {
@@ -120,6 +157,7 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
         shutdown_error_.clear();
         trucksim_state_ = ProviderState::Connecting;
         logged_trucksim_message_.clear();
+        job_fuel_tracker_ = {};
         if (!user_data_directory.empty()) {
             const QString root = QString::fromStdWString(user_data_directory);
             logger_ = std::make_unique<logging::Logger>(
@@ -158,6 +196,9 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
     const bool scs_position_started = scs_position_provider_.Start(
         [this](const providers::ScsPositionSnapshot& snapshot) {
             OnScsPositionUpdate(snapshot);
+        },
+        [this](const std::string& packet) {
+            OnProviderEvent(packet);
         });
     if (!scs_position_started) {
         providers::ScsPositionSnapshot position_status;
@@ -341,6 +382,7 @@ void TelemetryCore::OnTruckSimUpdate(
     }
     trucksim_snapshot_ = snapshot;
     trucksim_state_ = state;
+    job_fuel_tracker_.Observe(snapshot, state);
     if (state != ProviderState::Connected) {
         MarkSnapshotStale(trucksim_snapshot_);
     }
@@ -382,11 +424,42 @@ void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
         status_.last_error = L"Could not parse a telemetry provider event for persistence.";
         return;
     }
-    const QJsonObject packet = document.object();
+    QJsonObject packet = document.object();
     const QString event_type = packet.value(QStringLiteral("event")).toString();
     const QString timestamp = packet.value(QStringLiteral("timestamp")).toString();
-    const QJsonObject details = packet.value(QStringLiteral("data")).toObject();
-    bool persisted = history_store_->RecordProviderEvent(raw_packet);
+    QJsonObject details = packet.value(QStringLiteral("data")).toObject();
+    if (event_type == QStringLiteral("job.delivered")) {
+        const auto fuel_result = job_fuel_tracker_.Finish(
+            EventJobIdentity(details).toStdWString(),
+            JsonNumber(details, {
+                QStringLiteral("driven_distance_km"),
+                QStringLiteral("distance.km")}));
+        if (fuel_result) {
+            details.insert(
+                QStringLiteral("fuel_used_liters"), fuel_result->fuel_used_liters);
+            details.insert(
+                QStringLiteral("fuel_used_source"),
+                QStringLiteral("CALCULATED FROM VALID FUEL-LEVEL TELEMETRY"));
+            details.insert(
+                QStringLiteral("refueled_liters"), fuel_result->refueled_liters);
+            details.insert(
+                QStringLiteral("refueled_source"),
+                QStringLiteral("CALCULATED FROM FUEL-LEVEL INCREASES"));
+            if (fuel_result->average_consumption_l_per_100km) {
+                details.insert(
+                    QStringLiteral("average_consumption"),
+                    *fuel_result->average_consumption_l_per_100km);
+                details.insert(
+                    QStringLiteral("average_consumption_source"),
+                    fuel_result->average_uses_reported_distance
+                        ? QStringLiteral("CALCULATED USING REPORTED SCS JOB DISTANCE")
+                        : QStringLiteral("CALCULATED USING CONTINUOUS ODOMETER DELTA"));
+            }
+        }
+        packet.insert(QStringLiteral("data"), details);
+    }
+    const QByteArray persisted_packet = QJsonDocument(packet).toJson(QJsonDocument::Compact);
+    bool persisted = history_store_->RecordProviderEvent(persisted_packet);
     if (!persisted) {
         status_.storage_error = history_store_->Snapshot().error.toStdWString();
     }

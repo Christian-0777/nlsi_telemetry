@@ -3,17 +3,17 @@
 #define AppChannel "beta"
 #endif
 #ifndef AppFileVersion
-#define AppFileVersion 1.5.0.0
+#define AppFileVersion 1.5.1.0
 #endif
 #ifndef ReleaseLabel
-#define ReleaseLabel "1.5.0-beta"
+#define ReleaseLabel "1.5.1-beta"
 #endif
 #define DefaultApplicationDir "C:\Program Files\NLSI Exclusive Logbook"
 #ifndef ReleaseTag
-#define ReleaseTag "v1.5.0-beta"
+#define ReleaseTag "v1.5.1-beta"
 #endif
 #ifndef ReleasePayload
-#define ReleasePayload "build\intermediate\installer-payload-v1.5.0-beta"
+#define ReleasePayload "build\intermediate\installer-payload-v1.5.1-beta"
 #endif
 #define AppPublisher "Nabski Logistics and Solutions Inc."
 #define AppURL "https://github.com/Christian-0777/nlsi_telemetry"
@@ -111,6 +111,7 @@ var
   ExistingInstallDir: String;
   ExistingInstallVersion: String;
   ExistingInstallDetected: Boolean;
+  ExistingInstallRecovery: Boolean;
   ExistingInstallError: String;
 
 function QueryUninstallValue(const ValueName: String; var Value: String): Boolean;
@@ -284,6 +285,25 @@ begin
     SetLength(Result, Length(Result) - 1);
 end;
 
+function DirectoryHasEntries(const Directory: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(AddBackslash(Directory) + '*', FindRec) then begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then begin
+          Result := True;
+          Exit;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 function DetectExistingInstallation: Boolean;
 var
   RegistryInstallDir: String;
@@ -299,6 +319,8 @@ var
 begin
   ExistingInstallDir := DefaultInstallPath;
   ExistingInstallVersion := '';
+  ExistingInstallDetected := False;
+  ExistingInstallRecovery := False;
   ExistingInstallError := '';
 
   RegistryInstallDir := '';
@@ -312,14 +334,11 @@ begin
   Result := DirExists(ExistingInstallDir);
 
   if not Result then begin
-    if RegistryPathFound then
-      ExistingInstallError := 'The registered NLSI installation path does not exist: ' +
-        ExistingInstallDir + '. Repair or uninstall that installation before continuing.'
-    else if FileExists(DefaultInstallPath + '\NLSI-Exclusive-Logbook.exe') or
+    if FileExists(DefaultInstallPath + '\NLSI-Exclusive-Logbook.exe') or
       FileExists(DefaultInstallPath + '\version.json') then
-      ExistingInstallError := 'Files exist at the default NLSI installation path, but no ' +
-        'valid installation could be identified. Setup will not overwrite an unknown ' +
-        'directory: ' + DefaultInstallPath + '.'
+      ExistingInstallError := 'FILES EXIST AT THE DEFAULT NLSI INSTALLATION PATH, BUT NO ' +
+        'VALID INSTALLATION COULD BE IDENTIFIED. SETUP WILL NOT OVERWRITE AN UNKNOWN ' +
+        'DIRECTORY: ' + DefaultInstallPath + '.'
     else begin
       ExistingInstallDir := ExpandConstant('{#DefaultApplicationDir}');
       Exit;
@@ -328,8 +347,22 @@ begin
   end;
 
   if not FileExists(ExistingInstallDir + '\NLSI-Exclusive-Logbook.exe') then begin
-    ExistingInstallError := 'The detected NLSI installation has no application executable: ' +
-      ExistingInstallDir + '. Setup will not overwrite this directory.';
+    if ReadManifestVersion(ExistingInstallDir, ManifestInstallVersion) then begin
+      ExistingInstallRecovery := True;
+      ExistingInstallVersion := ManifestInstallVersion;
+      Result := False;
+      Log('A VALID NLSI INSTALLATION MANIFEST WAS FOUND WITHOUT THE APPLICATION EXECUTABLE; '
+        + 'SETUP WILL REPAIR THE APPLICATION FILES AND PRESERVE EXISTING DATA.');
+      Exit;
+    end;
+    if not DirectoryHasEntries(ExistingInstallDir) then begin
+      Result := False;
+      ExistingInstallDir := ExpandConstant('{#DefaultApplicationDir}');
+      Exit;
+    end;
+    ExistingInstallError := 'THE DETECTED DIRECTORY HAS NO APPLICATION EXECUTABLE OR VALID ' +
+      'NLSI VERSION MANIFEST. SETUP WILL NOT OVERWRITE UNKNOWN FILES: ' +
+      ExistingInstallDir + '.';
     Exit;
   end;
 
@@ -370,10 +403,10 @@ begin
     Result := False;
     Exit;
   end;
-  if ExistingInstallDetected and
+  if (ExistingInstallDetected or ExistingInstallRecovery) and
     (CompareReleaseVersions('{#ReleaseLabel}', ExistingInstallVersion) < 0) then begin
-    MsgBox('The installed version ' + ExistingInstallVersion + ' is newer than this setup ' +
-      '({#ReleaseLabel}). Setup will not downgrade the installation.',
+    MsgBox('THE INSTALLED VERSION ' + ExistingInstallVersion + ' IS NEWER THAN THIS SETUP ' +
+      '({#ReleaseLabel}). SETUP WILL NOT DOWNGRADE THE INSTALLATION.',
       mbCriticalError, MB_OK);
     Result := False;
   end;
@@ -386,8 +419,8 @@ var
   Index: Integer;
   InstallationSummary: String;
 begin
-  InstallInfoPage := CreateCustomPage(wpWelcome, 'Installation type',
-    'Review the installation or update details before continuing.');
+  InstallInfoPage := CreateCustomPage(wpWelcome, 'INSTALLATION TYPE',
+    'REVIEW THE INSTALLATION OR UPDATE DETAILS BEFORE CONTINUING.');
   InstallInfoText := TNewStaticText.Create(InstallInfoPage);
   InstallInfoText.Parent := InstallInfoPage.Surface;
   InstallInfoText.SetBounds(0, 0, InstallInfoPage.SurfaceWidth,
@@ -395,24 +428,32 @@ begin
   InstallInfoText.Anchors := [akLeft, akTop, akRight, akBottom];
   InstallInfoText.AutoSize := False;
   InstallInfoText.WordWrap := True;
-  if ExistingInstallDetected then begin
+  if ExistingInstallRecovery then begin
     InstallationSummary :=
-      'An existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
-      'This setup will UPDATE the existing installation.' + #13#10 +
-      'Installed version: ' + ExistingInstallVersion + #13#10 +
-      'New version: v{#ReleaseLabel}' + #13#10 +
-      'Installation directory: ' + ExistingInstallDir + #13#10#13#10 +
-      'Existing configuration and log files will be preserved.' + #13#10#13#10 +
-      'Setup detects supported Steam ETS2/ATS installations and installs the TruckSim GPS plugin and the separate SCS position plugin where supported. Existing different plugin DLLs are preserved, and any existing nlsi.dll is backed up for restoration.';
+      'AN INCOMPLETE NLSI EXCLUSIVE LOGBOOK INSTALLATION WAS DETECTED.' + #13#10#13#10 +
+      'THIS SETUP WILL REPAIR THE APPLICATION FILES; THE EXECUTABLE IS MISSING.' + #13#10 +
+      'RECORDED VERSION: ' + ExistingInstallVersion + #13#10 +
+      'NEW VERSION: V{#ReleaseLabel}' + #13#10 +
+      'INSTALLATION DIRECTORY: ' + ExistingInstallDir + #13#10#13#10 +
+      'USER CONFIGURATION, LOGS, AND OTHER EXISTING FILES WILL BE PRESERVED.';
+  end else if ExistingInstallDetected then begin
+    InstallationSummary :=
+      'AN EXISTING NLSI EXCLUSIVE LOGBOOK INSTALLATION WAS DETECTED.' + #13#10#13#10 +
+      'THIS SETUP WILL UPDATE THE EXISTING INSTALLATION.' + #13#10 +
+      'INSTALLED VERSION: ' + ExistingInstallVersion + #13#10 +
+      'NEW VERSION: V{#ReleaseLabel}' + #13#10 +
+      'INSTALLATION DIRECTORY: ' + ExistingInstallDir + #13#10#13#10 +
+      'EXISTING CONFIGURATION AND LOG FILES WILL BE PRESERVED.' + #13#10#13#10 +
+      'SETUP DETECTS SUPPORTED STEAM ETS2/ATS INSTALLATIONS AND INSTALLS THE TRUCKSIM GPS PLUGIN AND THE SEPARATE SCS POSITION PLUGIN WHERE SUPPORTED. DIFFERENT EXISTING PLUGIN DLLS ARE PRESERVED, AND ANY EXISTING NLSI.DLL IS BACKED UP FOR RESTORATION.';
   end else begin
     InstallationSummary :=
-      'No existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
-      'This setup will perform a fresh installation of v{#ReleaseLabel} under {#DefaultApplicationDir}.' + #13#10#13#10 +
-      'Setup detects supported Steam ETS2/ATS installations and installs the TruckSim GPS plugin and the separate SCS position plugin where supported. Existing different plugin DLLs are preserved, and any existing nlsi.dll is backed up for restoration.';
+      'NO VALID NLSI EXCLUSIVE LOGBOOK INSTALLATION WAS DETECTED.' + #13#10#13#10 +
+      'THIS SETUP WILL PERFORM A FRESH INSTALLATION OF V{#ReleaseLabel} UNDER {#DefaultApplicationDir}.' + #13#10#13#10 +
+      'SETUP DETECTS SUPPORTED STEAM ETS2/ATS INSTALLATIONS AND INSTALLS THE TRUCKSIM GPS PLUGIN AND THE SEPARATE SCS POSITION PLUGIN WHERE SUPPORTED. DIFFERENT EXISTING PLUGIN DLLS ARE PRESERVED, AND ANY EXISTING NLSI.DLL IS BACKED UP FOR RESTORATION.';
   end;
   if DirExists(ExpandConstant('{#LegacyDirectory}')) then
     InstallationSummary := InstallationSummary + #13#10#13#10 +
-      'The legacy C:\nlsi-tem directory will be left untouched.';
+      'THE LEGACY C:\NLSI-TEM DIRECTORY WILL BE LEFT UNTOUCHED.';
   InstallInfoText.Caption := InstallationSummary;
 
   ExtractTemporaryFile('PrivacyPolicy.txt');
@@ -422,8 +463,8 @@ begin
   for Index := 0 to GetArrayLength(PolicyLines) - 1 do
     PolicyText := PolicyText + PolicyLines[Index] + #13#10;
 
-  PrivacyPage := CreateCustomPage(wpLicense, 'Privacy Policy',
-    'Review and accept the Privacy Policy to continue.');
+  PrivacyPage := CreateCustomPage(wpLicense, 'PRIVACY POLICY',
+    'REVIEW AND ACCEPT THE PRIVACY POLICY TO CONTINUE.');
   PrivacyMemo := TNewMemo.Create(PrivacyPage);
   PrivacyMemo.Parent := PrivacyPage.Surface;
   PrivacyMemo.SetBounds(0, 0, PrivacyPage.SurfaceWidth, PrivacyPage.SurfaceHeight - ScaleY(42));
@@ -438,25 +479,26 @@ begin
   PrivacyAccepted.SetBounds(0, PrivacyPage.SurfaceHeight - ScaleY(30),
     PrivacyPage.SurfaceWidth, ScaleY(24));
   PrivacyAccepted.Anchors := [akLeft, akRight, akBottom];
-  PrivacyAccepted.Caption := 'I have read and accept the Privacy Policy.';
+  PrivacyAccepted.Caption := 'I HAVE READ AND ACCEPT THE PRIVACY POLICY.';
   PrivacyAccepted.Checked := False;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if (CurPageID = wpSelectDir) and ExistingInstallDetected and
+  if (CurPageID = wpSelectDir) and
+     (ExistingInstallDetected or ExistingInstallRecovery) and
      (CompareText(NormalizeInstallPath(WizardDirValue),
        NormalizeInstallPath(ExistingInstallDir)) <> 0) then begin
-    MsgBox('This setup must update the registered installation at ' +
-      ExistingInstallDir + '. Choose that directory to avoid creating a second copy.',
+    MsgBox('THIS SETUP MUST USE THE EXISTING INSTALLATION DIRECTORY: ' +
+      ExistingInstallDir + '. CHOOSE THAT DIRECTORY TO AVOID CREATING A SECOND COPY.',
       mbInformation, MB_OK);
     Result := False;
     Exit;
   end;
   if (PrivacyPage <> nil) and (CurPageID = PrivacyPage.ID) and
      not PrivacyAccepted.Checked then begin
-    MsgBox('You must accept the Privacy Policy before continuing.',
+    MsgBox('YOU MUST ACCEPT THE PRIVACY POLICY BEFORE CONTINUING.',
       mbInformation, MB_OK);
     Result := False;
   end;
@@ -464,7 +506,8 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if (CurPageID = wpSelectDir) and ExistingInstallDetected then
+  if (CurPageID = wpSelectDir) and
+     (ExistingInstallDetected or ExistingInstallRecovery) then
     WizardForm.DirEdit.Text := ExistingInstallDir
   else if CurPageID = wpFinished then begin
     WizardForm.FinishedHeadingLabel.Caption := 'Installation complete';
