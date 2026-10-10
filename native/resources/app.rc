@@ -4,8 +4,8 @@ IDI_NLSI_ICON ICON "../../img/logo.ico"
 1 24 "app.manifest"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 1,4,6,0
-PRODUCTVERSION 1,4,6,0
+FILEVERSION 1,4,7,0
+PRODUCTVERSION 1,4,7,0
 FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
 FILEFLAGS 0
 FILEOS VOS_NT_WINDOWS32
@@ -18,12 +18,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "Nabski Logistics and Solutions Inc.\0"
             VALUE "FileDescription", "NLSI Exclusive Logbook\0"
-            VALUE "FileVersion", "1.4.6.0\0"
+            VALUE "FileVersion", "1.4.7.0\0"
             VALUE "InternalName", "NLSI-Exclusive-Logbook\0"
             VALUE "LegalCopyright", "Copyright (C) Nabski Logistics and Solutions Inc.\0"
             VALUE "OriginalFilename", "NLSI-Exclusive-Logbook.exe\0"
             VALUE "ProductName", "NLSI Exclusive Logbook\0"
-            VALUE "ProductVersion", "1.4.6-beta\0"
+            VALUE "ProductVersion", "1.4.7-beta\0"
         END
     END
     BLOCK "VarFileInfo"

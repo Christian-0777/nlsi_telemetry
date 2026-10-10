@@ -209,7 +209,8 @@ QLabel* DashboardPage::AddCard(
         title_layout->addWidget(icon);
         auto* title_label = new QLabel(title, title_row);
         title_label->setObjectName(QStringLiteral("cardTitle"));
-        title_label->setWordWrap(false);
+        title_label->setWordWrap(true);
+        title_label->setMinimumWidth(0);
         title_layout->addWidget(title_label, 1);
         layout->addWidget(title_row);
     } else {

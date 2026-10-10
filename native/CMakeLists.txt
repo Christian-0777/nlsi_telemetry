@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Svg)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Svg Concurrent)
 
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../scs_position_plugin" scs_position_plugin)
 
@@ -146,7 +146,7 @@ target_include_directories(NLSI-Exclusive-Logbook PRIVATE
 )
 
 target_link_libraries(NLSI-Exclusive-Logbook PRIVATE
-    Qt6::Widgets Qt6::Network Qt6::Svg shell32
+    Qt6::Widgets Qt6::Network Qt6::Svg Qt6::Concurrent shell32
 )
 target_compile_definitions(NLSI-Exclusive-Logbook PRIVATE
     NLSI_VERSION="${NLSI_VERSION}"
@@ -291,7 +291,7 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/updater
     )
     target_link_libraries(nlsi_gui_tests PRIVATE
-        Qt6::Widgets Qt6::Network Qt6::Svg shell32
+        Qt6::Widgets Qt6::Network Qt6::Svg Qt6::Concurrent shell32
     )
 
     if(MSVC)

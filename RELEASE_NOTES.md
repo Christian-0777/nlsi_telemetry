@@ -1,3 +1,34 @@
+# NLSI Exclusive Logbook v1.4.7-beta
+
+This Beta release improves ETS2/ATS game-log initialization and monitoring,
+adds explicit reinitialization and evidence labels for mod detection, and
+reduces text clipping in resizable views. Existing telemetry providers,
+formats, branding, application identity, and per-user data locations remain
+unchanged.
+
+## What's changed
+
+- Initializes each game's `game.log.txt` when it becomes available, parses
+  existing content once, and incrementally reads appended complete lines.
+- Detects truncation, replacement, rotation, timestamp resets, partial UTF-8
+  lines, and uncertain session boundaries; the Active Mods page exposes an
+  accessible Reinitialize button with explicit status feedback.
+- Separates subscription, mounted-package, active Workshop, and active local
+  evidence; groups related ProMods archives without treating subscriptions as
+  proof that a mod loaded.
+- Wraps long descriptions and mod details, and uses wrapping/elision/scrolling
+  for tabular and path-like content without changing the 900x600 minimum.
+- Keeps the ETS2/ATS game logs read-only and preserves all historical session
+  data and user-data paths.
+
+ETS2/ATS gameplay was not available for live validation. Offline fixtures cover
+the parser and monitor lifecycle.
+
+Expected installer target:
+`build/releases/v1.4.7-beta/NLSI-Exclusive-Logbook-v1.4.7-beta-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.4.6-beta
 
 This Beta release reduces local telemetry persistence latency while preserving

@@ -1,9 +1,13 @@
 #include "JobHistoryPage.h"
 #include "CurrentJobPage.h"
 
+#include <QDateTime>
+#include <QDir>
 #include <QFrame>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
+#include <QFutureWatcher>
 #include <QHeaderView>
 #include <QHideEvent>
 #include <QImage>
@@ -30,6 +34,8 @@
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QSet>
+
+#include <QtConcurrent/QtConcurrentRun>
 
 #include "JobPdfExporter.h"
 
@@ -101,14 +107,37 @@ QString TripJobAssociation(
         QStringLiteral("trip_id"), QStringLiteral("session_id")});
 }
 
+QString WrapLongTokens(const QString& text) {
+    QString wrapped;
+    wrapped.reserve(text.size() + text.size() / 28);
+    qsizetype token_length = 0;
+    for (const QChar character : text) {
+        if (character.isSpace()) {
+            token_length = 0;
+        } else if (!character.isLowSurrogate() && token_length >= 28) {
+            wrapped += QChar(0x200b);
+            token_length = 0;
+        }
+        wrapped += character;
+        if (!character.isLowSurrogate()) {
+            ++token_length;
+        }
+    }
+    return wrapped;
+}
+
 void ConfigureTable(QTableView* table, QStandardItemModel* model) {
     table->setModel(model);
     table->setAlternatingRowColors(true);
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    table->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    table->setWordWrap(true);
+    table->setTextElideMode(Qt::ElideRight);
     table->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     table->verticalHeader()->hide();
+    table->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table->horizontalHeader()->setStretchLastSection(true);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 }
@@ -319,10 +348,23 @@ ActiveModsPage::ActiveModsPage(
         auto* page_layout = new QVBoxLayout(panel.page);
         page_layout->setContentsMargins(8, 8, 8, 8);
         page_layout->setSpacing(8);
+        auto* status_row = new QHBoxLayout();
         panel.message = new QLabel(panel.page);
         panel.message->setObjectName(QStringLiteral("activeModsStatus"));
         panel.message->setWordWrap(true);
-        page_layout->addWidget(panel.message);
+        panel.message->setMinimumWidth(0);
+        panel.message->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        status_row->addWidget(panel.message, 1);
+        panel.reinitialize_button = new QPushButton(
+            QStringLiteral("Reinitialize"), panel.page);
+        panel.reinitialize_button->setObjectName(
+            title.startsWith(QStringLiteral("Euro"))
+                ? QStringLiteral("reinitializeEts2LogButton")
+                : QStringLiteral("reinitializeAtsLogButton"));
+        panel.reinitialize_button->setAccessibleName(
+            QStringLiteral("Reinitialize %1 game log monitoring").arg(title));
+        status_row->addWidget(panel.reinitialize_button, 0, Qt::AlignTop);
+        page_layout->addLayout(status_row);
 
         auto* scroll = new QScrollArea(panel.page);
         scroll->setWidgetResizable(true);
@@ -334,25 +376,73 @@ ActiveModsPage::ActiveModsPage(
         scroll->setWidget(list);
         page_layout->addWidget(scroll, 1);
         tabs->addTab(panel.page, title);
+        panel.init_watcher = new QFutureWatcher<modlog::GameLogResult>(this);
         game_panels_.push_back(panel);
     };
     add_game_panel(QStringLiteral("Euro Truck Simulator 2"));
     add_game_panel(QStringLiteral("American Truck Simulator"));
 
     network_ = new QNetworkAccessManager(this);
+    file_watcher_ = new QFileSystemWatcher(this);
+    connect(file_watcher_, &QFileSystemWatcher::directoryChanged,
+        this, [this] { RefreshLogs(); });
+    connect(file_watcher_, &QFileSystemWatcher::fileChanged,
+        this, [this] { RefreshLogs(); });
+
+    for (qsizetype index = 0; index < game_panels_.size(); ++index) {
+        GamePanel& panel = game_panels_[index];
+        connect(panel.reinitialize_button, &QPushButton::clicked, this,
+            [this, index] { InitializeLog(index, true); });
+        connect(panel.init_watcher, &QFutureWatcher<modlog::GameLogResult>::finished,
+            this, [this, index] {
+                GamePanel& completed_panel = game_panels_[index];
+                completed_panel.result = completed_panel.init_watcher->result();
+                completed_panel.initializing = false;
+                completed_panel.reinitialize_button->setEnabled(true);
+                if (completed_panel.result.error.isEmpty()) {
+                    const QString boundary = completed_panel.result.session_boundary_known
+                        ? QStringLiteral("session boundary confirmed")
+                        : QStringLiteral("session boundary uncertain");
+                    completed_panel.status = completed_panel.manual_reinitialize
+                        ? QStringLiteral("Reinitialization complete. Monitoring; %1.")
+                            .arg(boundary)
+                        : QStringLiteral("Monitoring game log; %1.").arg(boundary);
+                } else if (completed_panel.result.error.contains(
+                        QStringLiteral("not found"), Qt::CaseInsensitive)) {
+                    completed_panel.status = QStringLiteral(
+                        "Game log unavailable; waiting for the game to start.");
+                    completed_panel.retry_after = QDateTime::currentDateTime().addSecs(2);
+                } else {
+                    completed_panel.status = QStringLiteral("Game log read error.");
+                    completed_panel.retry_after = QDateTime::currentDateTime().addSecs(2);
+                }
+                completed_panel.manual_reinitialize = false;
+                completed_panel.signature.clear();
+                RenderGamePanel(completed_panel);
+
+                const QFileInfo info(completed_panel.result.path);
+                const QString file_path = info.absoluteFilePath();
+                if (info.exists() && info.isFile()
+                    && !file_watcher_->files().contains(file_path)) {
+                    file_watcher_->addPath(file_path);
+                }
+            });
+    }
+
     refresh_timer_ = new QTimer(this);
-    refresh_timer_->setInterval(5000);
+    refresh_timer_->setObjectName(QStringLiteral("activeModsRefreshTimer"));
+    refresh_timer_->setInterval(1000);
     connect(refresh_timer_, &QTimer::timeout, this, [this] { RefreshLogs(); });
+    RefreshLogs();
+    refresh_timer_->start();
 }
 
 void ActiveModsPage::showEvent(QShowEvent* event) {
     StatePage::showEvent(event);
     RefreshLogs();
-    refresh_timer_->start();
 }
 
 void ActiveModsPage::hideEvent(QHideEvent* event) {
-    refresh_timer_->stop();
     StatePage::hideEvent(event);
 }
 
@@ -364,42 +454,124 @@ void ActiveModsPage::RefreshLogs() {
         QStringLiteral("Euro Truck Simulator 2"),
         QStringLiteral("American Truck Simulator"),
     };
+    if (!documents.isEmpty() && !file_watcher_->directories().contains(
+            QFileInfo(documents).absoluteFilePath())) {
+        file_watcher_->addPath(documents);
+    }
     for (qsizetype index = 0; index < game_panels_.size(); ++index) {
         GamePanel& panel = game_panels_[index];
-        modlog::GameLogResult result;
         if (documents.isEmpty()) {
-            result.error = QStringLiteral("Windows did not provide a Documents directory.");
-        } else {
-            const QString path = modlog::GameLogPath(documents, directories[index]);
-            const QFileInfo file_info(path);
-            if (file_info.exists() && file_info.isFile() && file_info.isReadable()
-                && file_info.size() == panel.file_size
-                && file_info.lastModified() == panel.result.last_modified
-                && panel.result.error.isEmpty()) {
-                result = panel.result;
-                result.stale = result.last_modified.isValid()
-                    && result.last_modified.secsTo(QDateTime::currentDateTime()) > 600;
-            } else {
-                result = modlog::ReadGameLog(path);
-            }
-        }
-
-        QString signature = result.path + QLatin1Char('|') + result.error
-            + QLatin1Char('|') + result.last_modified.toString(Qt::ISODateWithMs)
-            + QLatin1Char('|') + QString::number(result.stale);
-        for (const auto& mod : result.mods) {
-            signature += QLatin1Char('|') + mod.id + QLatin1Char(':')
-                + mod.name + QLatin1Char(':') + mod.version + QLatin1Char(':') + mod.author;
-        }
-        if (signature == panel.signature) {
+            panel.result = {};
+            panel.result.error = QStringLiteral(
+                "Windows did not provide a Documents directory.");
+            panel.status = QStringLiteral("Game log unavailable.");
+            RenderGamePanel(panel);
             continue;
         }
-        panel.signature = signature;
-        panel.file_size = result.error.isEmpty()
-            ? QFileInfo(result.path).size() : -1;
-        panel.result = std::move(result);
-        RenderGamePanel(panel);
+
+        const QString path = modlog::GameLogPath(documents, directories[index]);
+        const QFileInfo info(path);
+        const QString game_directory = info.absolutePath();
+        if (QDir(game_directory).exists()
+            && !file_watcher_->directories().contains(game_directory)) {
+            file_watcher_->addPath(game_directory);
+        }
+        if (panel.initializing) {
+            continue;
+        }
+
+        if (!info.exists() || !info.isFile()) {
+            if (panel.result.initialized || panel.result.path != path
+                || panel.result.error != QStringLiteral("Game log not found.")) {
+                panel.result = {};
+                panel.result.path = path;
+                panel.result.error = QStringLiteral("Game log not found.");
+                panel.status = QStringLiteral(
+                    "Game log unavailable; waiting for the game to start.");
+                panel.signature.clear();
+                RenderGamePanel(panel);
+            }
+            if (!panel.retry_after.isValid()
+                || panel.retry_after <= QDateTime::currentDateTime()) {
+                InitializeLog(index, false);
+            }
+            continue;
+        }
+
+        if (!panel.result.initialized
+            || modlog::GameLogNeedsReinitialize(path, panel.result)) {
+            if (!panel.retry_after.isValid()
+                || panel.retry_after <= QDateTime::currentDateTime()) {
+                InitializeLog(index, false);
+            }
+            continue;
+        }
+
+        const QString previous_signature = panel.signature;
+        const qint64 previous_offset = panel.result.offset;
+        if (!modlog::ReadAppendedGameLog(path, panel.result)) {
+            panel.status = QStringLiteral("Game log read error.");
+            if (!panel.result.initialized) {
+                panel.retry_after = QDateTime::currentDateTime();
+                InitializeLog(index, false);
+            } else {
+                panel.signature.clear();
+                RenderGamePanel(panel);
+            }
+            continue;
+        }
+
+        if (panel.result.offset > previous_offset) {
+            panel.status = QStringLiteral("Monitoring appended game log content; %1.")
+                .arg(panel.result.session_boundary_known
+                    ? QStringLiteral("session boundary confirmed")
+                    : QStringLiteral("session boundary uncertain"));
+        }
+        panel.signature = QString::number(panel.result.offset)
+            + QLatin1Char('|')
+            + panel.result.last_modified.toString(Qt::ISODateWithMs)
+            + QLatin1Char('|') + QString::number(panel.result.mods.size())
+            + QLatin1Char('|') + QString::number(panel.result.stale)
+            + QLatin1Char('|') + panel.status;
+        if (panel.signature != previous_signature) {
+            RenderGamePanel(panel);
+        }
     }
+}
+
+void ActiveModsPage::InitializeLog(qsizetype panel_index, bool manual) {
+    if (panel_index < 0 || panel_index >= game_panels_.size()) {
+        return;
+    }
+    GamePanel& panel = game_panels_[panel_index];
+    if (panel.initializing) {
+        return;
+    }
+    const QString documents = documents_directory_.isEmpty()
+        ? QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+        : documents_directory_;
+    const QStringList directories = {
+        QStringLiteral("Euro Truck Simulator 2"),
+        QStringLiteral("American Truck Simulator"),
+    };
+    const QString path = documents.isEmpty()
+        ? QString()
+        : modlog::GameLogPath(documents, directories[panel_index]);
+    panel.result = {};
+    panel.result.path = path;
+    panel.status = manual
+        ? QStringLiteral("Reinitializing game log...")
+        : QStringLiteral("Initializing game log...");
+    panel.manual_reinitialize = manual;
+    panel.initializing = true;
+    panel.retry_after = QDateTime::currentDateTime().addSecs(2);
+    panel.reinitialize_button->setEnabled(false);
+    panel.signature.clear();
+    RenderGamePanel(panel);
+
+    panel.init_watcher->setFuture(QtConcurrent::run([path] {
+        return modlog::ReadGameLog(path);
+    }));
 }
 
 void ActiveModsPage::RenderGamePanel(GamePanel& panel) {
@@ -412,22 +584,33 @@ void ActiveModsPage::RenderGamePanel(GamePanel& panel) {
     }
 
     if (!panel.result.error.isEmpty()) {
-        panel.message->setText(QStringLiteral("%1 %2")
-            .arg(panel.result.error, panel.result.path));
+        const QString error = panel.result.error.contains(
+                QStringLiteral("not found"), Qt::CaseInsensitive)
+            ? QStringLiteral("Game log unavailable.")
+            : QStringLiteral("Game log read error: %1").arg(panel.result.error);
+        panel.message->setText(WrapLongTokens(QStringLiteral("%1 %2\n%3")
+            .arg(panel.status, error, panel.result.path)));
+        panel.message->setToolTip(panel.result.path);
         return;
     }
 
-    QString status;
+    QString status = panel.status;
     if (panel.result.stale) {
-        status = QStringLiteral("This game log has not changed for over 10 minutes; "
+        status += QStringLiteral(" This game log has not changed for over 10 minutes; "
             "the active-mod list may be stale. ");
     }
     status += panel.result.mods.isEmpty()
-        ? QStringLiteral("No active Workshop mods were recorded in this game log.")
-        : QStringLiteral("%1 active Workshop mod%2 in the latest game log.")
+        ? QStringLiteral(" No mod evidence was recorded in this game log.")
+        : QStringLiteral(" %1 mod entr%2 recorded in the current log.")
             .arg(panel.result.mods.size())
-            .arg(panel.result.mods.size() == 1 ? QString() : QStringLiteral("s"));
-    panel.message->setText(status);
+            .arg(panel.result.mods.size() == 1 ? QStringLiteral("y") : QStringLiteral("ies"));
+    if (!panel.result.session_boundary_known && !panel.result.mods.isEmpty()) {
+        status += QStringLiteral(
+            " Session boundary uncertain: listed entries are log evidence, "
+            "not confirmation that they are active in this game session.");
+    }
+    panel.message->setText(WrapLongTokens(status));
+    panel.message->setToolTip(panel.result.path);
 
     for (const auto& mod : panel.result.mods) {
         auto* card = new QFrame(panel.mods_layout->parentWidget());
@@ -452,20 +635,45 @@ void ActiveModsPage::RenderGamePanel(GamePanel& panel) {
         auto* details = new QVBoxLayout();
         details->setContentsMargins(0, 0, 0, 0);
         details->setSpacing(3);
-        auto* name = new QLabel(mod.name, card);
+        auto* name = new QLabel(WrapLongTokens(mod.name), card);
         name->setObjectName(QStringLiteral("modName"));
         name->setWordWrap(true);
+        name->setMinimumWidth(0);
         name->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        name->setToolTip(mod.name);
+        name->setAccessibleName(mod.name);
         details->addWidget(name);
         const QString version = mod.version.isEmpty()
             ? QStringLiteral("Unavailable") : mod.version;
         const QString author = mod.author.isEmpty()
             ? QStringLiteral("Unavailable") : mod.author;
         auto* metadata = new QLabel(
-            QStringLiteral("Version: %1 · Author: %2").arg(version, author), card);
+            WrapLongTokens(
+                QStringLiteral("Version: %1 · Author: %2").arg(version, author)), card);
         metadata->setObjectName(QStringLiteral("modMetadata"));
         metadata->setWordWrap(true);
         details->addWidget(metadata);
+
+        QStringList evidence;
+        if (mod.subscribed) {
+            evidence.push_back(QStringLiteral("Subscribed (not proof of load)"));
+        }
+        if (mod.mounted) {
+            evidence.push_back(QStringLiteral("Mounted package"));
+        }
+        if (mod.active_workshop) {
+            evidence.push_back(QStringLiteral("Active Workshop entry"));
+        }
+        if (mod.active_local) {
+            evidence.push_back(QStringLiteral("Active local entry"));
+        }
+        auto* evidence_label = new QLabel(
+            WrapLongTokens(QStringLiteral("Evidence: %1")
+                .arg(evidence.join(QStringLiteral(", ")))), card);
+        evidence_label->setObjectName(QStringLiteral("modEvidence"));
+        evidence_label->setWordWrap(true);
+        evidence_label->setMinimumWidth(0);
+        details->addWidget(evidence_label);
 
         const QUrl source = modlog::WorkshopSourceUrl(mod.id);
         if (source.isValid()) {
@@ -479,7 +687,8 @@ void ActiveModsPage::RenderGamePanel(GamePanel& panel) {
                 .arg(source.toString(QUrl::FullyEncoded).toHtmlEscaped()));
             link->setAccessibleName(QStringLiteral("Workshop source for %1").arg(mod.name));
             details->addWidget(link);
-            if (load_workshop_previews_ && !checked_thumbnails_.contains(mod.id)) {
+            if (load_workshop_previews_ && mod.active_workshop
+                && !checked_thumbnails_.contains(mod.id)) {
                 LoadThumbnail(mod.id);
             }
         } else {

@@ -6,7 +6,9 @@
 #include <QDateTime>
 #include <QGridLayout>
 #include <QEventLoop>
+#include <QElapsedTimer>
 #include <QFile>
+#include <QFutureWatcher>
 #include <QFrame>
 #include <QLabel>
 #include <QFileInfo>
@@ -35,8 +37,14 @@
 #include <QWidget>
 
 #include <atomic>
+#include <algorithm>
 #include <iostream>
 #include <thread>
+
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 
 #include "gui/JobHistoryPage.h"
 #include "gui/JobPdfExporter.h"
@@ -135,6 +143,43 @@ bool WriteTextFile(const QString& path, const QByteArray& contents) {
         && file.write(contents) == contents.size();
 }
 
+bool WaitForModLogInitialization(nlsi::gui::ActiveModsPage& page, int timeout_ms = 5000) {
+    QElapsedTimer elapsed;
+    elapsed.start();
+    const auto buttons = page.findChildren<QPushButton*>();
+    while (elapsed.elapsed() < timeout_ms) {
+        bool running = false;
+        for (auto* button : buttons) {
+            if (button->objectName().startsWith(QStringLiteral("reinitialize"))) {
+                running = running || !button->isEnabled();
+            }
+        }
+        if (!running) {
+            QApplication::processEvents();
+            return true;
+        }
+
+        QEventLoop loop;
+        QTimer timeout;
+        timeout.setSingleShot(true);
+        QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+        timeout.start(qMin(25, qMax(1, timeout_ms - static_cast<int>(elapsed.elapsed()))));
+        loop.exec();
+    }
+    return false;
+}
+
+const nlsi::gui::modlog::WorkshopMod* FindMod(
+    const nlsi::gui::modlog::GameLogResult& result,
+    const QString& id) {
+    for (const auto& mod : result.mods) {
+        if (mod.id == id) {
+            return &mod;
+        }
+    }
+    return nullptr;
+}
+
 bool TestModLogParsingAndSourceLinks() {
     QTemporaryDir directory;
     if (!directory.isValid()) {
@@ -146,6 +191,7 @@ bool TestModLogParsingAndSourceLinks() {
     const QString ats_path = nlsi::gui::modlog::GameLogPath(
         directory.path(), QStringLiteral("American Truck Simulator"));
     const QByteArray ets2_log = QByteArrayLiteral(
+        "00:00:00.000 : [sys] Game version: 1.58\n"
         "00:00:01.000 : [mods] Subscribed workshop mod ID: 111111111\n"
         "00:00:02.000 : [mods] Active workshop mod ID: 123456789, version: 1.2, "
             "source: Steam Workshop, name: \"Pink Truck\", author: 'NLSI'\n"
@@ -153,9 +199,11 @@ bool TestModLogParsingAndSourceLinks() {
             "source: Steam Workshop\n"
         "00:00:04.000 : [mods] Active local mod ID: 222222222, name: Local-only\n"
         "00:00:05.000 : [mods] Active workshop mod ID: 18446744073709551616\n");
-    const QByteArray ats_log = QByteArrayLiteral(
-        "00:00:01.000 : [mods] Active workshop mod ID: 987654321, name: ATS skin, "
-            "version: 2.0\n");
+    const QString long_ats_mod_name(240, QLatin1Char('X'));
+    const QByteArray ats_log = QStringLiteral(
+        "00:00:00.000 : [sys] Game version: 1.58\n"
+        "00:00:01.000 : [mods] Active workshop mod ID: 987654321, name: \"%1\", "
+        "version: 2.0\n").arg(long_ats_mod_name).toUtf8();
     if (!WriteTextFile(ets2_path, ets2_log) || !WriteTextFile(ats_path, ats_log)) {
         std::cerr << "ETS2/ATS game-log fixtures could not be written.\n";
         return false;
@@ -165,14 +213,21 @@ bool TestModLogParsingAndSourceLinks() {
     const auto ats = nlsi::gui::modlog::ReadGameLog(ats_path);
     const auto missing = nlsi::gui::modlog::ReadGameLog(
         directory.filePath(QStringLiteral("missing/game.log.txt")));
-    if (!ets2.error.isEmpty() || ets2.mods.size() != 1
-        || ets2.mods.front().id != QStringLiteral("123456789")
-        || ets2.mods.front().name != QStringLiteral("Pink Truck")
-        || ets2.mods.front().version != QStringLiteral("1.3")
-        || ets2.mods.front().author != QStringLiteral("NLSI")
+    const auto* active_workshop = FindMod(ets2, QStringLiteral("123456789"));
+    const auto* subscribed_workshop = FindMod(ets2, QStringLiteral("111111111"));
+    const auto* active_local = FindMod(ets2, QStringLiteral("222222222"));
+    if (!ets2.error.isEmpty() || ets2.mods.size() != 3
+        || !ets2.session_boundary_known || !active_workshop
+        || active_workshop->name != QStringLiteral("Pink Truck")
+        || active_workshop->version != QStringLiteral("1.3")
+        || active_workshop->author != QStringLiteral("NLSI")
+        || !active_workshop->active_workshop
+        || !subscribed_workshop || !subscribed_workshop->subscribed
+        || subscribed_workshop->active_workshop
+        || !active_local || !active_local->active_local
         || !ats.error.isEmpty() || ats.mods.size() != 1
         || ats.mods.front().id != QStringLiteral("987654321")
-        || ats.mods.front().name != QStringLiteral("ATS skin")
+        || ats.mods.front().name != long_ats_mod_name
         || ats.mods.front().version != QStringLiteral("2.0")
         || !missing.mods.isEmpty()
         || !missing.error.contains(QStringLiteral("not found"))) {
@@ -189,13 +244,31 @@ bool TestModLogParsingAndSourceLinks() {
     }
     stale_fixture.close();
     const auto stale = nlsi::gui::modlog::ReadGameLog(ets2_path);
-    if (!stale.error.isEmpty() || !stale.stale || stale.mods.size() != 1) {
+    if (!stale.error.isEmpty() || !stale.stale || stale.mods.size() != 3) {
         std::cerr << "A stale log was not flagged while retaining its parsed active entries.\n";
+        return false;
+    }
+    const HANDLE read_lock = CreateFileW(
+        reinterpret_cast<LPCWSTR>(ets2_path.utf16()),
+        GENERIC_READ,
+        0,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (read_lock == INVALID_HANDLE_VALUE) {
+        std::cerr << "An unreadable-log fixture could not be locked.\n";
+        return false;
+    }
+    const auto unreadable = nlsi::gui::modlog::ReadGameLog(ets2_path);
+    CloseHandle(read_lock);
+    if (!unreadable.error.contains(QStringLiteral("could not be read"))) {
+        std::cerr << "An unreadable game log did not report its read failure.\n";
         return false;
     }
 
     const QUrl source = nlsi::gui::modlog::WorkshopSourceUrl(
-        ets2.mods.front().id);
+        active_workshop->id);
     const QUrl invalid_source = nlsi::gui::modlog::WorkshopSourceUrl(
         QStringLiteral("../123"));
     if (!source.isValid()
@@ -209,13 +282,16 @@ bool TestModLogParsingAndSourceLinks() {
 
     nlsi::gui::ActiveModsPage active_mods_page(nullptr, directory.path(), false);
     active_mods_page.show();
-    QApplication::processEvents();
+    if (!WaitForModLogInitialization(active_mods_page)) {
+        std::cerr << "The Active Mods page did not finish asynchronous log initialization.\n";
+        return false;
+    }
     const auto links = active_mods_page.findChildren<QLabel*>(
         QStringLiteral("modSourceLink"));
-    if (links.size() != 2
+    if (links.size() != 4
         || !links.front()->text().contains(QStringLiteral("steamcommunity.com"))
         || active_mods_page.findChildren<QLabel*>(
-            QStringLiteral("modThumbnail")).size() != 2) {
+            QStringLiteral("modThumbnail")).size() != 4) {
         std::cerr << "The per-game mod cards did not display active mods with source links "
             "and thumbnail slots.\n";
         return false;
@@ -226,6 +302,249 @@ bool TestModLogParsingAndSourceLinks() {
         || !tabs->tabText(0).contains(QStringLiteral("Euro Truck"))
         || !tabs->tabText(1).contains(QStringLiteral("American Truck"))) {
         std::cerr << "The Active Mods page does not separate ETS2 and ATS game logs.\n";
+        return false;
+    }
+    tabs->setCurrentIndex(1);
+    active_mods_page.resize(900, 600);
+    QApplication::processEvents();
+    const auto names = active_mods_page.findChildren<QLabel*>(
+        QStringLiteral("modName"));
+    QLabel* long_mod_name = nullptr;
+    for (QLabel* name : names) {
+        if (name->accessibleName() == long_ats_mod_name) {
+            long_mod_name = name;
+            break;
+        }
+    }
+    if (!long_mod_name || !long_mod_name->wordWrap()
+        || !long_mod_name->text().contains(QChar(0x200b))) {
+        std::cerr << "A very long mod identifier did not receive a wrap opportunity.\n";
+        return false;
+    }
+    active_mods_page.resize(1100, 750);
+    QApplication::processEvents();
+    auto* ets2_reinitialize = active_mods_page.findChild<QPushButton*>(
+        QStringLiteral("reinitializeEts2LogButton"));
+    auto* ats_reinitialize = active_mods_page.findChild<QPushButton*>(
+        QStringLiteral("reinitializeAtsLogButton"));
+    tabs->setCurrentIndex(0);
+    QApplication::processEvents();
+    const bool ets2_control_visible = ets2_reinitialize
+        && ets2_reinitialize->isVisibleTo(&active_mods_page);
+    tabs->setCurrentIndex(1);
+    QApplication::processEvents();
+    const bool ats_control_visible = ats_reinitialize
+        && ats_reinitialize->isVisibleTo(&active_mods_page);
+    if (!ets2_control_visible || !ats_control_visible) {
+        std::cerr << "A Reinitialize control became inaccessible while resizing the page.\n";
+        return false;
+    }
+    tabs->setCurrentIndex(0);
+
+    auto* reinitialize = active_mods_page.findChild<QPushButton*>(
+        QStringLiteral("reinitializeEts2LogButton"));
+    if (!reinitialize || reinitialize->text() != QStringLiteral("Reinitialize")
+        || reinitialize->accessibleName().isEmpty()) {
+        std::cerr << "The ETS2 log reinitialization control is missing or inaccessible.\n";
+        return false;
+    }
+    reinitialize->click();
+    reinitialize->click();
+    if (reinitialize->isEnabled()
+        || !WaitForModLogInitialization(active_mods_page)) {
+        std::cerr << "Repeated reinitialization was not serialized or did not complete.\n";
+        return false;
+    }
+    const auto timers = active_mods_page.findChildren<QTimer*>(
+        QStringLiteral("activeModsRefreshTimer"));
+    if (timers.size() != 1 || !timers.front()->isActive()) {
+        std::cerr << "Repeated reinitialization created duplicate log monitors.\n";
+        return false;
+    }
+    return true;
+}
+
+bool TestIncrementalGameLogMonitoring() {
+    QTemporaryDir directory;
+    if (!directory.isValid()) {
+        return false;
+    }
+    const QString path = nlsi::gui::modlog::GameLogPath(
+        directory.path(), QStringLiteral("Euro Truck Simulator 2"));
+    const QByteArray initial = QByteArrayLiteral(
+        "00:00:00.000 : [sys] Executable: eurotrucks2.exe\n"
+        "00:00:01.000 : [mods] Subscribed workshop mod ID: 111111111\n"
+        "00:00:02.000 : [mods] Active workshop mod ID: 123456789, name: \"Café 🚚\"\n"
+        "00:00:03.000 : [mod_package_manager] Mounted mod package: promods-map-v1.scs\n"
+        "00:00:04.000 : [mod_package_manager] Mounted mod package: promods-assets-v2.scs\n"
+        "00:00:05.000 : [mods] Active local mod ID: local_pack, name: Local-only\n");
+    if (!WriteTextFile(path, initial)) {
+        return false;
+    }
+    auto state = nlsi::gui::modlog::ReadGameLog(path);
+    const auto* subscribed = FindMod(state, QStringLiteral("111111111"));
+    const auto* active = FindMod(state, QStringLiteral("123456789"));
+    const auto* local = FindMod(state, QStringLiteral("local_pack"));
+    const auto* package = FindMod(state, QStringLiteral("promods"));
+    if (!state.error.isEmpty() || !state.initialized || state.offset != initial.size()
+        || !state.session_boundary_known || !subscribed || subscribed->active_workshop
+        || !active || active->name != QString::fromUtf8("Café 🚚")
+        || !active->active_workshop || !local || !local->active_local
+        || !package || !package->mounted
+        || std::count_if(state.mods.cbegin(), state.mods.cend(),
+            [](const auto& mod) { return mod.name == QStringLiteral("ProMods"); }) != 1) {
+        std::cerr << "Initial session evidence or archive grouping was incorrect: "
+                  << "error=" << state.error.toStdString()
+                  << ", initialized=" << state.initialized
+                  << ", boundary=" << state.session_boundary_known
+                  << ", mods=" << state.mods.size()
+                  << ", subscribed=" << (subscribed != nullptr)
+                  << ", active=" << (active != nullptr)
+                  << ", local=" << (local != nullptr)
+                  << ", mounted=" << (package != nullptr && package->mounted)
+                  << ", entries=";
+        for (const auto& mod : state.mods) {
+            std::cerr << '[' << mod.id.toStdString() << ':'
+                      << mod.name.toStdString() << ':'
+                      << mod.mounted << ']';
+        }
+        std::cerr << ".\n";
+        return false;
+    }
+    const QString uncertain_path = directory.filePath(
+        QStringLiteral("uncertain/game.log.txt"));
+    if (!WriteTextFile(uncertain_path, QByteArrayLiteral(
+            "00:00:08.000 : [mods] Active workshop mod ID: 909090909\n"))) {
+        return false;
+    }
+    const auto uncertain = nlsi::gui::modlog::ReadGameLog(uncertain_path);
+    if (!uncertain.error.isEmpty() || uncertain.session_boundary_known
+        || !FindMod(uncertain, QStringLiteral("909090909"))) {
+        std::cerr << "An uncertain session boundary was treated as confirmed.\n";
+        return false;
+    }
+
+    QFile append(path);
+    if (!append.open(QIODevice::WriteOnly | QIODevice::Append)
+        || append.write("00:00:06.000 : [mods] Active workshop mod ID: 777777777, name: \"") < 0
+        || append.write(QString::fromUtf8("東京 🚛").toUtf8()) < 0
+        || append.write("\"") != 1) {
+        return false;
+    }
+    append.close();
+    if (!nlsi::gui::modlog::ReadAppendedGameLog(path, state)
+        || FindMod(state, QStringLiteral("777777777"))) {
+        std::cerr << "An incomplete appended UTF-8 line was parsed prematurely.\n";
+        return false;
+    }
+    if (!append.open(QIODevice::WriteOnly | QIODevice::Append)
+        || append.write("\n") != 1) {
+        return false;
+    }
+    append.close();
+    if (!nlsi::gui::modlog::ReadAppendedGameLog(path, state)) {
+        std::cerr << "A completed appended line could not be read incrementally.\n";
+        return false;
+    }
+    const auto* appended = FindMod(state, QStringLiteral("777777777"));
+    if (!appended || appended->name != QString::fromUtf8("東京 🚛")) {
+        std::cerr << "The completed UTF-8 line was corrupted or not deduplicated.\n";
+        return false;
+    }
+
+    const QByteArray restarted_in_place = QByteArrayLiteral(
+        "00:00:00.000 : [sys] Game version: 1.58\n"
+        "00:00:01.000 : [mods] Active workshop mod ID: 555555555, name: New session\n");
+    QFile restart_append(path);
+    if (!restart_append.open(QIODevice::WriteOnly | QIODevice::Append)
+        || restart_append.write(restarted_in_place) != restarted_in_place.size()) {
+        return false;
+    }
+    restart_append.close();
+    if (!nlsi::gui::modlog::ReadAppendedGameLog(path, state)
+        || !state.session_boundary_known
+        || FindMod(state, QStringLiteral("123456789"))
+        || !FindMod(state, QStringLiteral("555555555"))) {
+        std::cerr << "An appended game restart did not establish a fresh session.\n";
+        return false;
+    }
+
+    const QByteArray restarted = QByteArrayLiteral(
+        "00:00:00.000 : [sys] Executable: eurotrucks2.exe\n"
+        "00:00:01.000 : [mods] Active workshop mod ID: 888888888, name: Fresh\n");
+    if (!WriteTextFile(path, restarted)
+        || !nlsi::gui::modlog::GameLogNeedsReinitialize(path, state)) {
+        std::cerr << "Log truncation was not detected before incremental reading.\n";
+        return false;
+    }
+    state = nlsi::gui::modlog::ReadGameLog(path);
+    if (!state.error.isEmpty() || !state.session_boundary_known
+        || FindMod(state, QStringLiteral("123456789"))
+        || !FindMod(state, QStringLiteral("888888888"))) {
+        std::cerr << "A restarted game log retained stale mod evidence.\n";
+        return false;
+    }
+
+    const QString rotated_path = directory.filePath(
+        QStringLiteral("Euro Truck Simulator 2/game.log.txt.rotated"));
+    if (!QFile::rename(path, rotated_path)
+        || !WriteTextFile(path, restarted)
+        || !nlsi::gui::modlog::GameLogNeedsReinitialize(path, state)) {
+        std::cerr << "Replacement/rotation of the game log was not detected.\n";
+        return false;
+    }
+    const auto missing = nlsi::gui::modlog::ReadGameLog(
+        directory.filePath(QStringLiteral("missing/game.log.txt")));
+    const auto not_a_file = nlsi::gui::modlog::ReadGameLog(directory.path());
+    if (!missing.error.contains(QStringLiteral("not found"))
+        || !not_a_file.error.contains(QStringLiteral("not found"))) {
+        std::cerr << "Missing and non-file log paths were not reported clearly.\n";
+        return false;
+    }
+    return true;
+}
+
+bool TestMonitorStartsBeforeGame() {
+    QTemporaryDir directory;
+    if (!directory.isValid()) {
+        return false;
+    }
+    nlsi::gui::ActiveModsPage page(nullptr, directory.path(), false);
+    page.show();
+    QApplication::processEvents();
+    auto* tabs = page.findChild<QTabWidget*>(QStringLiteral("activeModsGames"));
+    auto* ets2_page = tabs ? tabs->widget(0) : nullptr;
+    auto* status = ets2_page
+        ? ets2_page->findChild<QLabel*>(QStringLiteral("activeModsStatus"))
+        : nullptr;
+    if (!status) {
+        return false;
+    }
+    const QString path = nlsi::gui::modlog::GameLogPath(
+        directory.path(), QStringLiteral("Euro Truck Simulator 2"));
+    if (!WriteTextFile(path, QByteArrayLiteral(
+            "00:00:00.000 : [sys] Executable: eurotrucks2.exe\n"
+            "00:00:01.000 : [mods] Active workshop mod ID: 101010101\n"))) {
+        return false;
+    }
+
+    QEventLoop loop;
+    QTimer poll;
+    QTimer timeout;
+    poll.setInterval(20);
+    timeout.setSingleShot(true);
+    QObject::connect(&poll, &QTimer::timeout, &loop, [&] {
+        if (status->text().contains(QStringLiteral("Monitoring game log"))) {
+            loop.quit();
+        }
+    });
+    QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timeout.start(5000);
+    poll.start();
+    loop.exec();
+    if (!status->text().contains(QStringLiteral("Monitoring game log"))
+        || !FindMod(nlsi::gui::modlog::ReadGameLog(path), QStringLiteral("101010101"))) {
+        std::cerr << "A game log created after the app opened was not detected.\n";
         return false;
     }
     return true;
@@ -774,7 +1093,7 @@ bool TestSingleInstanceGuard(QApplication& application) {
 
 bool TestOfflineUpdateCheck() {
     nlsi::updater::GitHubUpdater updater(
-        QStringLiteral("1.4.6-beta"),
+        QStringLiteral("1.4.7-beta"),
         nullptr,
         QUrl(QStringLiteral("http://127.0.0.1:1/releases")));
     QEventLoop loop;
@@ -812,8 +1131,10 @@ int main(int argc, char** argv) {
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.4.6-beta"));
+    application.setApplicationVersion(QStringLiteral("v1.4.7-beta"));
     if (!TestModLogParsingAndSourceLinks()
+        || !TestIncrementalGameLogMonitoring()
+        || !TestMonitorStartsBeforeGame()
         || !TestHistoryPagesLoadPersistedRows()) {
         return 1;
     }
@@ -826,7 +1147,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.6-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.7-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -944,7 +1265,7 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.4.6-beta");
+            || label->text() == QStringLiteral("v1.4.7-beta");
         found_beta_channel = found_beta_channel
             || label->text() == QStringLiteral("Beta");
         if (label->text() == QStringLiteral("Product") && label->parentWidget()) {
@@ -962,7 +1283,7 @@ int main(int argc, char** argv) {
         for (QFrame* row : page.findChildren<QFrame*>(QStringLiteral("detailRow"))) {
             QLabel* name = row->findChild<QLabel*>(QStringLiteral("detailLabel"));
             QLabel* value = row->findChild<QLabel*>(QStringLiteral("detailValue"));
-            if (!name || !value || name->wordWrap() || value->wordWrap()
+            if (!name || !value || !name->wordWrap() || !value->wordWrap()
                 || name->geometry().right() >= value->geometry().left()) {
                 std::cerr << "Invalid detail row: "
                           << (name ? name->text().toStdString() : "<missing label>")

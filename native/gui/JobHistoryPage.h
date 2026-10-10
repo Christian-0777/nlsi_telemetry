@@ -16,10 +16,13 @@ class QStandardItemModel;
 class QTabWidget;
 class QPushButton;
 class QNetworkAccessManager;
+class QFileSystemWatcher;
 class QTimer;
 class QVBoxLayout;
 class QShowEvent;
 class QHideEvent;
+template <typename T>
+class QFutureWatcher;
 
 namespace nlsi::gui {
 
@@ -94,17 +97,24 @@ private:
         QWidget* page = nullptr;
         QLabel* message = nullptr;
         QVBoxLayout* mods_layout = nullptr;
+        QPushButton* reinitialize_button = nullptr;
+        QFutureWatcher<modlog::GameLogResult>* init_watcher = nullptr;
         modlog::GameLogResult result;
+        QString status;
         QString signature;
-        qint64 file_size = -1;
+        QDateTime retry_after;
+        bool manual_reinitialize = false;
+        bool initializing = false;
     };
 
     void RefreshLogs();
+    void InitializeLog(qsizetype panel_index, bool manual);
     void RenderGamePanel(GamePanel& panel);
     void LoadThumbnail(const QString& workshop_id);
 
     QVector<GamePanel> game_panels_;
     QNetworkAccessManager* network_ = nullptr;
+    QFileSystemWatcher* file_watcher_ = nullptr;
     QTimer* refresh_timer_ = nullptr;
     QHash<QString, QPixmap> thumbnails_;
     QSet<QString> checked_thumbnails_;

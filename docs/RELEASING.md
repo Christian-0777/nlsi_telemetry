@@ -9,8 +9,8 @@ publish or upload anything.
 ## Build and verify
 
 Configure a version-specific Visual Studio 2022 x64 CMake directory such as
-`build\cmake-v1.4.3-beta`. Do not reuse or reconfigure the existing
-`build\cmake` cache or overwrite the completed v1.4.2-beta release outputs.
+`build\cmake-v1.4.7-beta`. Do not reuse or reconfigure the existing
+`build\cmake` cache or overwrite completed earlier release outputs.
 
 ```bat
 build-release.bat
@@ -23,14 +23,14 @@ metadata, official TruckSim GPS x64/x86 plugin hashes, license notices, and the
 automatic safe-install policy before staging Qt/MSVC dependencies and
 compiling the Inno Setup definition.
 
-Expected outputs for v1.4.3-beta:
+Expected outputs for v1.4.7-beta:
 
-- `build\releases\v1.4.3-beta\NLSI-Exclusive-Logbook.exe`
-- `build\releases\v1.4.3-beta\NLSI-Exclusive-Logbook-v1.4.3-beta-Setup.exe`
-- `build\intermediate\v1.4.3-beta\installer-payload-v1.4.3-beta`
+- `build\releases\v1.4.7-beta\NLSI-Exclusive-Logbook.exe`
+- `build\releases\v1.4.7-beta\NLSI-Exclusive-Logbook-v1.4.7-beta-Setup.exe`
+- `build\intermediate\v1.4.7-beta\installer-payload-v1.4.7-beta`
 
-Previously built v1.4.2-beta artifacts remain unchanged. The v1.4.3 Beta build
-retains revision-13 raw sample capture locally. No
+Previously built v1.4.6-beta artifacts remain unchanged. The v1.4.7 Beta build
+adds incremental ETS2/ATS game-log monitoring and text-wrapping improvements. No
 authenticated backend or gameplay upload endpoint is implemented; release
 notes and the installer must continue to describe synchronization as local
 Pending only. The updater reads public release metadata but does not download or

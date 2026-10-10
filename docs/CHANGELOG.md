@@ -2,6 +2,14 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.4.7-beta
+
+- Initializes ETS2/ATS `game.log.txt` files when available, parses the current session once, and incrementally monitors appended lines with replacement, truncation, rotation, restart, partial-line, and UTF-8 handling.
+- Adds per-game Reinitialize controls with asynchronous parsing and explicit initializing, monitoring, unavailable, read-error, and completion states.
+- Separates subscribed, mounted, active Workshop, and active local evidence; ambiguous log boundaries are reported instead of confirming stale entries.
+- Adds generic archive deduplication/grouping for ProMods packages and responsive text wrapping, table elision, and path handling.
+- Updates version metadata while preserving existing providers, schemas, branding, installation identity, user data, and prior release artifacts.
+
 ## v1.4.5-beta
 
 - Stops telemetry producers before requesting a writer drain and reports draining, completed, timed-out, and failed shutdown states; slow work remains cancellable from the UI without terminating its worker.

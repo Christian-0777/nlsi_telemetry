@@ -34,7 +34,8 @@ public:
         button->setAccessibleName(QStringLiteral("Check for Updates"));
         status = new QLabel(QStringLiteral("Checking for published releases…"), this);
         status->setObjectName(QStringLiteral("updateCheckStatus"));
-        status->setWordWrap(false);
+        status->setWordWrap(true);
+        status->setMinimumWidth(0);
         status->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         layout->addWidget(button);
         layout->addWidget(status, 1);

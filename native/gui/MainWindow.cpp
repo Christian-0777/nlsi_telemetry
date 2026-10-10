@@ -94,9 +94,11 @@ MainWindow::MainWindow(
     header_text->setSpacing(2);
     active_page_title_ = new QLabel(QStringLiteral("Dashboard"), header);
     active_page_title_->setObjectName(QStringLiteral("headerTitle"));
+    active_page_title_->setWordWrap(true);
     active_page_subtitle_ = new QLabel(
         QStringLiteral("Driving telemetry, current job, and navigation status."), header);
     active_page_subtitle_->setObjectName(QStringLiteral("headerSubtitle"));
+    active_page_subtitle_->setWordWrap(true);
     header_text->addWidget(active_page_title_);
     header_text->addWidget(active_page_subtitle_);
     const QString version_label = QString::fromStdWString(version);
@@ -104,7 +106,7 @@ MainWindow::MainWindow(
     header_clock_->setObjectName(QStringLiteral("headerClock"));
     header_clock_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     header_clock_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    header_layout->addLayout(header_text);
+    header_layout->addLayout(header_text, 1);
     header_layout->addStretch(1);
     header_layout->addWidget(header_clock_);
     content_layout->addWidget(header);

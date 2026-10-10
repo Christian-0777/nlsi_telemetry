@@ -55,6 +55,7 @@ OUTPUT_EXE = RELEASE_DIR / f"NLSI-Exclusive-Logbook-{RELEASE_TAG}-Setup.exe"
 
 REQUIRED_RUNTIME_FILES = (
     "Qt6Core.dll",
+    "Qt6Concurrent.dll",
     "Qt6Gui.dll",
     "Qt6Network.dll",
     "Qt6Svg.dll",
@@ -338,6 +339,12 @@ def prepare_runtime(app_exe: Path) -> None:
     ]
     print("Deploying Qt plugins and the MSVC runtime into the installer payload...")
     subprocess.run(command, cwd=ROOT, check=True)
+    concurrent_runtime = deploy_tool.parent / "Qt6Concurrent.dll"
+    if not concurrent_runtime.is_file():
+        raise FileNotFoundError(
+            f"The Qt Concurrent runtime is missing: {concurrent_runtime}"
+        )
+    shutil.copy2(concurrent_runtime, PAYLOAD_DIR / concurrent_runtime.name)
     copy_msvc_runtime()
     missing = [
         name

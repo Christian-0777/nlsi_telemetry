@@ -16,6 +16,28 @@
 #include <QVBoxLayout>
 
 namespace nlsi::gui {
+namespace {
+
+QString WrapLongTokens(const QString& text) {
+    QString wrapped;
+    wrapped.reserve(text.size() + text.size() / 28);
+    qsizetype token_length = 0;
+    for (const QChar character : text) {
+        if (character.isSpace()) {
+            token_length = 0;
+        } else if (!character.isLowSurrogate() && token_length >= 28) {
+            wrapped += QChar(0x200b);
+            token_length = 0;
+        }
+        wrapped += character;
+        if (!character.isLowSurrogate()) {
+            ++token_length;
+        }
+    }
+    return wrapped;
+}
+
+} // namespace
 
 QString FieldText(const telemetry::TelemetryField<std::wstring>& field) {
     if (!field.available) {
@@ -103,12 +125,13 @@ void DetailPage::AddField(const QString& key, const QString& label) {
     row_layout->setSpacing(16);
     auto* name = new QLabel(label, row);
     name->setObjectName(QStringLiteral("detailLabel"));
-    name->setWordWrap(false);
-    name->setFixedWidth(190);
-    name->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    name->setWordWrap(true);
+    name->setMinimumWidth(0);
+    name->setMaximumWidth(190);
+    name->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     auto* value = new QLabel(QStringLiteral("--"), row);
     value->setObjectName(QStringLiteral("detailValue"));
-    value->setWordWrap(false);
+    value->setWordWrap(true);
     value->setMinimumWidth(0);
     value->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     value->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -145,9 +168,12 @@ void DetailPage::SetExternalLink(const QString& key, const QString& label, const
 
 void DetailPage::SetValue(const QString& key, const QString& value) {
     QLabel* label = values_.value(key, nullptr);
-    if (label && label->text() != value) {
-        label->setText(value);
+    const QString display_value = label && label->textFormat() == Qt::PlainText
+        ? WrapLongTokens(value) : value;
+    if (label && label->text() != display_value) {
+        label->setText(display_value);
         label->setToolTip(value);
+        label->setAccessibleName(value);
     }
 }
 
