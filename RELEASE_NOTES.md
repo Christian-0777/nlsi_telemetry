@@ -1,3 +1,57 @@
+# NLSI Exclusive Logbook v1.5.3-beta
+
+This beta adds SDK-backed vehicle fuel and parking-brake telemetry, presentation
+unit preferences, and clearer travel expense reporting while retaining the
+existing application architecture, IPC, history format, and per-user data path.
+
+## What's changed
+
+- Uses SCS Telemetry SDK 1.15 `truck.fuel.amount` (float, litres) and the truck
+  configuration `fuel.capacity` attribute (float, litres) to calculate fuel
+  percentage only when both values are available and valid. The existing fuel
+  reading is underlined red at or below 20%; missing, stale, invalid, or
+  unsupported values do not produce a percentage or warning. Raw values remain
+  unchanged.
+- Reads `truck.brake.parking` (bool) and displays engaged, released, or unknown
+  state next to the existing service-brake value. A missing/unsupported channel
+  remains unknown; service-brake telemetry is not replaced.
+- Adds Metric (default) and US customary settings for supported speed,
+  distance, fuel volume, fuel economy, and mass displays, including historical
+  details, travel summaries, and job PDF presentation. Stored/raw values are
+  not rewritten. US MPG is calculated from valid positive L/100 km using the
+  US-gallon conversion; it is unavailable when economy is invalid or zero.
+- Includes recorded SCS fines, tolls, ferry and train charges in travel
+  history/expense notifications when supplied. Events are deduplicated through
+  the existing persistence path; missing amounts are shown as unavailable.
+- Adds unchecked post-install completion choices for the CEO's TikTok and the
+  developer Discord. Each link opens only when selected; setup continues
+  without waiting for a browser.
+- Builds version-scoped x64 and x86 SCS plugin DLLs from the repository source
+  with the installed SCS SDK 1.15. Installer staging verifies architecture and
+  checks for the SDK channel identifiers, and includes x64 and x86 Visual C++
+  redistributables.
+
+## Requirements and limitations
+
+- The SCS plugin requires ETS2 or ATS with SCS Telemetry SDK 1.15-compatible
+  telemetry support. The app's existing TruckSim GPS provider remains separate.
+- Fuel capacity is sourced from SDK truck configuration. When the SDK does not
+  provide capacity or either live channel, the low-fuel warning is suppressed.
+- Expense labels use the game's native in-game currency; no currency conversion
+  is performed.
+- Automated validation completed on this Windows build host: native Release
+  application and x64/x86 SCS plugin builds, all 46 Python tests, and both
+  Release CTest targets passed. The installer compiled successfully and the
+  staged payload includes the newly built plugins and both redistributables.
+- DLL PE architectures and required fuel/capacity/parking channel strings were
+  inspected in both release DLLs. A real fresh install/upgrade, ETS2/ATS live
+  gameplay, and in-game state changes were not tested in this environment.
+
+Expected installer:
+`build/releases/v1.5.3-beta/NLSI-Exclusive-Logbook-v1.5.3-beta-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.5.2-beta
 
 This beta release combines NLSI SCS configuration/gameplay events with

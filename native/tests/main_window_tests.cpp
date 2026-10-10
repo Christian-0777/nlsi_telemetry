@@ -2,6 +2,7 @@
 #include <QAbstractButton>
 #include <QCryptographicHash>
 #include <QColor>
+#include <QComboBox>
 #include <QCloseEvent>
 #include <QDateTime>
 #include <QGridLayout>
@@ -24,6 +25,7 @@
 #include <QSize>
 #include <QSet>
 #include <QStandardPaths>
+#include <QSettings>
 #include <QScrollBar>
 #include <QStackedWidget>
 #include <QTableView>
@@ -55,6 +57,7 @@
 #include "gui/MainWindow.h"
 #include "gui/ModLogParser.h"
 #include "gui/PageSupport.h"
+#include "gui/MeasurementUnits.h"
 #include "gui/ProvidersPage.h"
 #include "gui/AboutPage.h"
 #include "app/SingleInstance.h"
@@ -695,7 +698,7 @@ bool TestHistoryPagesLoadPersistedRows() {
         || !delivered_values.contains(QStringLiteral("Berlin"))
         || !delivered_values.contains(QStringLiteral("Paris"))
         || !delivered_values.contains(QStringLiteral("25000"))
-        || !delivered_values.contains(QStringLiteral("1200 km"))
+        || !delivered_values.contains(QStringLiteral("1,200.00 km"))
         || !delivered_values.contains(QStringLiteral("Germany"))
         || !delivered_values.contains(QStringLiteral("France"))
         || !delivered_values.contains(QStringLiteral(
@@ -1352,7 +1355,144 @@ bool TestDashboardCruiseControlIndicators() {
     return true;
 }
 
+bool TestLowFuelWarningAndParkingBrakeStates() {
+    nlsi::gui::DashboardPage page;
+    nlsi::telemetry::TelemetryUiState state;
+    auto& snapshot = state.fast.values;
+    snapshot.connected = true;
+    snapshot.effective_brake.Set(0.1, L"TruckSim GPS", L"sample");
+    snapshot.fuel_liters.Set(200.0, L"SCS SDK channel", L"sample");
+    snapshot.fuel_capacity_liters.Set(1000.0, L"SCS SDK configuration", L"sample");
+    snapshot.parking_brake.Set(true, L"SCS SDK channel", L"sample");
+    page.UpdateState(state);
+
+    QLabel* fuel = FindDashboardField(page, QStringLiteral("fuel"));
+    QLabel* parking = page.findChild<QLabel*>(QStringLiteral("parkingBrakeIndicator"));
+    if (!fuel || !parking || !fuel->font().underline()
+        || !fuel->styleSheet().contains(QStringLiteral("#f05b68"))
+        || parking->text() != QStringLiteral("P")
+        || parking->accessibleName() != QStringLiteral("Parking brake engaged")
+        || !parking->styleSheet().contains(QStringLiteral("#b63d50"))
+        || fuel->text().contains(QLatin1Char('%'))) {
+        std::cerr << "Fuel warning or confirmed parking-brake ON state was not displayed safely.\n";
+        return false;
+    }
+
+    snapshot.fuel_liters.Set(200.1, L"SCS SDK channel", L"sample");
+    snapshot.parking_brake.Set(false, L"SCS SDK channel", L"sample");
+    page.UpdateState(state);
+    if (fuel->font().underline() || !fuel->styleSheet().isEmpty()
+        || parking->accessibleName() != QStringLiteral("Parking brake released")
+        || parking->styleSheet().contains(QStringLiteral("#b63d50"))) {
+        std::cerr << "Fuel warning did not clear above 20 percent or parking-brake OFF was wrong.\n";
+        return false;
+    }
+
+    snapshot.fuel_liters.Set(199.9, L"SCS SDK channel", L"sample");
+    snapshot.parking_brake.MarkStale();
+    page.UpdateState(state);
+    if (!fuel->font().underline()
+        || parking->text() != QStringLiteral("?")
+        || parking->accessibleName() != QStringLiteral("Parking brake state unknown")) {
+        std::cerr << "Below-threshold fuel or stale parking-brake state was not handled safely.\n";
+        return false;
+    }
+
+    snapshot.fuel_capacity_liters.Set(0.0, L"SCS SDK configuration", L"sample");
+    snapshot.parking_brake = {};
+    page.UpdateState(state);
+    if (fuel->font().underline()
+        || parking->text() != QStringLiteral("?")
+        || !parking->styleSheet().contains(QStringLiteral("#37323b"))) {
+        std::cerr << "Invalid capacity or missing parking telemetry was treated as confirmed.\n";
+        return false;
+    }
+    return true;
+}
+
+bool TestMeasurementUnitConversionsAndSettings() {
+    QSettings settings(QStringLiteral("NLSI"), QStringLiteral("Exclusive Logbook"));
+    const QString key = QStringLiteral("measurement/system");
+    const bool had_previous_value = settings.contains(key);
+    const QVariant previous_value = settings.value(key);
+    struct RestoreSetting {
+        QSettings& settings;
+        QString key;
+        bool had_value;
+        QVariant value;
+        ~RestoreSetting() {
+            if (had_value) {
+                settings.setValue(key, value);
+            } else {
+                settings.remove(key);
+            }
+        }
+    } restore_setting{settings, key, had_previous_value, previous_value};
+    settings.remove(key);
+    if (nlsi::gui::CurrentMeasurementSystem()
+        != nlsi::gui::MeasurementSystem::Metric) {
+        std::cerr << "Measurement settings did not default to Metric.\n";
+        return false;
+    }
+    const double distance_miles = nlsi::gui::DisplayDistance(
+        10.0, nlsi::gui::MeasurementSystem::USCustomary);
+    const double speed_mph = nlsi::gui::DisplaySpeed(
+        100.0, nlsi::gui::MeasurementSystem::USCustomary);
+    const double fuel_gallons = nlsi::gui::DisplayFuelVolume(
+        3.785411784, nlsi::gui::MeasurementSystem::USCustomary);
+    const double mass_pounds = nlsi::gui::DisplayMassKilograms(
+        1.0, nlsi::gui::MeasurementSystem::USCustomary);
+    const auto mpg = nlsi::gui::DisplayFuelEconomy(
+        10.0, nlsi::gui::MeasurementSystem::USCustomary);
+    if (std::abs(distance_miles - 6.21371192237334) > 0.000001
+        || std::abs(speed_mph - 62.1371192237334) > 0.000001
+        || std::abs(fuel_gallons - 1.0) > 0.000001
+        || std::abs(mass_pounds - 2.20462262185) > 0.000001
+        || !mpg || std::abs(*mpg - 23.5214583) > 0.000001
+        || nlsi::gui::DisplayFuelEconomy(
+            0.0, nlsi::gui::MeasurementSystem::USCustomary)) {
+        std::cerr << "A presentation-boundary unit conversion was incorrect.\n";
+        return false;
+    }
+
+    nlsi::gui::SetMeasurementSystem(nlsi::gui::MeasurementSystem::Metric);
+    nlsi::telemetry::TelemetryCore telemetry_core;
+    nlsi::gui::MainWindow window(
+        L"NLSI Exclusive Logbook", L"v1.5.3-beta", telemetry_core);
+    QComboBox* selector = window.findChild<QComboBox*>(
+        QStringLiteral("measurementSystemSelector"));
+    if (!selector || selector->count() != 2
+        || selector->itemText(0) != QStringLiteral("Metric")
+        || selector->itemText(1) != QStringLiteral("US customary")) {
+        std::cerr << "Settings does not expose the Metric and US customary options.\n";
+        return false;
+    }
+    selector->setCurrentIndex(1);
+    if (nlsi::gui::CurrentMeasurementSystem()
+        != nlsi::gui::MeasurementSystem::USCustomary) {
+        std::cerr << "Selecting US customary did not persist the presentation setting.\n";
+        return false;
+    }
+    selector->setCurrentIndex(0);
+    if (nlsi::gui::CurrentMeasurementSystem()
+        != nlsi::gui::MeasurementSystem::Metric) {
+        std::cerr << "Selecting Metric did not persist the presentation setting.\n";
+        return false;
+    }
+    return true;
+}
+
 bool TestDashboardLayoutAndResponsiveText() {
+    const nlsi::gui::MeasurementSystem previous_units =
+        nlsi::gui::CurrentMeasurementSystem();
+    struct RestoreMeasurementSystem {
+        nlsi::gui::MeasurementSystem value;
+        ~RestoreMeasurementSystem() {
+            nlsi::gui::SetMeasurementSystem(value);
+        }
+    } restore_units{previous_units};
+    nlsi::gui::SetMeasurementSystem(nlsi::gui::MeasurementSystem::USCustomary);
+
     nlsi::gui::DashboardPage page;
     nlsi::session::HistorySnapshot history;
     history.events = {
@@ -1380,7 +1520,7 @@ bool TestDashboardLayoutAndResponsiveText() {
             >= travel_summary->toPlainText().indexOf(QStringLiteral("TRAIN"))
         || travel_summary->toPlainText().indexOf(QStringLiteral("TRAIN"))
             >= travel_summary->toPlainText().indexOf(QStringLiteral("FERRY"))
-        || !travel_summary->toPlainText().contains(QStringLiteral("38.50 L"))
+        || !travel_summary->toPlainText().contains(QStringLiteral("10.17 US GAL"))
         || !travel_summary->toPlainText().contains(QStringLiteral(
             "REFUELING COST: N/A (NOT PROVIDED BY SCS SDK 1.15)"))) {
         std::cerr << "Travel summary did not preserve chronological events or explicit gaps.\n";
@@ -1413,7 +1553,7 @@ bool TestDashboardLayoutAndResponsiveText() {
     state.job.income.Set(L"$25,000", L"TruckSim GPS", L"sample");
     state.job.source_city.Set(L"Berlin", L"TruckSim GPS", L"sample");
     state.job.destination_city.Set(L"Paris", L"TruckSim GPS", L"sample");
-    state.job.planned_distance.Set(L"1,200 km", L"TruckSim GPS", L"sample");
+    state.job.planned_distance.Set(L"1200", L"TruckSim GPS", L"sample");
     state.job_status = nlsi::telemetry::JobStatus::InTransit;
     state.progress.progress_percent = 25.0;
     state.progress.remaining_distance_km = 100.0;
@@ -1427,11 +1567,11 @@ bool TestDashboardLayoutAndResponsiveText() {
         {QStringLiteral("income"), QStringLiteral("$25,000")},
         {QStringLiteral("source"), QStringLiteral("Berlin")},
         {QStringLiteral("destination"), QStringLiteral("Paris")},
-        {QStringLiteral("plannedDistance"), QStringLiteral("1,200 km")},
-        {QStringLiteral("remainingDistance"), QStringLiteral("100.00 km")},
+        {QStringLiteral("plannedDistance"), QStringLiteral("745.65 MI")},
+        {QStringLiteral("remainingDistance"), QStringLiteral("62.14 MI")},
         {QStringLiteral("progress"), QStringLiteral("25.0%")},
         {QStringLiteral("eta"), QStringLiteral("1 HR 2 MIN LEFT")},
-        {QStringLiteral("fuel"), QStringLiteral("180 KM - 500.00 L")},
+        {QStringLiteral("fuel"), QStringLiteral("112 MI - 132.09 US GAL")},
         {QStringLiteral("game"), QStringLiteral("Euro Truck Simulator 2")},
         {QStringLiteral("gameVersion"), QStringLiteral("1.58.1.2s")},
         {QStringLiteral("vehicle"), QStringLiteral("Volvo FH16")},
@@ -1446,7 +1586,10 @@ bool TestDashboardLayoutAndResponsiveText() {
                 ? !field->accessibleName().startsWith(it.value())
                 : field->accessibleName() != it.value())) {
             std::cerr << "Dashboard field did not match its telemetry source: "
-                      << it.key().toStdString() << '\n';
+                      << it.key().toStdString() << " (expected '"
+                      << it.value().toStdString() << "', received '"
+                      << (field ? field->accessibleName().toStdString() : "missing")
+                      << "')\n";
             return false;
         }
         const auto sections = page.findChildren<QFrame*>();
@@ -1642,7 +1785,10 @@ bool TestSingleInstanceGuard(QApplication& application) {
                       << error.toStdString() << '\n';
             return false;
         }
-        application.processEvents();
+        for (int attempt = 0; attempt < 500 && activations == 0; ++attempt) {
+            application.processEvents();
+            QThread::msleep(1);
+        }
         if (activations != 1) {
             std::cerr << "The active instance did not receive its activation request.\n";
             return false;
@@ -1688,7 +1834,7 @@ bool TestSingleInstanceGuard(QApplication& application) {
 
 bool TestOfflineUpdateCheck() {
     nlsi::updater::GitHubUpdater updater(
-        QStringLiteral("1.5.2-beta"),
+        QStringLiteral("1.5.3-beta"),
         nullptr,
         QUrl(QStringLiteral("http://127.0.0.1:1/releases")));
     QEventLoop loop;
@@ -1720,13 +1866,23 @@ bool TestOfflineUpdateCheck() {
 
 int main(int argc, char** argv) {
     QApplication application(argc, argv);
+    const nlsi::gui::MeasurementSystem previous_units =
+        nlsi::gui::CurrentMeasurementSystem();
+    struct RestoreMeasurementSystem {
+        nlsi::gui::MeasurementSystem value;
+        ~RestoreMeasurementSystem() {
+            nlsi::gui::SetMeasurementSystem(value);
+        }
+    } restore_units{previous_units};
+    nlsi::gui::SetMeasurementSystem(nlsi::gui::MeasurementSystem::Metric);
+
     QFile stylesheet(QStringLiteral(":/styles/app.qss"));
     if (!stylesheet.open(QIODevice::ReadOnly | QIODevice::Text)) {
         std::cerr << "The application stylesheet could not be loaded for UI tests.\n";
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.5.2-beta"));
+    application.setApplicationVersion(QStringLiteral("v1.5.3-beta"));
     if (!TestModLogParsingAndSourceLinks()
         || !TestIncrementalGameLogMonitoring()
         || !TestMonitorStartsBeforeGame()
@@ -1738,12 +1894,14 @@ int main(int argc, char** argv) {
         || !TestShutdownIsIdempotent()
         || !TestProviderSurfaceSelectsTruckSimOnly()
         || !TestDashboardCruiseControlIndicators()
+        || !TestLowFuelWarningAndParkingBrakeStates()
+        || !TestMeasurementUnitConversionsAndSettings()
         || !TestDashboardLayoutAndResponsiveText()
         || !TestCompletedJobsPdfExport()) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.5.2-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.5.3-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -1876,7 +2034,7 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.5.2-beta");
+            || label->text() == QStringLiteral("v1.5.3-beta");
         found_beta_channel = found_beta_channel
             || label->text() == QStringLiteral("Beta");
         if (label->text() == QStringLiteral("PRODUCT") && label->parentWidget()) {

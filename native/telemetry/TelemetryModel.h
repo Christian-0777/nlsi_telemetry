@@ -71,7 +71,9 @@ struct TelemetrySnapshot {
     TelemetryField<double> cruise_control_speed;
     TelemetryField<bool> cruise_control_active;
     TelemetryField<double> fuel_liters;
+    TelemetryField<double> fuel_capacity_liters;
     TelemetryField<double> fuel_range_km;
+    TelemetryField<bool> parking_brake;
     TelemetryField<double> odometer_km;
 
     TelemetryField<double> navigation_distance_m;
@@ -116,6 +118,9 @@ struct ProviderStatus {
 };
 
 double MetersToKilometers(double meters);
+std::optional<double> FuelPercentage(
+    const TelemetryField<double>& fuel_liters,
+    const TelemetryField<double>& capacity_liters);
 std::optional<double> CalculateEtaSeconds(
     const TelemetryField<double>& distance_m,
     const TelemetryField<double>& speed_kmh);

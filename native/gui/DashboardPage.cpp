@@ -6,6 +6,7 @@
 #include <QFrame>
 #include <QFile>
 #include <QFileInfo>
+#include <QFont>
 #include <QDateTime>
 #include <QDir>
 #include <QGridLayout>
@@ -20,6 +21,8 @@
 #include <QSizePolicy>
 #include <QStandardPaths>
 #include <QVBoxLayout>
+
+#include "MeasurementUnits.h"
 
 namespace nlsi::gui {
 namespace {
@@ -238,6 +241,18 @@ void DashboardPage::AddMetric(
     values_.insert(key, value);
 
     if (cruise_indicator) {
+        if (key == QStringLiteral("brake")) {
+            auto* parking_indicator = new QLabel(QStringLiteral("?"), value_row);
+            parking_indicator->setObjectName(QStringLiteral("parkingBrakeIndicator"));
+            parking_indicator->setProperty("fieldKey", key);
+            parking_indicator->setAccessibleName(QStringLiteral("Parking brake state unknown"));
+            parking_indicator->setAlignment(Qt::AlignCenter);
+            parking_indicator->setFixedSize(20, 20);
+            parking_indicator->setStyleSheet(
+                QStringLiteral("color:#a9a3ad;background:#37323b;border-radius:10px;"));
+            value_layout->addWidget(parking_indicator, 0, Qt::AlignVCenter);
+            parking_brake_indicators_.insert(key, parking_indicator);
+        }
         auto* indicator = new QLabel(QStringLiteral("A"), value_row);
         indicator->setObjectName(QStringLiteral("cruiseControlActiveIndicator"));
         indicator->setProperty("fieldKey", key);
@@ -265,6 +280,7 @@ void DashboardPage::SetValue(const QString& key, const QString& value) {
 
 void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
     const auto& snapshot = state.fast.values;
+    const MeasurementSystem units = CurrentMeasurementSystem();
     SetValue(QStringLiteral("jobId"),
         state.fast.values.connected && state.job.available && !state.job.nlsi_job_id.empty()
             ? QString::fromStdWString(state.job.nlsi_job_id)
@@ -284,12 +300,23 @@ void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
         RouteValue(state.job.source_company, state.job.source_city));
     SetValue(QStringLiteral("destination"),
         RouteValue(state.job.destination_company, state.job.destination_city));
-    SetValue(QStringLiteral("plannedDistance"), FieldValue(state.job.planned_distance));
+    bool planned_distance_valid = false;
+    const double planned_distance = state.job.planned_distance.available
+        ? QString::fromStdWString(state.job.planned_distance.value)
+            .replace(QLatin1Char(','), QString())
+            .toDouble(&planned_distance_valid)
+        : 0.0;
+    SetValue(QStringLiteral("plannedDistance"),
+        planned_distance_valid && std::isfinite(planned_distance)
+            ? FormatNumber(DisplayDistance(planned_distance, units), 2)
+                + QLatin1Char(' ') + DistanceUnit(units).toUpper()
+            : FieldValue(state.job.planned_distance));
     SetValue(QStringLiteral("remainingDistance"),
         state.progress.remaining_distance_km
-            && std::isfinite(*state.progress.remaining_distance_km)
-            && *state.progress.remaining_distance_km >= 0.0
-            ? FormatNumber(*state.progress.remaining_distance_km, 2) + QStringLiteral(" km")
+                && std::isfinite(*state.progress.remaining_distance_km)
+                && *state.progress.remaining_distance_km >= 0.0
+            ? FormatNumber(DisplayDistance(*state.progress.remaining_distance_km, units), 2)
+                + QLatin1Char(' ') + DistanceUnit(units).toUpper()
             : QStringLiteral("N/A"));
     SetValue(QStringLiteral("progress"), ProgressValue(state.progress.progress_percent));
     SetValue(QStringLiteral("eta"), ArrivalText(
@@ -306,16 +333,29 @@ void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
             && !snapshot.fuel_range_km.stale
             && std::isfinite(snapshot.fuel_range_km.value)
             && snapshot.fuel_range_km.value >= 0.0
-        ? FormatNumber(snapshot.fuel_range_km.value, 0) + QStringLiteral(" KM")
+        ? FormatNumber(DisplayDistance(snapshot.fuel_range_km.value, units), 0)
+            + QLatin1Char(' ') + DistanceUnit(units).toUpper()
         : QStringLiteral("N/A");
     const QString fuel_quantity = snapshot.fuel_liters.available
             && !snapshot.fuel_liters.stale
             && std::isfinite(snapshot.fuel_liters.value)
             && snapshot.fuel_liters.value >= 0.0
-        ? FormatNumber(snapshot.fuel_liters.value, 2) + QStringLiteral(" L")
+        ? FormatNumber(DisplayFuelVolume(snapshot.fuel_liters.value, units), 2)
+            + QLatin1Char(' ') + FuelVolumeUnit(units).toUpper()
         : QStringLiteral("N/A");
     SetValue(QStringLiteral("fuel"),
         fuel_range + QStringLiteral(" - ") + fuel_quantity);
+    QLabel* fuel_value = values_.value(QStringLiteral("fuel"), nullptr);
+    const std::optional<double> fuel_percentage =
+        telemetry::FuelPercentage(snapshot.fuel_liters, snapshot.fuel_capacity_liters);
+    if (fuel_value) {
+        QFont font = fuel_value->font();
+        const bool low_fuel = fuel_percentage && *fuel_percentage <= 20.0;
+        font.setUnderline(low_fuel);
+        fuel_value->setFont(font);
+        fuel_value->setStyleSheet(
+            low_fuel ? QStringLiteral("color:#f05b68;") : QString());
+    }
     SetValue(QStringLiteral("engine"),
         NumberValue(snapshot.rpm, 0, QStringLiteral(" RPM"))
             + QStringLiteral(" / ")
@@ -326,12 +366,35 @@ void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
         && cruise_control.available && !cruise_control.stale;
     const bool cruise_control_active = cruise_control_confirmed && cruise_control.value;
     SetValue(QStringLiteral("brake"), PercentValue(snapshot.effective_brake));
+    const bool parking_brake_confirmed =
+        snapshot.parking_brake.available && !snapshot.parking_brake.stale;
+    for (auto it = parking_brake_indicators_.begin();
+         it != parking_brake_indicators_.end(); ++it) {
+        QLabel* indicator = it.value();
+        if (!parking_brake_confirmed) {
+            indicator->setText(QStringLiteral("?"));
+            indicator->setAccessibleName(QStringLiteral("Parking brake state unknown"));
+            indicator->setStyleSheet(
+                QStringLiteral("color:#a9a3ad;background:#37323b;border-radius:10px;"));
+        } else if (snapshot.parking_brake.value) {
+            indicator->setText(QStringLiteral("P"));
+            indicator->setAccessibleName(QStringLiteral("Parking brake engaged"));
+            indicator->setStyleSheet(
+                QStringLiteral("color:#ffffff;background:#b63d50;border-radius:10px;"));
+        } else {
+            indicator->setText(QStringLiteral("P"));
+            indicator->setAccessibleName(QStringLiteral("Parking brake released"));
+            indicator->setStyleSheet(
+                QStringLiteral("color:#aaa4ad;background:#37323b;border-radius:10px;"));
+        }
+    }
     SetValue(QStringLiteral("retarder"), NumberValue(snapshot.retarder_level, 1));
     values_.value(QStringLiteral("brake"))->setVisible(!cruise_control_active);
     values_.value(QStringLiteral("retarder"))->setVisible(!cruise_control_active);
     SetValue(QStringLiteral("cruiseControl"),
         cruise_control_confirmed
-            ? NumberValue(snapshot.cruise_control_speed, 0, QStringLiteral(" KM/H"))
+                ? NumberValue(snapshot.cruise_control_speed, 0,
+                    QStringLiteral(" ") + SpeedUnit(units).toUpper())
                 + (cruise_control.value
                     ? QStringLiteral(" - ACTIVE") : QStringLiteral(" - INACTIVE"))
             : QStringLiteral("N/A"));
@@ -394,7 +457,9 @@ void DashboardPage::UpdateHistory(const session::HistorySnapshot& history) {
     for (const session::EventRecord& event : history.events) {
         const QString type = event.type.trimmed().toLower();
         QString label;
-        if (type == QStringLiteral("player.tollgate.paid")) {
+        if (type == QStringLiteral("player.fined")) {
+            label = QStringLiteral("FINE");
+        } else if (type == QStringLiteral("player.tollgate.paid")) {
             label = QStringLiteral("TOLL");
         } else if (type == QStringLiteral("player.use.ferry")) {
             label = QStringLiteral("FERRY");
@@ -425,14 +490,17 @@ void DashboardPage::UpdateHistory(const session::HistorySnapshot& history) {
             }
             return QStringLiteral("N/A");
         };
-        const QString route = first_text({QStringLiteral("source_name")})
-            + QStringLiteral(" → ")
-            + first_text({QStringLiteral("target_name")});
+        const QString source = first_text({QStringLiteral("source_name")});
+        const QString target = first_text({QStringLiteral("target_name")});
+        const QString route = source == QStringLiteral("N/A")
+                && target == QStringLiteral("N/A")
+            ? QStringLiteral("N/A")
+            : source + QStringLiteral(" → ") + target;
         QString amount = first_text({
-            QStringLiteral("amount"), QStringLiteral("pay.amount")});
+            QStringLiteral("fine_amount"), QStringLiteral("amount"),
+            QStringLiteral("fine.amount"), QStringLiteral("pay.amount")});
         if (amount != QStringLiteral("N/A")) {
-            amount += QStringLiteral(" ") + first_text({
-                QStringLiteral("currency"), QStringLiteral("currency_code")});
+            amount += QStringLiteral(" IN-GAME CURRENCY");
         }
         travel_events.push_back({
             event.timestamp,
@@ -460,9 +528,12 @@ void DashboardPage::UpdateHistory(const session::HistorySnapshot& history) {
         refueled_liters += value.toDouble();
         has_refueled_amount = true;
     }
-    lines.push_back(QStringLiteral("CALCULATED REFUELED LITRES (COMPLETED JOBS): %1")
+    lines.push_back(QStringLiteral("CALCULATED REFUELED (COMPLETED JOBS): %1")
         .arg(has_refueled_amount
-                ? FormatNumber(refueled_liters, 2) + QStringLiteral(" L")
+                ? FormatNumber(DisplayFuelVolume(
+                    refueled_liters, CurrentMeasurementSystem()), 2)
+                    + QStringLiteral(" ")
+                    + FuelVolumeUnit(CurrentMeasurementSystem()).toUpper()
                 : QStringLiteral("N/A")));
     lines.push_back(QStringLiteral("REFUELING COST: N/A (NOT PROVIDED BY SCS SDK 1.15)"));
     if (travel_events.isEmpty()) {

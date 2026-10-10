@@ -541,7 +541,11 @@ bool BuildSnapshot(
         FindNormalized(truck, {"cruise_control_speed", "cruise_control"}), timestamp, true);
     SetBoolean(snapshot.cruise_control_active, FindNormalized(truck, {"cruise_control_active"}), timestamp);
     SetNumber(snapshot.fuel_liters, FindNormalized(truck, {"fuel_liters", "fuel"}), timestamp, true);
+    SetNumber(snapshot.fuel_capacity_liters,
+        FindNormalized(truck, {"fuel_capacity_liters"}), timestamp, true);
     SetNumber(snapshot.fuel_range_km, FindNormalized(truck, {"fuel_range_km", "fuel_range"}), timestamp, true);
+    SetBoolean(snapshot.parking_brake,
+        FindNormalized(truck, {"parking_brake"}), timestamp);
     SetNumber(snapshot.odometer_km, FindNormalized(truck, {"odometer_km", "odometer"}), timestamp, true);
 
     SetNumber(snapshot.navigation_distance_m,

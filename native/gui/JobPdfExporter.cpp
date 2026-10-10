@@ -10,8 +10,10 @@
 #include <QTextDocument>
 
 #include <cmath>
+#include <optional>
 
 #include "PageSupport.h"
+#include "MeasurementUnits.h"
 #include "time/ApplicationTime.h"
 
 namespace nlsi::gui {
@@ -38,46 +40,56 @@ QString JsonDisplayValue(const QJsonValue& value) {
 }
 
 QString DetailsHtml(const QJsonObject& details) {
+    enum class UnitKind {
+        None,
+        Distance,
+        Speed,
+        FuelVolume,
+        FuelEconomy,
+        Mass
+    };
     struct DetailField {
         const char* keys;
         const char* label;
         const char* suffix;
+        UnitKind unit = UnitKind::None;
     };
     static constexpr DetailField fields[] = {
-        {"weight|cargo_weight", "WEIGHT", ""},
+        {"weight|cargo_weight", "WEIGHT", "", UnitKind::Mass},
         {"source_city|source.city", "FROM", ""},
         {"destination_city|destination.city", "TO", ""},
         {"source_company|source.company", "FROM COMPANY", ""},
         {"destination_company|destination.company", "TO COMPANY", ""},
-        {"planned_distance_km", "PLANNED DISTANCE", " km"},
-        {"driven_distance_km|distance_driven_km", "DRIVEN DISTANCE", " km"},
+        {"planned_distance_km", "PLANNED DISTANCE", " km", UnitKind::Distance},
+        {"driven_distance_km|distance_driven_km", "DRIVEN DISTANCE", " km", UnitKind::Distance},
         {"delivery_time_game_minutes|delivery.time", "DELIVERY TIME (GAME MINUTES)", ""},
         {"income", "INCOME", ""},
         {"offences|offenses", "OFFENCES", ""},
         {"xp|experience", "XP", ""},
         {"damage|damage_percent", "DAMAGE", ""},
         {"real_elapsed_time|elapsed_time", "TIME TAKEN (REAL)", ""},
-        {"max_speed_kmh|maximum_speed_kmh", "MAX SPEED", " km/h"},
+        {"max_speed_kmh|maximum_speed_kmh", "MAX SPEED", " km/h", UnitKind::Speed},
         {"truck|truck_name|vehicle", "TRUCK USED", ""},
         {"trailer|trailer_name", "TRAILER USED", ""},
         {"truck_license_plate|truck_licence_plate", "TRUCK LICENCE PLATE", ""},
         {"truck_license_plate_country|truck_license_plate_country_id", "TRUCK PLATE COUNTRY", ""},
         {"trailer_license_plate|trailer_licence_plate", "TRAILER LICENCE PLATE", ""},
         {"trailer_license_plate_country|trailer_license_plate_country_id", "TRAILER PLATE COUNTRY", ""},
-        {"fuel_used_liters|fuel_usage_liters", "FUEL USAGE", " L"},
+        {"fuel_used_liters|fuel_usage_liters", "FUEL USAGE", " L", UnitKind::FuelVolume},
         {"fuel_used_source", "FUEL USAGE BASIS", ""},
-        {"refueled_liters|fuel_added_liters", "REFUELED", " L"},
+        {"refueled_liters|fuel_added_liters", "REFUELED", " L", UnitKind::FuelVolume},
         {"refueled_source", "REFUELED AMOUNT BASIS", ""},
         {"refuel_cost", "REFUEL COST", ""},
-        {"average_consumption|average_consumption_l_per_100km", "AVERAGE CONSUMPTION", " L/100 km"},
+        {"average_consumption|average_consumption_l_per_100km", "AVERAGE CONSUMPTION", " L/100 km", UnitKind::FuelEconomy},
         {"average_consumption_source", "AVERAGE CONSUMPTION BASIS", ""},
-        {"odometer_km", "ODOMETER AT EVENT", " km"},
-        {"remaining_navigation_km", "REMAINING NAVIGATION DISTANCE", " km"},
-        {"fuel_liters", "FUEL AT EVENT", " L"},
+        {"odometer_km", "ODOMETER AT EVENT", " km", UnitKind::Distance},
+        {"remaining_navigation_km", "REMAINING NAVIGATION DISTANCE", " km", UnitKind::Distance},
+        {"fuel_liters", "FUEL AT EVENT", " L", UnitKind::FuelVolume},
         {"market", "JOB MARKET", ""},
         {"special_job", "SPECIAL JOB", ""},
     };
 
+    const MeasurementSystem units = CurrentMeasurementSystem();
     QString html;
     for (const DetailField& field : fields) {
         QJsonValue value;
@@ -94,11 +106,49 @@ QString DetailsHtml(const QJsonObject& details) {
                 break;
             }
         }
-        const QString display = JsonDisplayValue(value);
+        QString display = JsonDisplayValue(value);
+        QString suffix = QString::fromLatin1(field.suffix);
+        if (field.unit != UnitKind::None && !value.isNull() && !value.isUndefined()) {
+            bool valid = false;
+            double number = value.isDouble()
+                ? value.toDouble() : value.toString().trimmed().toDouble(&valid);
+            if (value.isDouble()) {
+                valid = true;
+            }
+            if (valid && std::isfinite(number) && number >= 0.0) {
+                std::optional<double> converted;
+                switch (field.unit) {
+                case UnitKind::Distance:
+                    converted = DisplayDistance(number, units);
+                    suffix = QStringLiteral(" ") + DistanceUnit(units);
+                    break;
+                case UnitKind::Speed:
+                    converted = DisplaySpeed(number, units);
+                    suffix = QStringLiteral(" ") + SpeedUnit(units);
+                    break;
+                case UnitKind::FuelVolume:
+                    converted = DisplayFuelVolume(number, units);
+                    suffix = QStringLiteral(" ") + FuelVolumeUnit(units);
+                    break;
+                case UnitKind::FuelEconomy:
+                    converted = DisplayFuelEconomy(number, units);
+                    suffix = QStringLiteral(" ") + FuelEconomyUnit(units);
+                    break;
+                case UnitKind::Mass:
+                    converted = DisplayMassKilograms(number, units);
+                    suffix = QStringLiteral(" ") + MassUnit(units);
+                    break;
+                case UnitKind::None:
+                    break;
+                }
+                display = converted && std::isfinite(*converted)
+                    ? FormatNumber(*converted, 2) : QStringLiteral("N/A");
+            }
+        }
         html += QStringLiteral("<tr><th>%1</th><td>%2%3</td></tr>")
             .arg(QString::fromLatin1(field.label).toHtmlEscaped(),
                 (display.isEmpty() ? QStringLiteral("N/A") : display).toHtmlEscaped(),
-                QString::fromLatin1(field.suffix).toHtmlEscaped());
+                suffix.toHtmlEscaped());
     }
     return html;
 }
@@ -141,12 +191,14 @@ bool ExportJobsToPdf(
         "th,td{text-align:left;vertical-align:top;padding:4px 7px;border-bottom:1px solid #eee}"
         "th{width:28%;color:#514854;font-weight:bold}"
         "</style></head><body><h1>NLSI Exclusive Logbook</h1>"
-        "<div class=\"generated\">%1 · Generated %2</div>")
+        "<div class=\"generated\">%1 · %2 · Generated %3</div>")
         .arg(jobs.size() == 1
                     ? QStringLiteral("Completed job report")
                     : QStringLiteral("%1 completed job records")
                         .arg(FormatNumber(jobs.size(), 0))
                         .toHtmlEscaped(),
+            CurrentMeasurementSystem() == MeasurementSystem::USCustomary
+                ? QStringLiteral("US customary units") : QStringLiteral("Metric units"),
             (generated_at.toString(QStringLiteral("MMMM d, yyyy hh:mm:ss AP"))
                     + QStringLiteral(" Asia/Manila")).toHtmlEscaped());
 

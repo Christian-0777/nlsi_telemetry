@@ -49,7 +49,13 @@ SCS_POSITION_PLUGIN_FILES = (
         0x014C,
     ),
 )
+SCS_PLUGIN_CHANNEL_IDENTIFIERS = (
+    b"truck.fuel.amount",
+    b"truck.brake.parking",
+    b"fuel.capacity",
+)
 PAYLOAD_DIR = ROOT / "build" / "intermediate" / f"installer-payload-{RELEASE_TAG}"
+REDIST_DIR = ROOT / "build" / "intermediate" / f"installer-redist-{RELEASE_TAG}"
 ISS_FILE = ROOT / "installer" / "NLSI-Exclusive-Logbook.iss"
 ASSET_SCRIPT = ROOT / "installer" / "prepare_native_installer_assets.ps1"
 OUTPUT_EXE = RELEASE_DIR / f"NLSI-Exclusive-Logbook-{RELEASE_TAG}-Setup.exe"
@@ -246,6 +252,7 @@ def copy_runtime_payload(app_exe: Path) -> None:
         destination = docs_payload / relative.name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+    shutil.copy2(ROOT / "RELEASE_NOTES.md", RELEASE_DIR / "RELEASE_NOTES.md")
 
     for source, expected_hash, relative_destination in TRUCKSIM_PLUGIN_FILES:
         if not source.is_file():
@@ -270,11 +277,26 @@ def copy_runtime_payload(app_exe: Path) -> None:
             raise ValueError(
                 f"The SCS position plugin for {architecture} has the wrong PE architecture: {source}"
             )
+        binary = source.read_bytes()
+        missing_channels = [
+            identifier.decode("ascii")
+            for identifier in SCS_PLUGIN_CHANNEL_IDENTIFIERS
+            if identifier not in binary
+        ]
+        if missing_channels:
+            raise ValueError(
+                f"The SCS position plugin does not contain the v1.5.3 telemetry "
+                f"identifiers {', '.join(missing_channels)}: {source}. Refusing to package "
+                "a stale or incorrectly built DLL."
+            )
         destination = PAYLOAD_DIR / relative_destination
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
         if read_pe_machine(destination) != expected_machine:
             raise ValueError(f"The staged SCS position plugin has the wrong architecture: {destination}")
+        staged_binary = destination.read_bytes()
+        if any(identifier not in staged_binary for identifier in SCS_PLUGIN_CHANNEL_IDENTIFIERS):
+            raise ValueError(f"The staged SCS position plugin lost required SDK identifiers: {destination}")
 
     license_payload = PAYLOAD_DIR / "licenses"
     license_payload.mkdir(parents=True, exist_ok=True)
@@ -335,6 +357,21 @@ def copy_msvc_runtime() -> None:
     print(f"Copying x64 MSVC runtime files from {runtime_directory}")
     for runtime_dll in runtime_directory.glob("*.dll"):
         shutil.copy2(runtime_dll, PAYLOAD_DIR / runtime_dll.name)
+
+    runtime_root = runtime_directory.parents[1]
+    REDIST_DIR.mkdir(parents=True, exist_ok=True)
+    for architecture in ("x64", "x86"):
+        installer = runtime_root / f"vc_redist.{architecture}.exe"
+        if not installer.is_file():
+            raise FileNotFoundError(
+                f"The {architecture} Microsoft Visual C++ 14.3 redistributable "
+                f"installer was not found: {installer}"
+            )
+        destination = REDIST_DIR / installer.name
+        shutil.copy2(installer, destination)
+        if destination.stat().st_size != installer.stat().st_size:
+            raise OSError(f"The {architecture} Visual C++ redistributable staged incompletely.")
+        print(f"Staged {architecture} MSVC redistributable: {destination}")
 
 
 def prepare_runtime(app_exe: Path) -> None:

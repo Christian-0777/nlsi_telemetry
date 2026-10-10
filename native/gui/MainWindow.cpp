@@ -437,6 +437,17 @@ void MainWindow::RefreshState() {
             QSystemTrayIcon::Information,
             5000);
     }
+    for (const std::wstring& message : telemetry_core_.TakeNewExpenseNotifications()) {
+        if (!notification_tray_) {
+            qWarning("Expense notification unavailable: Windows system tray is not available.");
+            continue;
+        }
+        notification_tray_->showMessage(
+            QStringLiteral("NLSI Exclusive Logbook · Travel expense"),
+            QString::fromStdWString(message),
+            QSystemTrayIcon::Information,
+            5000);
+    }
 
     for (StatePage* page : pages_) {
         page->UpdateState(state);

@@ -8,6 +8,7 @@
 #include <cmath>
 
 #include <QCoreApplication>
+#include <QComboBox>
 #include <QDesktopServices>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -19,6 +20,7 @@
 #include <QVBoxLayout>
 
 #include "updater/GitHubUpdater.h"
+#include "MeasurementUnits.h"
 
 namespace nlsi::gui {
 
@@ -85,6 +87,29 @@ public:
         AddField(QStringLiteral("refresh"), QStringLiteral("UI refresh rate"));
         AddField(QStringLiteral("transport"), QStringLiteral("Telemetry transport"));
         AddField(QStringLiteral("display"), QStringLiteral("Unavailable values"));
+
+        auto* units_row = new QWidget(this);
+        auto* units_layout = new QHBoxLayout(units_row);
+        units_layout->setContentsMargins(0, 8, 0, 8);
+        units_layout->setSpacing(16);
+        auto* units_label = new QLabel(QStringLiteral("MEASUREMENT SYSTEM"), units_row);
+        units_label->setObjectName(QStringLiteral("detailLabel"));
+        measurement_system_ = new QComboBox(units_row);
+        measurement_system_->setObjectName(QStringLiteral("measurementSystemSelector"));
+        measurement_system_->addItem(QStringLiteral("Metric"), QStringLiteral("metric"));
+        measurement_system_->addItem(QStringLiteral("US customary"), QStringLiteral("us"));
+        const MeasurementSystem selected_system = CurrentMeasurementSystem();
+        measurement_system_->setCurrentIndex(
+            selected_system == MeasurementSystem::USCustomary ? 1 : 0);
+        units_layout->addWidget(units_label);
+        units_layout->addWidget(measurement_system_, 1);
+        AddContentWidget(units_row);
+        connect(measurement_system_, &QComboBox::currentIndexChanged,
+            this, [this](int index) {
+                SetMeasurementSystem(index == 1
+                    ? MeasurementSystem::USCustomary
+                    : MeasurementSystem::Metric);
+            });
     }
 
     void UpdateState(const telemetry::TelemetryUiState&) override {
@@ -94,6 +119,9 @@ public:
         SetValue(QStringLiteral("transport"), QStringLiteral("TruckSim GPS shared memory"));
         SetValue(QStringLiteral("display"), QStringLiteral("Hidden when not supplied"));
     }
+
+private:
+    QComboBox* measurement_system_ = nullptr;
 };
 
 } // namespace
@@ -115,6 +143,7 @@ CurrentJobPage::CurrentJobPage(QWidget* parent)
 }
 
 void CurrentJobPage::UpdateState(const telemetry::TelemetryUiState& state) {
+    const MeasurementSystem units = CurrentMeasurementSystem();
     SetValue(QStringLiteral("status"),
         QString::fromStdWString(telemetry::FormatJobStatus(state.job_status)));
     SetValue(QStringLiteral("nlsiJobId"), state.job.nlsi_job_id.empty()
@@ -126,16 +155,27 @@ void CurrentJobPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("destination"),
         JobRoute(state.job.destination_company, state.job.destination_city));
     SetValue(QStringLiteral("income"), NumericText(FieldText(state.job.income)));
+    bool planned_distance_valid = false;
+    const double planned_distance = state.job.planned_distance.available
+        ? QString::fromStdWString(state.job.planned_distance.value)
+            .replace(QLatin1Char(','), QString())
+            .toDouble(&planned_distance_valid)
+        : 0.0;
     SetValue(QStringLiteral("planned"),
-        state.job.planned_distance.available
-            ? NumericText(FieldText(state.job.planned_distance)) + QStringLiteral(" km")
+        planned_distance_valid && std::isfinite(planned_distance)
+            ? FormatNumber(DisplayDistance(planned_distance, units), 2)
+                + QLatin1Char(' ') + DistanceUnit(units)
             : QStringLiteral("--"));
     const QString loaded = !state.job.loaded.available
         ? QStringLiteral("--")
         : (state.job.loaded.value ? QStringLiteral("Yes") : QStringLiteral("No"));
     SetValue(QStringLiteral("loaded"), loaded);
     SetValue(QStringLiteral("remaining"),
-        OptionalNumberText(state.progress.remaining_distance_km, 2, QStringLiteral(" km")));
+        state.progress.remaining_distance_km
+                && std::isfinite(*state.progress.remaining_distance_km)
+            ? FormatNumber(DisplayDistance(*state.progress.remaining_distance_km, units), 2)
+                + QLatin1Char(' ') + DistanceUnit(units)
+            : QStringLiteral("--"));
     SetValue(QStringLiteral("progress"),
         OptionalNumberText(state.progress.progress_percent, 2, QStringLiteral("%")));
     SetValue(QStringLiteral("eta"), DurationText(state.progress.eta_seconds));
@@ -153,6 +193,7 @@ TelemetryPage::TelemetryPage(QWidget* parent)
     AddField(QStringLiteral("retarder"), QStringLiteral("Retarder level"));
     AddField(QStringLiteral("cruise"), QStringLiteral("Cruise control speed"));
     AddField(QStringLiteral("fuel"), QStringLiteral("Fuel"));
+    AddField(QStringLiteral("parkingBrake"), QStringLiteral("Parking brake"));
     AddField(QStringLiteral("fuelRange"), QStringLiteral("Fuel range"));
     AddField(QStringLiteral("odometer"), QStringLiteral("Odometer"));
     AddField(QStringLiteral("navigation"), QStringLiteral("Navigation distance"));
@@ -161,10 +202,15 @@ TelemetryPage::TelemetryPage(QWidget* parent)
 }
 
 void TelemetryPage::UpdateState(const telemetry::TelemetryUiState& state) {
+    const MeasurementSystem units = CurrentMeasurementSystem();
     const auto& values = state.fast.values;
     SetValue(QStringLiteral("game"), FieldText(values.game_name));
     SetValue(QStringLiteral("sample"), TimestampText(QString::fromStdWString(values.timestamp)));
-    SetValue(QStringLiteral("speed"), NumberText(values.speed_kmh, 2, QStringLiteral(" km/h")));
+    SetValue(QStringLiteral("speed"),
+        values.speed_kmh.available && std::isfinite(values.speed_kmh.value)
+            ? FormatNumber(DisplaySpeed(values.speed_kmh.value, units), 2)
+                + QLatin1Char(' ') + SpeedUnit(units)
+            : QStringLiteral("--"));
     SetValue(QStringLiteral("rpm"), NumberText(values.rpm, 0));
     SetValue(QStringLiteral("gear"), NumberText(values.gear, 0));
     const auto percentage_text = [](const telemetry::TelemetryField<double>& field) {
@@ -181,12 +227,34 @@ void TelemetryPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("brake"), percentage_text(values.effective_brake));
     SetValue(QStringLiteral("retarder"), NumberText(values.retarder_level, 0));
     SetValue(QStringLiteral("cruise"),
-        NumberText(values.cruise_control_speed, 2, QStringLiteral(" km/h")));
-    SetValue(QStringLiteral("fuel"), NumberText(values.fuel_liters, 2, QStringLiteral(" L")));
-    SetValue(QStringLiteral("fuelRange"), NumberText(values.fuel_range_km, 2, QStringLiteral(" km")));
-    SetValue(QStringLiteral("odometer"), NumberText(values.odometer_km, 2, QStringLiteral(" km")));
+        values.cruise_control_speed.available && std::isfinite(values.cruise_control_speed.value)
+            ? FormatNumber(DisplaySpeed(values.cruise_control_speed.value, units), 2)
+                + QLatin1Char(' ') + SpeedUnit(units)
+            : QStringLiteral("--"));
+    const auto fuel_value = [&units](const telemetry::TelemetryField<double>& field) {
+        return field.available && !field.stale && std::isfinite(field.value)
+                && field.value >= 0.0
+            ? FormatNumber(DisplayFuelVolume(field.value, units), 2)
+                + QLatin1Char(' ') + FuelVolumeUnit(units)
+            : QStringLiteral("--");
+    };
+    const auto distance_value = [&units](const telemetry::TelemetryField<double>& field) {
+        return field.available && !field.stale && std::isfinite(field.value)
+                && field.value >= 0.0
+            ? FormatNumber(DisplayDistance(field.value, units), 2)
+                + QLatin1Char(' ') + DistanceUnit(units)
+            : QStringLiteral("--");
+    };
+    SetValue(QStringLiteral("fuel"), fuel_value(values.fuel_liters));
+    SetValue(QStringLiteral("parkingBrake"),
+        values.parking_brake.available && !values.parking_brake.stale
+            ? (values.parking_brake.value
+                ? QStringLiteral("Engaged") : QStringLiteral("Released"))
+            : QStringLiteral("Unknown"));
+    SetValue(QStringLiteral("fuelRange"), distance_value(values.fuel_range_km));
+    SetValue(QStringLiteral("odometer"), distance_value(values.odometer_km));
     SetValue(QStringLiteral("navigation"),
-        NumberText(values.navigation_distance_km, 2, QStringLiteral(" km")));
+        distance_value(values.navigation_distance_km));
     SetValue(QStringLiteral("navigationTime"),
         values.navigation_time_s.available && !values.navigation_time_s.stale
             ? DurationText(values.navigation_time_s.value)

@@ -356,6 +356,117 @@ void TestStaleTelemetryStopsDriving() {
         "ETA was calculated from stale data");
 }
 
+void TestFuelPercentageThresholdsAndInvalidInputs() {
+    using nlsi::telemetry::FuelPercentage;
+    using nlsi::telemetry::TelemetryField;
+    TelemetryField<double> fuel;
+    TelemetryField<double> capacity;
+    fuel.Set(200.0, L"SCS SDK channel", L"sample");
+    capacity.Set(1000.0, L"SCS SDK channel", L"sample");
+    const auto at_threshold = FuelPercentage(fuel, capacity);
+    Check(at_threshold && *at_threshold == 20.0,
+        "fuel percentage did not calculate the exact 20-percent threshold");
+    fuel.Set(200.1, L"SCS SDK channel", L"sample");
+    const auto above_threshold = FuelPercentage(fuel, capacity);
+    Check(above_threshold && *above_threshold > 20.0,
+        "fuel percentage above the warning threshold was not retained");
+    fuel.Set(199.9, L"SCS SDK channel", L"sample");
+    const auto below_threshold = FuelPercentage(fuel, capacity);
+    Check(below_threshold && *below_threshold < 20.0,
+        "fuel percentage below the warning threshold was not retained");
+    capacity.Set(0.0, L"SCS SDK configuration", L"sample");
+    Check(!FuelPercentage(fuel, capacity),
+        "zero tank capacity produced a fuel percentage");
+    capacity.Set(-1.0, L"SCS SDK configuration", L"sample");
+    Check(!FuelPercentage(fuel, capacity),
+        "negative tank capacity produced a fuel percentage");
+    capacity.Set(1000.0, L"SCS SDK configuration", L"sample");
+    fuel = {};
+    Check(!FuelPercentage(fuel, capacity),
+        "missing current-fuel telemetry produced a fuel percentage");
+    fuel.Set(0.0, L"SCS SDK channel", L"sample");
+    Check(FuelPercentage(fuel, capacity).value_or(-1.0) == 0.0,
+        "a valid empty tank was not accepted as zero fuel");
+    capacity.MarkStale();
+    Check(!FuelPercentage(fuel, capacity),
+        "stale capacity telemetry produced a fuel percentage");
+}
+
+void TestFuelAndParkingTelemetryIpcPropagation() {
+    const std::string packet = R"json({
+      "type":"vehicle_telemetry","provider":"SCS SDK","game_id":1,
+      "timestamp":"2026-10-07T08:36:46.000Z",
+      "data":{"fuel_liters":200,"fuel_capacity_liters":1000,"parking_brake":true}
+    })json";
+    nlsi::providers::ScsTelemetryEventSlotV1 slot{};
+    slot.sequence = 2;
+    slot.event_id = 4;
+    slot.payload_size = static_cast<std::uint32_t>(packet.size());
+    std::memcpy(slot.payload, packet.data(), packet.size());
+    slot.payload[packet.size()] = '\0';
+    std::string propagated_packet;
+    Check(nlsi::providers::DecodeScsTelemetryEventSlot(slot, 4, propagated_packet),
+        "SCS vehicle telemetry was not transported through the event IPC slot");
+    QJsonParseError wire_error;
+    const QJsonDocument wire_document = QJsonDocument::fromJson(
+        QByteArray::fromStdString(propagated_packet), &wire_error);
+    const QJsonObject wire = wire_document.object();
+    const QJsonObject wire_data = wire.value(QStringLiteral("data")).toObject();
+    Check(wire_error.error == QJsonParseError::NoError
+        && wire.value(QStringLiteral("type")).toString()
+            == QStringLiteral("vehicle_telemetry")
+        && wire.value(QStringLiteral("provider")).toString() == QStringLiteral("SCS SDK")
+        && wire_data.value(QStringLiteral("fuel_liters")).toDouble() == 200.0
+        && wire_data.value(QStringLiteral("fuel_capacity_liters")).toDouble() == 1000.0
+        && wire_data.value(QStringLiteral("parking_brake")).toBool(),
+        "the IPC packet did not preserve the SDK fuel and parking-brake values");
+
+    const std::string telemetry_packet = R"json({
+      "type":"telemetry","timestamp":"2026-10-07T08:36:46.000Z",
+      "state":"driving",
+      "truck":{"fuel_liters":200,"fuel_capacity_liters":1000,"parking_brake":true}
+    })json";
+    nlsi::telemetry::TelemetrySnapshot snapshot;
+    Check(nlsi::providers::NLSIProvider::ParseTelemetryPacket(
+            telemetry_packet, snapshot),
+        "fuel-capacity or parking telemetry was rejected by the provider parser");
+    Check(snapshot.fuel_liters.available && snapshot.fuel_liters.value == 200.0
+        && snapshot.fuel_capacity_liters.available
+        && snapshot.fuel_capacity_liters.value == 1000.0
+        && nlsi::telemetry::FuelPercentage(
+            snapshot.fuel_liters, snapshot.fuel_capacity_liters).value_or(-1.0) == 20.0
+        && snapshot.parking_brake.available && snapshot.parking_brake.value,
+        "fuel-capacity or engaged parking-brake state did not reach normalized telemetry");
+    auto stale_snapshot = snapshot;
+    nlsi::telemetry::MarkSnapshotStale(stale_snapshot);
+    Check(stale_snapshot.parking_brake.stale
+        && stale_snapshot.fuel_liters.stale
+        && stale_snapshot.fuel_capacity_liters.stale,
+        "stale vehicle telemetry was not retained as explicitly stale");
+
+    const std::string released_packet = R"json({
+      "type":"telemetry","timestamp":"2026-10-07T08:36:47.000Z",
+      "state":"driving","truck":{"parking_brake":false}
+    })json";
+    Check(nlsi::providers::NLSIProvider::ParseTelemetryPacket(
+            released_packet, snapshot)
+        && snapshot.parking_brake.available && !snapshot.parking_brake.value
+        && !snapshot.fuel_liters.available
+        && !snapshot.fuel_capacity_liters.available,
+        "released parking brake or missing fuel channels were not represented safely");
+
+    const std::string missing_packet = R"json({
+      "type":"telemetry","timestamp":"2026-10-07T08:36:48.000Z",
+      "state":"driving","truck":{}
+    })json";
+    Check(nlsi::providers::NLSIProvider::ParseTelemetryPacket(
+            missing_packet, snapshot)
+        && !snapshot.parking_brake.available
+        && !snapshot.fuel_liters.available
+        && !snapshot.fuel_capacity_liters.available,
+        "missing fuel or brake data was fabricated");
+}
+
 void TestScsPositionIpcDecodingAndFreshness() {
     using namespace nlsi::providers;
     ScsPositionIpcV1 sample{};
@@ -782,6 +893,35 @@ void TestHistoryAndTxtLogPersistence() {
         && !mismatched_job_snapshot.jobs.front().details.contains(
             QStringLiteral("planned_distance")),
         "an unrelated current job snapshot was copied into historical job data");
+}
+
+void TestExpenseEventDeduplicationAndReload() {
+    QTemporaryDir directory;
+    Check(directory.isValid(), "temporary expense history directory could not be created");
+    const QString log_path = QDir(directory.path())
+        .filePath(QStringLiteral("logs/application.txt"));
+    nlsi::logging::Logger logger(log_path.toStdWString());
+    nlsi::session::HistoryStore history(logger);
+    Check(history.Initialize(directory.path()),
+        "expense history store could not be initialized");
+
+    const QByteArray event = R"json({
+      "type":"gameplay_event","provider":"SCS SDK","event":"player.tollgate.paid",
+      "provider_event_id":44,"timestamp":"2026-10-07T08:29:00.000Z",
+      "data":{"amount":125,"pay.amount":125}
+    })json";
+    bool newly_recorded = false;
+    Check(history.RecordProviderEvent(event, &newly_recorded) && newly_recorded,
+        "first verified toll expense was not recorded");
+    Check(history.RecordProviderEvent(event, &newly_recorded) && !newly_recorded
+        && history.Snapshot().events.size() == 1,
+        "duplicate toll callback was recorded or charged twice");
+
+    nlsi::session::HistoryStore reopened(logger);
+    Check(reopened.Initialize(directory.path())
+        && reopened.Snapshot().events.size() == 1
+        && reopened.Snapshot().events.front().details.contains(QStringLiteral("amount")),
+        "expense event did not persist once across reopening user history");
 }
 
 void TestStableNlsiJobIdsAndCollisionHandling() {
@@ -1401,11 +1541,17 @@ int main() {
         {"throttle, brake, cruise, and job parsing", TestThrottleBrakeCruiseAndJobParsing},
         {"paused state and zero-speed ETA", TestPausedStateAndZeroSpeedEta},
         {"stale telemetry", TestStaleTelemetryStopsDriving},
+        {"fuel percentage thresholds and invalid inputs",
+            TestFuelPercentageThresholdsAndInvalidInputs},
+        {"fuel-capacity and parking-brake IPC propagation",
+            TestFuelAndParkingTelemetryIpcPropagation},
         {"SCS position IPC decoding and stale data", TestScsPositionIpcDecodingAndFreshness},
         {"SCS telemetry event IPC validation", TestScsTelemetryEventIpcValidation},
         {"job fuel calculations and invalid samples", TestJobFuelCalculationsAndInvalidSamples},
         {"UI job identity, progress, and session states", TestUiJobIdentityProgressAndSessionStates},
         {"history and TXT log persistence", TestHistoryAndTxtLogPersistence},
+        {"expense event deduplication and reload",
+            TestExpenseEventDeduplicationAndReload},
         {"stable NLSI job IDs and collision handling", TestStableNlsiJobIdsAndCollisionHandling},
         {"offline telemetry queue and interrupted-write recovery", TestTelemetryRecorderOfflineRecovery},
         {"Asia/Manila timestamp conversion", TestAsiaManilaTimeZone},

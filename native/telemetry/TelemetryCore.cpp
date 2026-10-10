@@ -80,7 +80,9 @@ QJsonObject NormalizedFields(const TelemetrySnapshot& snapshot) {
     AddNormalizedField(fields, "cruise_control_speed_kmh", snapshot.cruise_control_speed);
     AddNormalizedField(fields, "cruise_control_active", snapshot.cruise_control_active);
     AddNormalizedField(fields, "fuel_liters", snapshot.fuel_liters);
+    AddNormalizedField(fields, "fuel_capacity_liters", snapshot.fuel_capacity_liters);
     AddNormalizedField(fields, "fuel_range_km", snapshot.fuel_range_km);
+    AddNormalizedField(fields, "parking_brake", snapshot.parking_brake);
     AddNormalizedField(fields, "odometer_km", snapshot.odometer_km);
     AddNormalizedField(fields, "navigation_distance_m", snapshot.navigation_distance_m);
     AddNormalizedField(fields, "navigation_distance_km", snapshot.navigation_distance_km);
@@ -198,7 +200,9 @@ void MergeLiveFields(TelemetrySnapshot& preferred, const TelemetrySnapshot& fall
     NLSI_MERGE_FIELD(cruise_control_speed);
     NLSI_MERGE_FIELD(cruise_control_active);
     NLSI_MERGE_FIELD(fuel_liters);
+    NLSI_MERGE_FIELD(fuel_capacity_liters);
     NLSI_MERGE_FIELD(fuel_range_km);
+    NLSI_MERGE_FIELD(parking_brake);
     NLSI_MERGE_FIELD(odometer_km);
     NLSI_MERGE_FIELD(navigation_distance_m);
     NLSI_MERGE_FIELD(navigation_distance_km);
@@ -238,6 +242,7 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
         ui_state_ = {};
         previous_job_identity_.clear();
         newly_completed_job_notifications_.clear();
+        newly_recorded_expense_notifications_.clear();
         shutdown_started_ = false;
         shutdown_error_.clear();
         trucksim_state_ = ProviderState::Connecting;
@@ -456,6 +461,13 @@ std::vector<std::wstring> TelemetryCore::TakeNewlyCompletedJobNotifications() {
     return notifications;
 }
 
+std::vector<std::wstring> TelemetryCore::TakeNewExpenseNotifications() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::wstring> notifications;
+    notifications.swap(newly_recorded_expense_notifications_);
+    return notifications;
+}
+
 bool TelemetryCore::FlushLocalWrites(std::chrono::milliseconds timeout) const {
     logging::TelemetryRecorder* recorder = nullptr;
     {
@@ -669,6 +681,46 @@ void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
         return;
     }
 
+    if (packet_type == QStringLiteral("vehicle_telemetry")
+        && packet.value(QStringLiteral("provider")).toString()
+            == QStringLiteral("SCS SDK")) {
+        const QDateTime parsed_timestamp = nlsi::time::ParseInstant(timestamp);
+        const int game_id = packet.value(QStringLiteral("game_id")).toInt();
+        if (!parsed_timestamp.isValid()
+            || parsed_timestamp > QDateTime::currentDateTimeUtc().addSecs(60)
+            || (game_id != static_cast<int>(providers::kScsPositionGameEts2)
+                && game_id != static_cast<int>(providers::kScsPositionGameAts))) {
+            status_.last_error =
+                L"Rejected an invalid or uncorrelated SCS vehicle telemetry sample.";
+            return;
+        }
+        if (scs_configuration_game_id_ != 0
+            && scs_configuration_game_id_ != static_cast<std::uint32_t>(game_id)) {
+            scs_configuration_snapshot_ = {};
+        }
+        scs_configuration_game_id_ = static_cast<std::uint32_t>(game_id);
+        const auto set_number = [&details, &timestamp](const QString& key,
+                                    TelemetryField<double>& field) {
+            field = {};
+            const QJsonValue value = details.value(key);
+            if (value.isDouble() && std::isfinite(value.toDouble())
+                && value.toDouble() >= 0.0) {
+                field.Set(value.toDouble(), L"SCS SDK channel", timestamp.toStdWString());
+            }
+        };
+        set_number(QStringLiteral("fuel_liters"), scs_configuration_snapshot_.fuel_liters);
+        set_number(QStringLiteral("fuel_capacity_liters"),
+            scs_configuration_snapshot_.fuel_capacity_liters);
+        scs_configuration_snapshot_.parking_brake = {};
+        const QJsonValue parking_brake = details.value(QStringLiteral("parking_brake"));
+        if (parking_brake.isBool()) {
+            scs_configuration_snapshot_.parking_brake.Set(
+                parking_brake.toBool(), L"SCS SDK channel", timestamp.toStdWString());
+        }
+        RebuildStateLocked();
+        return;
+    }
+
     if (event_type == QStringLiteral("job.delivered")) {
         const auto fuel_result = job_fuel_tracker_.Finish(
             EventJobIdentity(details).toStdWString(),
@@ -744,6 +796,31 @@ void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
                 status_.storage_error = history_store_->Snapshot().error.toStdWString();
             }
         }
+    }
+    if (persisted && newly_recorded
+        && (event_type == QStringLiteral("player.fined")
+            || event_type == QStringLiteral("player.tollgate.paid")
+            || event_type == QStringLiteral("player.use.ferry")
+            || event_type == QStringLiteral("player.use.train"))) {
+        QString label;
+        if (event_type == QStringLiteral("player.fined")) {
+            label = QStringLiteral("Fine");
+        } else if (event_type == QStringLiteral("player.tollgate.paid")) {
+            label = QStringLiteral("Toll");
+        } else if (event_type == QStringLiteral("player.use.ferry")) {
+            label = QStringLiteral("Ferry");
+        } else {
+            label = QStringLiteral("Train");
+        }
+        const QString amount = JsonTextValue(details, {
+            QStringLiteral("fine_amount"), QStringLiteral("amount"),
+            QStringLiteral("fine.amount"), QStringLiteral("pay.amount")});
+        newly_recorded_expense_notifications_.push_back(
+            (label + QStringLiteral(" recorded · fee: ")
+                + (amount.isEmpty()
+                    ? QStringLiteral("unavailable")
+                    : amount + QStringLiteral(" in-game currency")))
+                .toStdWString());
     }
     if (persisted) {
         status_.storage_error.clear();
@@ -851,6 +928,21 @@ void TelemetryCore::RebuildStateLocked() {
     } else if (nlsi_connected && !nlsi_snapshot_.timestamp.empty()) {
         snapshot_.timestamp = nlsi_snapshot_.timestamp;
     }
+    const QDateTime now_utc = QDateTime::currentDateTimeUtc();
+    const auto mark_scs_sample_stale = [&now_utc](auto& field) {
+        if (!field.available) {
+            return;
+        }
+        const QDateTime field_time = nlsi::time::ParseInstant(
+            QString::fromStdWString(field.timestamp));
+        if (!field_time.isValid()
+            || field_time > now_utc
+            || field_time.msecsTo(now_utc) > 3000) {
+            field.MarkStale();
+        }
+    };
+    mark_scs_sample_stale(scs_configuration_snapshot_.fuel_liters);
+    mark_scs_sample_stale(scs_configuration_snapshot_.parking_brake);
     const QString current_game_id = snapshot_.game_id.available
         ? QString::fromStdWString(snapshot_.game_id.value) : QString();
     const QString scs_game_id = scs_configuration_game_id_ == providers::kScsPositionGameEts2
@@ -879,6 +971,9 @@ void TelemetryCore::RebuildStateLocked() {
         NLSI_APPLY_SCS_CONFIG(vehicle_plate);
         NLSI_APPLY_SCS_CONFIG(trailer);
         NLSI_APPLY_SCS_CONFIG(trailer_plate);
+        NLSI_APPLY_SCS_CONFIG(fuel_liters);
+        NLSI_APPLY_SCS_CONFIG(fuel_capacity_liters);
+        NLSI_APPLY_SCS_CONFIG(parking_brake);
 #undef NLSI_APPLY_SCS_CONFIG
     }
 

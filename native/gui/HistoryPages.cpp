@@ -38,9 +38,14 @@
 #include <QGridLayout>
 #include <QFile>
 
+#include <functional>
+#include <cmath>
+#include <optional>
+
 #include <QtConcurrent/QtConcurrentRun>
 
 #include "JobPdfExporter.h"
+#include "MeasurementUnits.h"
 
 namespace nlsi::gui {
 namespace {
@@ -100,6 +105,21 @@ QString WithUnit(const QString& value, const QString& unit) {
         return value;
     }
     return value + QLatin1Char(' ') + unit;
+}
+
+QString ConvertedUnit(
+    const QString& value,
+    const QString& unit,
+    const std::function<std::optional<double>(double)>& convert) {
+    bool valid = false;
+    const double parsed = value.trimmed().replace(QLatin1Char(','), QString()).toDouble(&valid);
+    if (!valid || !std::isfinite(parsed) || parsed < 0.0) {
+        return WithUnit(value, unit);
+    }
+    const std::optional<double> converted = convert(parsed);
+    return converted && std::isfinite(*converted)
+        ? FormatNumber(*converted, 2) + QLatin1Char(' ') + unit
+        : QStringLiteral("N/A");
 }
 
 QString WrapLongTokens(const QString& text);
@@ -209,9 +229,25 @@ QWidget* MakeCompletedJobCard(const session::JobRecord& job, QWidget* parent) {
     layout->addWidget(recorded_at);
 
     auto* fields = new ResponsiveJobFields(card);
+    const MeasurementSystem units = CurrentMeasurementSystem();
 
     const auto field = [&job](const QStringList& keys) {
         return CompletedJobField(job, keys);
+    };
+    const auto distance_value = [&units](const QString& value) {
+        return ConvertedUnit(value, DistanceUnit(units), [&units](double number) {
+            return std::optional<double>(DisplayDistance(number, units));
+        });
+    };
+    const auto speed_value = [&units](const QString& value) {
+        return ConvertedUnit(value, SpeedUnit(units), [&units](double number) {
+            return std::optional<double>(DisplaySpeed(number, units));
+        });
+    };
+    const auto fuel_value = [&units](const QString& value) {
+        return ConvertedUnit(value, FuelVolumeUnit(units), [&units](double number) {
+            return std::optional<double>(DisplayFuelVolume(number, units));
+        });
     };
     fields->AddField(QStringLiteral("Cargo"),
         job.cargo.isEmpty()
@@ -219,7 +255,10 @@ QWidget* MakeCompletedJobCard(const session::JobRecord& job, QWidget* parent) {
                 QStringLiteral("cargo.id")})
             : job.cargo);
     fields->AddField(QStringLiteral("Weight"),
-        field({QStringLiteral("weight"), QStringLiteral("cargo_weight")}));
+        ConvertedUnit(field({QStringLiteral("weight"), QStringLiteral("cargo_weight")}),
+            MassUnit(units), [&units](double number) {
+                return std::optional<double>(DisplayMassKilograms(number, units));
+            }));
     fields->AddField(QStringLiteral("From"),
         field({QStringLiteral("source_city"), QStringLiteral("source.city")}));
     fields->AddField(QStringLiteral("To"),
@@ -229,11 +268,11 @@ QWidget* MakeCompletedJobCard(const session::JobRecord& job, QWidget* parent) {
     fields->AddField(QStringLiteral("To company"),
         field({QStringLiteral("destination_company"), QStringLiteral("destination.company")}));
     fields->AddField(QStringLiteral("Planned distance"),
-        WithUnit(field({QStringLiteral("planned_distance_km"),
-            QStringLiteral("planned_distance")}), QStringLiteral("km")));
+        distance_value(field({QStringLiteral("planned_distance_km"),
+            QStringLiteral("planned_distance")})));
     fields->AddField(QStringLiteral("Driven distance"),
-        WithUnit(field({QStringLiteral("driven_distance_km"),
-            QStringLiteral("distance_driven_km")}), QStringLiteral("km")));
+        distance_value(field({QStringLiteral("driven_distance_km"),
+            QStringLiteral("distance_driven_km")})));
     fields->AddField(QStringLiteral("Delivery time (game minutes)"),
         field({QStringLiteral("delivery_time_game_minutes"),
             QStringLiteral("delivery.time")}));
@@ -247,8 +286,8 @@ QWidget* MakeCompletedJobCard(const session::JobRecord& job, QWidget* parent) {
     fields->AddField(QStringLiteral("Time taken (real)"),
         field({QStringLiteral("real_elapsed_time"), QStringLiteral("elapsed_time")}));
     fields->AddField(QStringLiteral("Max speed"),
-        WithUnit(field({QStringLiteral("max_speed_kmh"),
-            QStringLiteral("maximum_speed_kmh")}), QStringLiteral("km/h")));
+        speed_value(field({QStringLiteral("max_speed_kmh"),
+            QStringLiteral("maximum_speed_kmh")})));
     layout->addWidget(fields);
 
     auto* vehicle_title = new QLabel(QStringLiteral("VEHICLE AND FUEL"), card);
@@ -273,20 +312,23 @@ QWidget* MakeCompletedJobCard(const session::JobRecord& job, QWidget* parent) {
         field({QStringLiteral("trailer_license_plate_country"),
             QStringLiteral("trailer_license_plate_country_id")}));
     vehicle_fields->AddField(QStringLiteral("Fuel usage"),
-        WithUnit(field({QStringLiteral("fuel_used_liters"),
-            QStringLiteral("fuel_usage_liters")}), QStringLiteral("L")));
+        fuel_value(field({QStringLiteral("fuel_used_liters"),
+            QStringLiteral("fuel_usage_liters")})));
     vehicle_fields->AddField(QStringLiteral("Fuel usage basis"),
         field({QStringLiteral("fuel_used_source")}));
     vehicle_fields->AddField(QStringLiteral("Refueled"),
-        WithUnit(field({QStringLiteral("refueled_liters"),
-            QStringLiteral("fuel_added_liters")}), QStringLiteral("L")));
+        fuel_value(field({QStringLiteral("refueled_liters"),
+            QStringLiteral("fuel_added_liters")})));
     vehicle_fields->AddField(QStringLiteral("Refueled amount basis"),
         field({QStringLiteral("refueled_source")}));
     vehicle_fields->AddField(QStringLiteral("Refuel cost"),
         field({QStringLiteral("refuel_cost")}));
     vehicle_fields->AddField(QStringLiteral("Average consumption"),
-        WithUnit(field({QStringLiteral("average_consumption"),
-            QStringLiteral("average_consumption_l_per_100km")}), QStringLiteral("L/100 km")));
+        ConvertedUnit(field({QStringLiteral("average_consumption"),
+            QStringLiteral("average_consumption_l_per_100km")}),
+            FuelEconomyUnit(units), [&units](double number) {
+                return DisplayFuelEconomy(number, units);
+            }));
     vehicle_fields->AddField(QStringLiteral("Average consumption basis"),
         field({QStringLiteral("average_consumption_source")}));
     layout->addWidget(vehicle_fields);
@@ -334,6 +376,9 @@ QWidget* MakeCompletedJobCard(const session::JobRecord& job, QWidget* parent) {
 
 QString TripEventCategory(const session::EventRecord& event) {
     const QString type = event.type.trimmed().toLower();
+    if (type == QStringLiteral("player.fined")) {
+        return QStringLiteral("Fine");
+    }
     if (type == QStringLiteral("player.tollgate.paid")) {
         return QStringLiteral("Toll gate");
     }
@@ -1184,10 +1229,16 @@ void TripEventsPage::UpdateHistory(const session::HistorySnapshot& history) {
                     && document.isObject()
                 ? document.object() : QJsonObject();
             const QString fee = EventFieldText(details, {
-                QStringLiteral("toll_fee"), QStringLiteral("fee"),
-                QStringLiteral("amount"), QStringLiteral("price")});
-            const QString currency = EventFieldText(details, {
+                QStringLiteral("fine_amount"), QStringLiteral("toll_fee"),
+                QStringLiteral("fee"), QStringLiteral("amount"),
+                QStringLiteral("fine.amount"), QStringLiteral("pay.amount"),
+                QStringLiteral("price")});
+            QString currency = EventFieldText(details, {
                 QStringLiteral("currency"), QStringLiteral("currency_code")});
+            if (currency.isEmpty() && event.source == QStringLiteral("SCS SDK")
+                && !fee.isEmpty()) {
+                currency = QStringLiteral("In-game currency");
+            }
             const QString association = TripJobAssociation(details, history.jobs);
             const int row = model_->rowCount();
             model_->insertRow(row);
@@ -1204,9 +1255,9 @@ void TripEventsPage::UpdateHistory(const session::HistorySnapshot& history) {
     const QString text = !history.error.isEmpty()
         ? QStringLiteral("History error: %1").arg(history.error)
         : model_->rowCount() == 0
-            ? QStringLiteral("No supported toll-gate, ferry, or train telemetry events have "
-                "been recorded. Only player.use.ferry, player.use.train, and "
-                "player.tollgate.paid are recognized.")
+        ? QStringLiteral("No supported fine, toll-gate, ferry, or train telemetry events "
+            "have been recorded. Only SDK-supplied player.fined, player.use.ferry, "
+            "player.use.train, and player.tollgate.paid events are recognized.")
             : QStringLiteral("Only explicit supported telemetry events are shown. Missing "
                 "fees, currency, and trip/job identifiers are marked unavailable.");
     if (message_->text() != text) {

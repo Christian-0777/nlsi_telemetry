@@ -50,6 +50,7 @@ public:
     TelemetryUiState UiState() const;
     session::HistorySnapshot History() const;
     std::vector<std::wstring> TakeNewlyCompletedJobNotifications();
+    std::vector<std::wstring> TakeNewExpenseNotifications();
     bool FlushLocalWrites(std::chrono::milliseconds timeout) const;
     bool IsFreshEnough() const;
 
@@ -93,6 +94,7 @@ private:
     std::unique_ptr<logging::TelemetryRecorder> telemetry_recorder_;
     std::unique_ptr<session::HistoryStore> history_store_;
     std::vector<std::wstring> newly_completed_job_notifications_;
+    std::vector<std::wstring> newly_recorded_expense_notifications_;
     JobFuelTracker job_fuel_tracker_;
     session::SessionManager session_manager_;
     session::JobManager job_manager_;

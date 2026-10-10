@@ -32,6 +32,7 @@ private:
 
     QHash<QString, QLabel*> values_;
     QHash<QString, QLabel*> cruise_indicators_;
+    QHash<QString, QLabel*> parking_brake_indicators_;
     QString game_log_path_;
     QString game_log_version_;
     QDateTime game_log_modified_;

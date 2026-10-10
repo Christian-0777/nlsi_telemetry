@@ -8,6 +8,19 @@ double MetersToKilometers(double meters) {
     return meters / 1000.0;
 }
 
+std::optional<double> FuelPercentage(
+    const TelemetryField<double>& fuel_liters,
+    const TelemetryField<double>& capacity_liters) {
+    if (!fuel_liters.available || fuel_liters.stale
+        || !capacity_liters.available || capacity_liters.stale
+        || !std::isfinite(fuel_liters.value)
+        || !std::isfinite(capacity_liters.value)
+        || fuel_liters.value < 0.0 || capacity_liters.value <= 0.0) {
+        return std::nullopt;
+    }
+    return fuel_liters.value / capacity_liters.value * 100.0;
+}
+
 std::optional<double> CalculateEtaSeconds(
     const TelemetryField<double>& distance_m,
     const TelemetryField<double>& speed_kmh) {
@@ -57,7 +70,9 @@ void MarkSnapshotStale(TelemetrySnapshot& snapshot) {
     NLSI_MARK_STALE(cruise_control_speed);
     NLSI_MARK_STALE(cruise_control_active);
     NLSI_MARK_STALE(fuel_liters);
+    NLSI_MARK_STALE(fuel_capacity_liters);
     NLSI_MARK_STALE(fuel_range_km);
+    NLSI_MARK_STALE(parking_brake);
     NLSI_MARK_STALE(odometer_km);
     NLSI_MARK_STALE(navigation_distance_m);
     NLSI_MARK_STALE(navigation_distance_km);

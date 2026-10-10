@@ -3,17 +3,17 @@
 #define AppChannel "beta"
 #endif
 #ifndef AppFileVersion
-#define AppFileVersion 1.5.2.0
+#define AppFileVersion 1.5.3.0
 #endif
 #ifndef ReleaseLabel
-#define ReleaseLabel "1.5.2-beta"
+#define ReleaseLabel "1.5.3-beta"
 #endif
 #define DefaultApplicationDir "C:\Program Files\NLSI Exclusive Logbook"
 #ifndef ReleaseTag
-#define ReleaseTag "v1.5.2-beta"
+#define ReleaseTag "v1.5.3-beta"
 #endif
 #ifndef ReleasePayload
-#define ReleasePayload "build\intermediate\installer-payload-v1.5.2-beta"
+#define ReleasePayload "build\intermediate\installer-payload-v1.5.3-beta"
 #endif
 #define AppPublisher "Nabski Logistics and Solutions Inc."
 #define AppURL "https://github.com/Christian-0777/nlsi_telemetry"
@@ -75,6 +75,8 @@ Name: "startup"; Description: "Start NLSI Exclusive Logbook with Windows"; Flags
 
 [Files]
 Source: "{#ReleasePayload}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "build\intermediate\installer-redist-{#ReleaseTag}\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall ignoreversion
+Source: "build\intermediate\installer-redist-{#ReleaseTag}\vc_redist.x86.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall ignoreversion
 Source: "img\logo.ico"; DestDir: "{app}\img"; Flags: ignoreversion
 Source: "img\logo.png"; DestDir: "{app}\img"; Flags: ignoreversion
 Source: "version.json"; DestDir: "{app}"; Flags: ignoreversion
@@ -87,10 +89,13 @@ Name: "{autodesktop}\NLSI Exclusive Logbook"; Filename: "{app}\NLSI-Exclusive-Lo
 Name: "{userstartup}\NLSI Exclusive Logbook"; Filename: "{app}\NLSI-Exclusive-Logbook.exe"; WorkingDir: "{app}"; IconFilename: "{app}\img\logo.ico"; Tasks: startup
 
 [Run]
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing the Microsoft Visual C++ x64 runtime..."; Flags: runhidden waituntilterminated
+Filename: "{tmp}\vc_redist.x86.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing the Microsoft Visual C++ x86 runtime..."; Flags: runhidden waituntilterminated
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\InstallTruckSimPlugin.ps1"" -DllPath64 ""{app}\plugins\trucksim\win_x64\plugins\trucksim-gps-telemetry.dll"" -DllPath32 ""{app}\plugins\trucksim\win_x86\plugins\trucksim-gps-telemetry.dll"" -ManifestPath ""{app}\tools\installed-trucksim-plugins.json"" -StatusPath ""{app}\logs\trucksim-plugin-status.txt"""; WorkingDir: "{app}"; Flags: runhidden waituntilterminated
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\InstallScsPositionPlugin.ps1"" -DllPath64 ""{app}\plugins\scs-position\win_x64\nlsi.dll"" -DllPath32 ""{app}\plugins\scs-position\win_x86\nlsi.dll"" -ManifestPath ""{app}\tools\installed-scs-position-plugins.json"" -BackupDirectory ""{app}\plugin-backups\scs-position"" -StatusPath ""{app}\logs\scs-position-plugin-status.txt"""; WorkingDir: "{app}"; Flags: runhidden waituntilterminated
 Filename: "{app}\NLSI-Exclusive-Logbook.exe"; Description: "Launch NLSI Exclusive Logbook"; Flags: postinstall nowait skipifsilent unchecked
-Filename: "https://www.tiktok.com/@kape_073"; Description: "Follow @kape_073 on TikTok"; Flags: postinstall shellexec nowait skipifsilent unchecked
+Filename: "https://www.tiktok.com/@nabskiplays"; Description: "Follow the CEO on TikTok"; Flags: postinstall shellexec nowait skipifsilent unchecked
+Filename: "https://discord.gg/gmQAGf6g9"; Description: "Join the developer Discord (xtian-tools)"; Flags: postinstall shellexec nowait skipifsilent unchecked
 Filename: "https://github.com/Christian-0777/nlsi_telemetry/releases/tag/{#ReleaseTag}"; Description: "View release notes"; Flags: postinstall shellexec nowait skipifsilent unchecked
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\InstallTruckSimPlugin.ps1"" -DllPath64 ""{app}\plugins\trucksim\win_x64\plugins\trucksim-gps-telemetry.dll"" -DllPath32 ""{app}\plugins\trucksim\win_x86\plugins\trucksim-gps-telemetry.dll"" -ManifestPath ""{app}\tools\installed-trucksim-plugins.json"" -StatusPath ""{app}\logs\trucksim-plugin-status.txt"" -RemoveManagedPlugin"; WorkingDir: "{app}"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveManagedTruckSimPlugin"

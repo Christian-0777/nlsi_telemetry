@@ -2,6 +2,7 @@
 #include <windows.h>
 
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -11,6 +12,7 @@
 #include "scssdk_telemetry.h"
 #include "common/scssdk_telemetry_common_configs.h"
 #include "common/scssdk_telemetry_common_gameplay_events.h"
+#include "common/scssdk_telemetry_truck_common_channels.h"
 #include "eurotrucks2/scssdk_eut2.h"
 #include "eurotrucks2/scssdk_telemetry_eut2.h"
 #include "amtrucks/scssdk_ats.h"
@@ -29,6 +31,13 @@ std::mutex configuration_mutex;
 std::map<std::string, std::string> job_configuration;
 std::map<std::string, std::string> truck_configuration;
 std::map<std::string, std::string> trailer_configuration;
+std::mutex vehicle_telemetry_mutex;
+double current_fuel_liters = 0.0;
+bool current_fuel_available = false;
+double current_fuel_capacity_liters = 0.0;
+bool current_fuel_capacity_available = false;
+bool parking_brake_engaged = false;
+bool parking_brake_available = false;
 std::uint32_t active_game_id = 0;
 
 using JsonFields = std::map<std::string, std::string>;
@@ -117,6 +126,15 @@ std::string JsonObject(const JsonFields& fields) {
     return result;
 }
 
+std::string JsonNumber(double value) {
+    if (!std::isfinite(value)) {
+        return "null";
+    }
+    char buffer[64]{};
+    std::snprintf(buffer, sizeof(buffer), "%.17g", value);
+    return buffer;
+}
+
 void AddAlias(JsonFields& fields, const char* alias, const char* source) {
     const auto value = fields.find(source);
     if (value != fields.end() && value->second != "null") {
@@ -170,6 +188,26 @@ void PublishGameplayEvent(const char* event_name, JsonFields fields) {
     if (!event_name) {
         return;
     }
+    static std::mutex recent_events_mutex;
+    static std::map<std::string, std::chrono::steady_clock::time_point> recent_events;
+    const auto now = std::chrono::steady_clock::now();
+    const std::string fingerprint = std::string(event_name) + '\n' + JsonObject(fields);
+    {
+        std::lock_guard<std::mutex> lock(recent_events_mutex);
+        for (auto it = recent_events.begin(); it != recent_events.end();) {
+            if (now - it->second > std::chrono::seconds(2)) {
+                it = recent_events.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        const auto previous = recent_events.find(fingerprint);
+        if (previous != recent_events.end()
+            && now - previous->second < std::chrono::milliseconds(500)) {
+            return;
+        }
+        recent_events.insert_or_assign(fingerprint, now);
+    }
     std::string packet = "{\"type\":\"gameplay_event\",\"provider\":\"SCS SDK\",\"event\":";
     packet += JsonString(event_name);
     packet += ",\"provider_event_id\":18446744073709551615,\"timestamp\":";
@@ -180,12 +218,66 @@ void PublishGameplayEvent(const char* event_name, JsonFields fields) {
     PublishEventPacket(std::move(packet));
 }
 
+void PublishVehicleTelemetry() {
+    JsonFields values;
+    {
+        std::lock_guard<std::mutex> lock(vehicle_telemetry_mutex);
+        values.emplace("fuel_liters",
+            current_fuel_available ? JsonNumber(current_fuel_liters) : "null");
+        values.emplace("fuel_capacity_liters",
+            current_fuel_capacity_available
+                ? JsonNumber(current_fuel_capacity_liters) : "null");
+        values.emplace("parking_brake",
+            parking_brake_available
+                ? (parking_brake_engaged ? "true" : "false") : "null");
+    }
+    std::string packet = "{\"type\":\"vehicle_telemetry\",\"provider\":\"SCS SDK\",";
+    packet += "\"game_id\":" + std::to_string(active_game_id);
+    packet += ",\"timestamp\":" + JsonString(UtcTimestamp());
+    packet += ",\"data\":" + JsonObject(values) + '}';
+    PublishEventPacket(std::move(packet));
+}
+
+SCSAPI_VOID StoreFuelAmount(
+    const scs_string_t,
+    const scs_u32_t,
+    const scs_value_t* const value,
+    const scs_context_t) {
+    {
+        std::lock_guard<std::mutex> lock(vehicle_telemetry_mutex);
+        current_fuel_available = value
+            && value->type == SCS_VALUE_TYPE_float
+            && std::isfinite(value->value_float.value)
+            && value->value_float.value >= 0.0f;
+        if (current_fuel_available) {
+            current_fuel_liters = value->value_float.value;
+        }
+    }
+    PublishVehicleTelemetry();
+}
+
+SCSAPI_VOID StoreParkingBrake(
+    const scs_string_t,
+    const scs_u32_t,
+    const scs_value_t* const value,
+    const scs_context_t) {
+    {
+        std::lock_guard<std::mutex> lock(vehicle_telemetry_mutex);
+        parking_brake_available = value && value->type == SCS_VALUE_TYPE_bool;
+        if (parking_brake_available) {
+            parking_brake_engaged = value->value_bool.value;
+        }
+    }
+    PublishVehicleTelemetry();
+}
+
 void PublishConfiguration(const std::string& id, const JsonFields& attributes) {
     JsonFields relevant;
     for (const char* key : {
              "brand", "name", "license.plate", "license_plate",
              "body.type", "chain.type", "version", "game.version",
-             "game_version", "game.name", "game_name"}) {
+             "game_version", "game.name", "game_name",
+             SCS_TELEMETRY_CONFIG_ATTRIBUTE_fuel_capacity}) {
         const auto value = attributes.find(key);
         if (value != attributes.end()) {
             relevant.emplace(value->first, value->second);
@@ -278,6 +370,29 @@ SCSAPI_VOID StoreConfiguration(
 
     const std::string id(configuration->id);
     JsonFields fields = CaptureAttributes(configuration->attributes);
+    if (id == SCS_TELEMETRY_CONFIG_truck) {
+        bool capacity_available = false;
+        double capacity_liters = 0.0;
+        for (const scs_named_value_t* item = configuration->attributes;
+             item && item->name; ++item) {
+            if (std::strcmp(item->name,
+                    SCS_TELEMETRY_CONFIG_ATTRIBUTE_fuel_capacity) != 0) {
+                continue;
+            }
+            if (item->value.type == SCS_VALUE_TYPE_float
+                && std::isfinite(item->value.value_float.value)
+                && item->value.value_float.value > 0.0f) {
+                capacity_liters = item->value.value_float.value;
+                capacity_available = true;
+            }
+            break;
+        }
+        std::lock_guard<std::mutex> lock(vehicle_telemetry_mutex);
+        current_fuel_capacity_available = capacity_available;
+        if (capacity_available) {
+            current_fuel_capacity_liters = capacity_liters;
+        }
+    }
     {
         std::lock_guard<std::mutex> lock(configuration_mutex);
         if (id == SCS_TELEMETRY_CONFIG_job) {
@@ -558,6 +673,15 @@ SCSAPI_RESULT scs_telemetry_init(
         truck_configuration.clear();
         trailer_configuration.clear();
     }
+    {
+        std::lock_guard<std::mutex> lock(vehicle_telemetry_mutex);
+        current_fuel_liters = 0.0;
+        current_fuel_available = false;
+        current_fuel_capacity_liters = 0.0;
+        current_fuel_capacity_available = false;
+        parking_brake_engaged = false;
+        parking_brake_available = false;
+    }
     if (!OpenEventMapping(init)) {
         ClosePositionMapping();
         game_log = nullptr;
@@ -583,6 +707,32 @@ SCSAPI_RESULT scs_telemetry_init(
         return result;
     }
 
+    const scs_u32_t live_channel_flags =
+        SCS_TELEMETRY_CHANNEL_FLAG_each_frame
+        | SCS_TELEMETRY_CHANNEL_FLAG_no_value;
+    result = init->register_for_channel(
+        SCS_TELEMETRY_TRUCK_CHANNEL_fuel,
+        SCS_U32_NIL,
+        SCS_VALUE_TYPE_float,
+        live_channel_flags,
+        StoreFuelAmount,
+        nullptr);
+    if (result != SCS_RESULT_ok) {
+        init->common.log(SCS_LOG_TYPE_warning,
+            "SCS FUEL AMOUNT CHANNEL IS UNAVAILABLE; LOW-FUEL PERCENTAGE WILL BE HIDDEN.");
+    }
+    result = init->register_for_channel(
+        SCS_TELEMETRY_TRUCK_CHANNEL_parking_brake,
+        SCS_U32_NIL,
+        SCS_VALUE_TYPE_bool,
+        live_channel_flags,
+        StoreParkingBrake,
+        nullptr);
+    if (result != SCS_RESULT_ok) {
+        init->common.log(SCS_LOG_TYPE_warning,
+            "SCS PARKING-BRAKE CHANNEL IS UNAVAILABLE; DASHBOARD STATE WILL REMAIN UNKNOWN.");
+    }
+
     result = init->register_for_channel(
         SCS_TELEMETRY_TRUCK_CHANNEL_world_placement,
         SCS_U32_NIL,
@@ -606,4 +756,11 @@ SCSAPI_RESULT scs_telemetry_init(
 SCSAPI_VOID scs_telemetry_shutdown(void) {
     ClosePositionMapping();
     game_log = nullptr;
+    std::lock_guard<std::mutex> lock(vehicle_telemetry_mutex);
+    current_fuel_liters = 0.0;
+    current_fuel_available = false;
+    current_fuel_capacity_liters = 0.0;
+    current_fuel_capacity_available = false;
+    parking_brake_engaged = false;
+    parking_brake_available = false;
 }

@@ -14,10 +14,10 @@ SPEC.loader.exec_module(BUILDER)
 
 class NativeReleasePackagingTests(unittest.TestCase):
     def test_version_and_automatic_plugin_installation_policy(self) -> None:
-        self.assertEqual("1.5.2", BUILDER.VERSION)
+        self.assertEqual("1.5.3", BUILDER.VERSION)
         self.assertEqual("beta", BUILDER.CHANNEL)
         self.assertEqual("beta", BUILDER.INSTALL_CHANNEL)
-        self.assertEqual("v1.5.2-beta", BUILDER.RELEASE_TAG)
+        self.assertEqual("v1.5.3-beta", BUILDER.RELEASE_TAG)
         self.assertIn("Qt6Concurrent.dll", BUILDER.REQUIRED_RUNTIME_FILES)
         self.assertEqual(
             r"C:\Program Files\NLSI Exclusive Logbook",
@@ -33,6 +33,10 @@ class NativeReleasePackagingTests(unittest.TestCase):
         )
         BUILDER.verify_version()
         BUILDER.verify_installer_policy()
+        self.assertIn(
+            'shutil.copy2(ROOT / "RELEASE_NOTES.md", RELEASE_DIR / "RELEASE_NOTES.md")',
+            BUILDER_PATH.read_text(encoding="utf-8"),
+        )
 
     def test_telemetry_migration_has_versioned_entities_and_no_fabricated_accounts(self) -> None:
         migration = (ROOT / "db" / "migrations" / "001_telemetry_sync.sql").read_text(
@@ -64,8 +68,8 @@ class NativeReleasePackagingTests(unittest.TestCase):
         self.assertEqual(2, len(BUILDER.SCS_POSITION_PLUGIN_FILES))
         self.assertEqual(
             [
-                ROOT / "build" / "plugins" / "v1.5.2-beta" / "win_x64" / "nlsi.dll",
-                ROOT / "build" / "plugins" / "v1.5.2-beta" / "win_x86" / "nlsi.dll",
+                ROOT / "build" / "plugins" / "v1.5.3-beta" / "win_x64" / "nlsi.dll",
+                ROOT / "build" / "plugins" / "v1.5.3-beta" / "win_x86" / "nlsi.dll",
             ],
             [source for source, _, _ in BUILDER.SCS_POSITION_PLUGIN_FILES],
         )
@@ -94,6 +98,16 @@ class NativeReleasePackagingTests(unittest.TestCase):
         )
         self.assertIn("InstallScsPositionPlugin.ps1", installer_text)
         self.assertIn("-RestoreManagedPlugin", installer_text)
+        for url, description in (
+            ("https://www.tiktok.com/@nabskiplays", "Follow the CEO on TikTok"),
+            ("https://discord.gg/gmQAGf6g9", "Join the developer Discord (xtian-tools)"),
+        ):
+            self.assertIn(f'Filename: "{url}"; Description: "{description}"', installer_text)
+            self.assertIn(
+                f'Filename: "{url}"; Description: "{description}"; '
+                "Flags: postinstall shellexec nowait skipifsilent unchecked",
+                installer_text,
+            )
 
     def test_scs_configuration_callbacks_are_forwarded_as_timestamped_provider_records(self) -> None:
         plugin_source = (ROOT / "scs_position_plugin" / "nlsi.cpp").read_text(
@@ -160,7 +174,11 @@ class NativeReleasePackagingTests(unittest.TestCase):
         plugin_source = (ROOT / "scs_position_plugin" / "nlsi.cpp").read_text(
             encoding="utf-8"
         )
-        self.assertEqual(1, plugin_source.count("register_for_channel("))
+        self.assertEqual(3, plugin_source.count("register_for_channel("))
+        self.assertIn("SCS_TELEMETRY_TRUCK_CHANNEL_fuel", plugin_source)
+        self.assertIn("SCS_VALUE_TYPE_float", plugin_source)
+        self.assertIn("SCS_TELEMETRY_TRUCK_CHANNEL_parking_brake", plugin_source)
+        self.assertIn("SCS_VALUE_TYPE_bool", plugin_source)
         self.assertIn("SCS_TELEMETRY_TRUCK_CHANNEL_world_placement", plugin_source)
         self.assertIn("SCS_VALUE_TYPE_dplacement", plugin_source)
         self.assertIn("SCS_TELEMETRY_EVENT_configuration", plugin_source)
