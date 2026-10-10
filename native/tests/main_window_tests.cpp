@@ -39,6 +39,7 @@
 #include <atomic>
 #include <algorithm>
 #include <iostream>
+#include <limits>
 #include <thread>
 
 #ifndef NOMINMAX
@@ -128,6 +129,29 @@ QLabel* FindDashboardCardValue(
             if (card) {
                 return card->findChild<QLabel*>(QStringLiteral("cardValue"));
             }
+        }
+    }
+    return nullptr;
+}
+
+QLabel* FindDashboardField(
+    nlsi::gui::DashboardPage& page,
+    const QString& key) {
+    for (QLabel* label : page.findChildren<QLabel*>(QStringLiteral("dashboardValue"))) {
+        if (label->property("fieldKey").toString() == key) {
+            return label;
+        }
+    }
+    return nullptr;
+}
+
+QLabel* FindDashboardCruiseIndicator(
+    nlsi::gui::DashboardPage& page,
+    const QString& key) {
+    for (QLabel* label : page.findChildren<QLabel*>(
+             QStringLiteral("cruiseControlActiveIndicator"))) {
+        if (label->property("fieldKey").toString() == key) {
+            return label;
         }
     }
     return nullptr;
@@ -710,7 +734,10 @@ bool TestNumberAndTimeFormatting() {
             != QStringLiteral("10/07/26 16:36:46.123 Asia/Manila")
         || nlsi::gui::TimestampText(QStringLiteral("2026-10-07T08:36:46.123"))
             != QStringLiteral("2026-10-07T08:36:46.123")
-        || nlsi::gui::DurationText(3661.25) != QStringLiteral("01:01:01.250")) {
+        || nlsi::gui::DurationText(3661.25) != QStringLiteral("01:01:01")
+        || nlsi::gui::DurationText(-1.0) != QStringLiteral("N/A")
+        || nlsi::gui::DurationText(std::numeric_limits<double>::infinity())
+            != QStringLiteral("N/A")) {
         std::cerr << "Locale-independent number, date, or time formatting is incorrect.\n";
         return false;
     }
@@ -973,6 +1000,199 @@ bool TestDashboardContainsTransferredJobAndNavigationDetails() {
     return true;
 }
 
+bool TestDashboardCruiseControlIndicators() {
+    nlsi::gui::DashboardPage page;
+    nlsi::telemetry::TelemetryUiState state;
+    auto& snapshot = state.fast.values;
+    snapshot.connected = true;
+    snapshot.effective_throttle.Set(0.25, L"TruckSim GPS", L"sample");
+    snapshot.effective_brake.Set(0.05, L"TruckSim GPS", L"sample");
+    snapshot.retarder_level.Set(2.0, L"TruckSim GPS", L"sample");
+
+    const QStringList keys = {
+        QStringLiteral("throttle"),
+        QStringLiteral("brake"),
+        QStringLiteral("retarder"),
+    };
+    for (const QString& key : keys) {
+        if (!FindDashboardCruiseIndicator(page, key)
+            || !FindDashboardCruiseIndicator(page, key)->isHidden()) {
+            std::cerr << "Cruise active marker was visible without confirmed cruise control.\n";
+            return false;
+        }
+    }
+
+    snapshot.cruise_control_active.Set(true, L"TruckSim GPS", L"sample");
+    page.UpdateState(state);
+    for (const QString& key : keys) {
+        const QLabel* indicator = FindDashboardCruiseIndicator(page, key);
+        if (!indicator || indicator->isHidden() || indicator->text() != QStringLiteral("A")) {
+            std::cerr << "Confirmed cruise control did not show the matching A indicators.\n";
+            return false;
+        }
+    }
+    if (FindDashboardField(page, QStringLiteral("throttle"))->text()
+            != QStringLiteral("25.0%")
+        || FindDashboardField(page, QStringLiteral("brake"))->text()
+            != QStringLiteral("5.0%")
+        || FindDashboardField(page, QStringLiteral("retarder"))->text()
+            != QStringLiteral("2.0")) {
+        std::cerr << "Cruise markers changed the underlying dashboard telemetry values.\n";
+        return false;
+    }
+
+    snapshot.cruise_control_active.Set(false, L"TruckSim GPS", L"sample");
+    page.UpdateState(state);
+    for (const QString& key : keys) {
+        if (!FindDashboardCruiseIndicator(page, key)->isHidden()) {
+            std::cerr << "A cruise marker remained after cruise control became inactive.\n";
+            return false;
+        }
+    }
+
+    snapshot.cruise_control_active.Set(true, L"TruckSim GPS", L"sample");
+    snapshot.cruise_control_active.MarkStale();
+    page.UpdateState(state);
+    for (const QString& key : keys) {
+        if (!FindDashboardCruiseIndicator(page, key)->isHidden()) {
+            std::cerr << "A cruise marker remained while cruise telemetry was stale.\n";
+            return false;
+        }
+    }
+
+    snapshot.cruise_control_active.Set(true, L"TruckSim GPS", L"sample");
+    snapshot.connected = false;
+    page.UpdateState(state);
+    for (const QString& key : keys) {
+        if (!FindDashboardCruiseIndicator(page, key)->isHidden()) {
+            std::cerr << "A cruise marker remained after telemetry disconnected.\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool TestDashboardLayoutAndResponsiveText() {
+    nlsi::gui::DashboardPage page;
+    nlsi::telemetry::TelemetryUiState state;
+    auto& snapshot = state.fast.values;
+    snapshot.connected = true;
+    state.providers.trucksim = nlsi::telemetry::ProviderState::Connected;
+    snapshot.game_name.Set(L"Euro Truck Simulator 2", L"TruckSim GPS", L"sample");
+    snapshot.game_id.Set(L"ets2", L"TruckSim GPS", L"sample");
+    snapshot.fuel_liters.Set(500.0, L"TruckSim GPS", L"sample");
+    snapshot.rpm.Set(1500.0, L"TruckSim GPS", L"sample");
+    snapshot.gear.Set(6.0, L"TruckSim GPS", L"sample");
+    snapshot.effective_throttle.Set(0.25, L"TruckSim GPS", L"sample");
+    snapshot.effective_brake.Set(0.05, L"TruckSim GPS", L"sample");
+    snapshot.cruise_control_active.Set(true, L"TruckSim GPS", L"sample");
+    snapshot.retarder_level.Set(2.0, L"TruckSim GPS", L"sample");
+    snapshot.special_job.Set(L"true", L"TruckSim GPS", L"sample");
+    state.job.available = true;
+    state.job.nlsi_job_id = L"JOB-NLSI-0042";
+    state.job.cargo.Set(L"Furniture", L"TruckSim GPS", L"sample");
+    state.job.income.Set(L"$25,000", L"TruckSim GPS", L"sample");
+    state.job.source_city.Set(L"Berlin", L"TruckSim GPS", L"sample");
+    state.job.destination_city.Set(L"Paris", L"TruckSim GPS", L"sample");
+    state.job.planned_distance.Set(L"1,200 km", L"TruckSim GPS", L"sample");
+    state.job_status = nlsi::telemetry::JobStatus::InTransit;
+    state.progress.progress_percent = 25.0;
+    state.progress.remaining_distance_km = 100.0;
+    state.progress.eta_seconds = 3661.0;
+    page.UpdateState(state);
+
+    const QHash<QString, QString> expected = {
+        {QStringLiteral("jobId"), QStringLiteral("JOB-NLSI-0042")},
+        {QStringLiteral("jobStatus"), QStringLiteral("IN TRANSIT")},
+        {QStringLiteral("cargo"), QStringLiteral("Furniture")},
+        {QStringLiteral("income"), QStringLiteral("$25,000")},
+        {QStringLiteral("source"), QStringLiteral("Berlin")},
+        {QStringLiteral("destination"), QStringLiteral("Paris")},
+        {QStringLiteral("plannedDistance"), QStringLiteral("1,200 km")},
+        {QStringLiteral("remainingDistance"), QStringLiteral("100.00 km")},
+        {QStringLiteral("progress"), QStringLiteral("25.0%")},
+        {QStringLiteral("eta"), QStringLiteral("01:01:01")},
+        {QStringLiteral("game"), QStringLiteral("Euro Truck Simulator 2 (ets2)")},
+        {QStringLiteral("gameVersion"), QStringLiteral("N/A")},
+        {QStringLiteral("vehicle"), QStringLiteral("N/A")},
+    };
+    for (auto it = expected.cbegin(); it != expected.cend(); ++it) {
+        const QLabel* field = FindDashboardField(page, it.key());
+        if (!field || field->text() != it.value()) {
+            std::cerr << "Dashboard field did not match its telemetry source: "
+                      << it.key().toStdString() << '\n';
+            return false;
+        }
+    }
+    QLabel* special = page.findChild<QLabel*>(QStringLiteral("specialJobIndicator"));
+    if (!special || special->isHidden()) {
+        std::cerr << "The verified special-job indicator was not shown.\n";
+        return false;
+    }
+    snapshot.special_job.Set(L"false", L"TruckSim GPS", L"sample");
+    page.UpdateState(state);
+    if (!special->isHidden()) {
+        std::cerr << "The special-job indicator remained visible when its flag was false.\n";
+        return false;
+    }
+    snapshot.special_job.Set(L"true", L"TruckSim GPS", L"sample");
+    snapshot.special_job.MarkStale();
+    page.UpdateState(state);
+    if (!special->isHidden()) {
+        std::cerr << "A stale special-job flag remained visible.\n";
+        return false;
+    }
+
+    const QList<QSize> window_sizes = {
+        QSize(900, 600),
+        QSize(1366, 768),
+        QSize(1920, 1080),
+    };
+    int previous_value_size = 0;
+    for (const auto& size : window_sizes) {
+        page.resize(size.width(), size.height());
+        page.show();
+        QApplication::processEvents();
+        int value_size = 0;
+        for (const QLabel* label : page.findChildren<QLabel*>()) {
+            if (label->objectName() != QStringLiteral("dashboardSectionTitle")
+                && label->objectName() != QStringLiteral("dashboardFieldLabel")
+                && label->objectName() != QStringLiteral("dashboardValue")
+                && label->objectName() != QStringLiteral("cruiseControlActiveIndicator")
+                && label->objectName() != QStringLiteral("specialJobIndicator")) {
+                continue;
+            }
+            const int pixel_size = label->font().pixelSize();
+            if (pixel_size < 8 || pixel_size > 14) {
+                std::cerr << "Dashboard font size escaped the 8-14 px bounds: "
+                          << pixel_size << ".\n";
+                return false;
+            }
+            if (label->objectName() == QStringLiteral("dashboardValue")) {
+                value_size = pixel_size;
+                if (!label->wordWrap() || label->minimumWidth() != 0) {
+                    std::cerr << "A dashboard value cannot wrap or shrink to its cell width.\n";
+                    return false;
+                }
+            }
+        }
+        if (value_size <= previous_value_size) {
+            std::cerr << "Dashboard values did not scale upward with window size.\n";
+            return false;
+        }
+        previous_value_size = value_size;
+    }
+
+    state.progress.eta_seconds = -1.0;
+    page.UpdateState(state);
+    if (FindDashboardField(page, QStringLiteral("eta"))->text()
+        != QStringLiteral("N/A")) {
+        std::cerr << "An invalid ETA was not presented as unavailable.\n";
+        return false;
+    }
+    return true;
+}
+
 bool TestCompletedJobsPdfExport() {
     QTemporaryDir directory;
     if (!directory.isValid()) {
@@ -1093,7 +1313,7 @@ bool TestSingleInstanceGuard(QApplication& application) {
 
 bool TestOfflineUpdateCheck() {
     nlsi::updater::GitHubUpdater updater(
-        QStringLiteral("1.4.7-beta"),
+        QStringLiteral("1.4.8-beta"),
         nullptr,
         QUrl(QStringLiteral("http://127.0.0.1:1/releases")));
     QEventLoop loop;
@@ -1131,7 +1351,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.4.7-beta"));
+    application.setApplicationVersion(QStringLiteral("v1.4.8-beta"));
     if (!TestModLogParsingAndSourceLinks()
         || !TestIncrementalGameLogMonitoring()
         || !TestMonitorStartsBeforeGame()
@@ -1141,13 +1361,13 @@ int main(int argc, char** argv) {
     if (!TestNumberAndTimeFormatting()
         || !TestShutdownIsIdempotent()
         || !TestProviderSurfaceSelectsTruckSimOnly()
-        || !TestTruckControlsReportAvailability()
-        || !TestDashboardContainsTransferredJobAndNavigationDetails()
+        || !TestDashboardCruiseControlIndicators()
+        || !TestDashboardLayoutAndResponsiveText()
         || !TestCompletedJobsPdfExport()) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.7-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.8-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -1177,10 +1397,14 @@ int main(int argc, char** argv) {
         return 1;
     }
     const QRegularExpression clock_pattern(
-        QStringLiteral("^\\d{2}/\\d{2}/\\d{2} - \\d{2}:\\d{2}:\\d{2}\\.\\d{3}"
-            " \\| Asia/Manila \\| Ping: N/A ms$"));
+        QStringLiteral("^\\d{2}/\\d{2}/\\d{2} - \\d{2}:\\d{2}:\\d{2}"
+            "\\nAsia/Manila - Ping: N/A$"));
     if (!clock_pattern.match(header_clock->text()).hasMatch()) {
-        std::cerr << "The Manila millisecond clock or unavailable ping display is incorrect.\n";
+        std::cerr << "The Manila wall clock or unavailable ping display is incorrect.\n";
+        return 1;
+    }
+    if (page_title->font().pixelSize() < 8 || page_title->font().pixelSize() > 14) {
+        std::cerr << "Dashboard header text is outside the 8-14 px bounds.\n";
         return 1;
     }
     if (brand_title->text() != QStringLiteral("NABSKI") ||
@@ -1265,7 +1489,7 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.4.7-beta");
+            || label->text() == QStringLiteral("v1.4.8-beta");
         found_beta_channel = found_beta_channel
             || label->text() == QStringLiteral("Beta");
         if (label->text() == QStringLiteral("Product") && label->parentWidget()) {

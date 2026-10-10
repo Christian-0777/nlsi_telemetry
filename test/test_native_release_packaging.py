@@ -14,21 +14,21 @@ SPEC.loader.exec_module(BUILDER)
 
 class NativeReleasePackagingTests(unittest.TestCase):
     def test_version_and_automatic_plugin_installation_policy(self) -> None:
-        self.assertEqual("1.4.7", BUILDER.VERSION)
+        self.assertEqual("1.4.8", BUILDER.VERSION)
         self.assertEqual("beta", BUILDER.CHANNEL)
         self.assertEqual("beta", BUILDER.INSTALL_CHANNEL)
-        self.assertEqual("v1.4.7-beta", BUILDER.RELEASE_TAG)
+        self.assertEqual("v1.4.8-beta", BUILDER.RELEASE_TAG)
         self.assertIn("Qt6Concurrent.dll", BUILDER.REQUIRED_RUNTIME_FILES)
         self.assertEqual(
-            r"{autopf32}\NLSI Exclusive Logbook",
+            r"C:\Program Files\NLSI Exclusive Logbook",
             BUILDER.default_install_dir_for_channel("alpha"),
         )
         self.assertEqual(
-            r"{autopf32}\NLSI Exclusive Logbook",
+            r"C:\Program Files\NLSI Exclusive Logbook",
             BUILDER.default_install_dir_for_channel("beta"),
         )
         self.assertEqual(
-            r"{autopf64}\NLSI Exclusive Logbook",
+            r"C:\Program Files\NLSI Exclusive Logbook",
             BUILDER.default_install_dir_for_channel("stable"),
         )
         BUILDER.verify_version()
@@ -64,8 +64,8 @@ class NativeReleasePackagingTests(unittest.TestCase):
         self.assertEqual(2, len(BUILDER.SCS_POSITION_PLUGIN_FILES))
         self.assertEqual(
             [
-                ROOT / "build" / "plugins" / "v1.4.7-beta" / "win_x64" / "nlsi.dll",
-                ROOT / "build" / "plugins" / "v1.4.7-beta" / "win_x86" / "nlsi.dll",
+                ROOT / "build" / "plugins" / "v1.4.8-beta" / "win_x64" / "nlsi.dll",
+                ROOT / "build" / "plugins" / "v1.4.8-beta" / "win_x86" / "nlsi.dll",
             ],
             [source for source, _, _ in BUILDER.SCS_POSITION_PLUGIN_FILES],
         )

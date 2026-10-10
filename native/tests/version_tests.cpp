@@ -268,6 +268,18 @@ void TestThrottleBrakeCruiseAndJobParsing() {
     Check(snapshot.cruise_control_speed.available && snapshot.cruise_control_speed.value == 67.5
         && snapshot.cruise_control_active.available && snapshot.cruise_control_active.value,
         "cruise control state did not parse");
+    const std::string set_speed_only = R"json({
+          "type":"telemetry","timestamp":"2026-10-07T08:36:46.000Z","state":"driving",
+      "truck":{"cruise_control_speed":67.5},"configurations":{}
+    })json";
+    nlsi::telemetry::TelemetrySnapshot set_speed_snapshot;
+    Check(nlsi::providers::NLSIProvider::ParseTelemetryPacket(set_speed_only, set_speed_snapshot),
+            "set-speed-only telemetry packet was rejected");
+    Check(set_speed_snapshot.cruise_control_speed.available
+            && set_speed_snapshot.cruise_control_speed.value == 67.5,
+            "cruise-control set speed did not parse");
+    Check(!set_speed_snapshot.cruise_control_active.available,
+            "cruise-control set speed incorrectly confirmed active cruise control");
     Check(snapshot.has_job.value && snapshot.cargo_id.value == L"job-17"
         && snapshot.cargo_name.value == L"Furniture", "cargo id/name did not parse");
     Check(snapshot.source_company.value == L"Berlin Logistics" && snapshot.source_city.value == L"Berlin"

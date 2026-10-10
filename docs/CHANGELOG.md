@@ -2,6 +2,15 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.4.8-beta
+
+- Replaces the generic Dashboard card grid with the specified two-column current-job, driving-telemetry, and connection sections.
+- Uses fresh validated cruise-control state for identical `A` markers beside throttle, brake, and retarder; hides them when inactive, stale, unavailable, or disconnected.
+- Formats navigation ETA as a remaining-duration `HH:MM:SS`, rejects invalid values, and keeps unavailable game version, vehicle identity, and ping as N/A.
+- Applies responsive 8–14 px Dashboard text sizing and keeps the 900×600 minimum window, existing pages, telemetry providers, and local formats.
+- Validates registered installation path/version before upgrades, uses `C:\Program Files\NLSI Exclusive Logbook` as the default, and leaves legacy and per-user data untouched.
+- Aligns application and installer release metadata to v1.4.8-beta; SDK and shared-memory versions are unchanged.
+
 ## v1.4.7-beta
 
 - Initializes ETS2/ATS `game.log.txt` files when available, parses the current session once, and incrementally monitors appended lines with replacement, truncation, rotation, restart, partial-line, and UTF-8 handling.

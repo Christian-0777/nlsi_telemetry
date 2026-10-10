@@ -22,6 +22,7 @@ RELEASE_TAG = f"v{VERSION}" if INSTALL_CHANNEL == "stable" else f"v{VERSION}-{IN
 RELEASE_LABEL = f"{VERSION}-{INSTALL_CHANNEL}" if INSTALL_CHANNEL != "stable" else VERSION
 RELEASE_DIR = ROOT / "build" / "releases" / RELEASE_TAG
 APP_EXE = "NLSI-Exclusive-Logbook.exe"
+DEFAULT_INSTALL_DIR = r"C:\Program Files\NLSI Exclusive Logbook"
 TRUCKSIM_PLUGIN_FILES = (
     (
         ROOT / "includes" / "trucksim-gps-plugin" / "win_x64" / "plugins"
@@ -91,11 +92,9 @@ def read_pe_machine(path: Path) -> int:
 
 def default_install_dir_for_channel(channel: str) -> str:
     normalized = channel.strip().lower()
-    if normalized in {"alpha", "beta"}:
-        return r"{autopf32}\NLSI Exclusive Logbook"
-    if normalized in {"stable", "public"}:
-        return r"{autopf64}\NLSI Exclusive Logbook"
-    raise ValueError(f"Unsupported release channel: {channel!r}.")
+    if normalized not in {"alpha", "beta", "stable", "public"}:
+        raise ValueError(f"Unsupported release channel: {channel!r}.")
+    return DEFAULT_INSTALL_DIR
 
 
 def verify_version() -> None:
@@ -131,9 +130,8 @@ def verify_installer_policy() -> None:
         raise ValueError("The SCS position plugin installer must remain separate from TruckSim GPS.")
     required_installer_policy = (
         "DefaultDirName={#DefaultApplicationDir}",
-        '#if (AppChannel == "alpha") || (AppChannel == "beta")',
-        'DefaultApplicationDir "{autopf32}\\NLSI Exclusive Logbook"',
-        'DefaultApplicationDir "{autopf64}\\NLSI Exclusive Logbook"',
+        'DefaultApplicationDir "C:\\Program Files\\NLSI Exclusive Logbook"',
+        "DefaultInstallPath = 'C:\\Program Files\\NLSI Exclusive Logbook'",
         "UsePreviousAppDir=yes",
         "AppId=NLSI Exclusive Logbook",
         "ArchitecturesInstallIn64BitMode=x64compatible",
@@ -141,12 +139,21 @@ def verify_installer_policy() -> None:
         '#define InstallPrivileges "admin"',
         "VersionInfoProductVersion={#AppFileVersion}",
         "VersionInfoVersion={#AppFileVersion}",
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NLSI Exclusive Logbook_is1",
+        "QueryUninstallValue('InstallLocation'",
+        "ReadManifestVersion(ExistingInstallDir",
+        "CompareText(ManifestProduct, 'NLSI Exclusive Logbook')",
+        "CompareReleaseVersions('{#ReleaseLabel}', ExistingInstallVersion)",
+        "WizardForm.DirEdit.Text := ExistingInstallDir",
+        "ExistingInstallError",
     )
     if any(rule not in installer_text for rule in required_installer_policy):
         raise ValueError("The native installer path, identity, or metadata policy is incomplete.")
+    if "DelTree(" in installer_text or "LocalAppData" in installer_text:
+        raise ValueError("The native installer must not delete legacy or per-user application data.")
     for channel in ("alpha", "beta", "stable"):
-        if default_install_dir_for_channel(channel) not in installer_text:
-            raise ValueError(f"The native installer is missing the {channel} destination.")
+        if default_install_dir_for_channel(channel) != DEFAULT_INSTALL_DIR:
+            raise ValueError(f"The native installer has an invalid {channel} destination.")
 
 
 def verify_executable_version(app_exe: Path) -> None:

@@ -4,6 +4,7 @@
 
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 
 #include <QFrame>
@@ -63,19 +64,20 @@ QString OptionalNumberText(const std::optional<double>& value, int precision, co
 
 QString DurationText(const std::optional<double>& seconds) {
     if (!seconds || !std::isfinite(*seconds) || *seconds < 0.0) {
-        return QStringLiteral("--");
+        return QStringLiteral("N/A");
     }
-    const auto total_milliseconds = static_cast<quint64>(std::llround(*seconds * 1000.0));
-    const auto whole_seconds = total_milliseconds / 1000;
+    const double rounded_seconds = std::round(*seconds);
+    if (rounded_seconds >= static_cast<double>(std::numeric_limits<qint64>::max())) {
+        return QStringLiteral("N/A");
+    }
+    const auto whole_seconds = static_cast<quint64>(rounded_seconds);
     const quint64 hours = whole_seconds / 3600;
     const quint64 minutes = (whole_seconds % 3600) / 60;
     const quint64 remainder_seconds = whole_seconds % 60;
-    const quint64 milliseconds = total_milliseconds % 1000;
-    return QStringLiteral("%1:%2:%3.%4")
-        .arg(hours, 2, 10, QLatin1Char('0'))
-        .arg(minutes, 2, 10, QLatin1Char('0'))
-        .arg(remainder_seconds, 2, 10, QLatin1Char('0'))
-        .arg(milliseconds, 3, 10, QLatin1Char('0'));
+    return QStringLiteral("%1:%2:%3")
+        .arg(static_cast<qulonglong>(hours), 2, 10, QLatin1Char('0'))
+        .arg(static_cast<qulonglong>(minutes), 2, 10, QLatin1Char('0'))
+        .arg(static_cast<qulonglong>(remainder_seconds), 2, 10, QLatin1Char('0'));
 }
 
 QString FormatNumber(double value, int precision) {

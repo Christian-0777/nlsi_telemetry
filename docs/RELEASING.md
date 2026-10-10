@@ -9,7 +9,7 @@ publish or upload anything.
 ## Build and verify
 
 Configure a version-specific Visual Studio 2022 x64 CMake directory such as
-`build\cmake-v1.4.7-beta`. Do not reuse or reconfigure the existing
+`build\cmake-v1.4.8-beta`. Do not reuse or reconfigure the existing
 `build\cmake` cache or overwrite completed earlier release outputs.
 
 ```bat
@@ -23,25 +23,23 @@ metadata, official TruckSim GPS x64/x86 plugin hashes, license notices, and the
 automatic safe-install policy before staging Qt/MSVC dependencies and
 compiling the Inno Setup definition.
 
-Expected outputs for v1.4.7-beta:
+Expected outputs for v1.4.8-beta:
 
-- `build\releases\v1.4.7-beta\NLSI-Exclusive-Logbook.exe`
-- `build\releases\v1.4.7-beta\NLSI-Exclusive-Logbook-v1.4.7-beta-Setup.exe`
-- `build\intermediate\v1.4.7-beta\installer-payload-v1.4.7-beta`
+- `build\releases\v1.4.8-beta\NLSI-Exclusive-Logbook.exe`
+- `build\releases\v1.4.8-beta\NLSI-Exclusive-Logbook-v1.4.8-beta-Setup.exe`
+- `build\intermediate\installer-payload-v1.4.8-beta`
 
-Previously built v1.4.6-beta artifacts remain unchanged. The v1.4.7 Beta build
-adds incremental ETS2/ATS game-log monitoring and text-wrapping improvements. No
+Previously built v1.4.7-beta artifacts remain unchanged. The v1.4.8 Beta build
+replaces Dashboard's card grid and improves validated installation upgrades. No
 authenticated backend or gameplay upload endpoint is implemented; release
 notes and the installer must continue to describe synchronization as local
 Pending only. The updater reads public release metadata but does not download or
 install updates.
 
-Fresh Alpha and Beta installers default to
-`C:\Program Files (x86)\NLSI Exclusive Logbook`; Stable defaults to
-`C:\Program Files\NLSI Exclusive Logbook`. Existing installations retain their
-detected directory and a user-selected custom directory remains in effect for
-upgrades because the installer keeps the same AppId and enables
-`UsePreviousAppDir`. Installer operations require administrator privileges
+Fresh Alpha, Beta, and Stable installers default to
+`C:\Program Files\NLSI Exclusive Logbook`. A validated existing installation
+retains its registered directory and cannot silently be redirected to a second
+copy. Installer operations require administrator privileges
 for Program Files and game plugin installation. The installer keeps user data under
 `%LOCALAPPDATA%\NLSI\Exclusive Logbook`, and installs the official plugin only
 to detected matching architecture folders for supported Steam ETS2/ATS

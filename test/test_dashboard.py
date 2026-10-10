@@ -100,7 +100,7 @@ class DashboardRendererTests(unittest.TestCase):
         self.agent.process_message(telemetry(), now=1.0)
         dashboard = "\n".join(self.renderer.dashboard(now=1.5))
 
-        self.assertIn("NLSI Telemetry: 1.4.7", dashboard)
+        self.assertIn("NLSI Telemetry: 1.4.8", dashboard)
         self.assertIn("SCS Telemetry API: 1.01", dashboard)
 
     def test_format_utc_and_manila_time_contains_date_on_both_sides(self) -> None:

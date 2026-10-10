@@ -3,21 +3,17 @@
 #define AppChannel "beta"
 #endif
 #ifndef AppFileVersion
-#define AppFileVersion 1.4.7.0
+#define AppFileVersion 1.4.8.0
 #endif
 #ifndef ReleaseLabel
-#define ReleaseLabel "1.4.7-beta"
+#define ReleaseLabel "1.4.8-beta"
 #endif
-#if (AppChannel == "alpha") || (AppChannel == "beta")
-#define DefaultApplicationDir "{autopf32}\NLSI Exclusive Logbook"
-#else
-#define DefaultApplicationDir "{autopf64}\NLSI Exclusive Logbook"
-#endif
+#define DefaultApplicationDir "C:\Program Files\NLSI Exclusive Logbook"
 #ifndef ReleaseTag
-#define ReleaseTag "v1.4.7-beta"
+#define ReleaseTag "v1.4.8-beta"
 #endif
 #ifndef ReleasePayload
-#define ReleasePayload "build\intermediate\installer-payload-v1.4.7-beta"
+#define ReleasePayload "build\intermediate\installer-payload-v1.4.8-beta"
 #endif
 #define AppPublisher "Nabski Logistics and Solutions Inc."
 #define AppURL "https://github.com/Christian-0777/nlsi_telemetry"
@@ -104,6 +100,7 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 const
   UninstallRegistryKey =
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\NLSI Exclusive Logbook_is1';
+  DefaultInstallPath = 'C:\Program Files\NLSI Exclusive Logbook';
 
 var
   PrivacyPage: TWizardPage;
@@ -114,41 +111,272 @@ var
   ExistingInstallDir: String;
   ExistingInstallVersion: String;
   ExistingInstallDetected: Boolean;
+  ExistingInstallError: String;
+
+function QueryUninstallValue(const ValueName: String; var Value: String): Boolean;
+begin
+  Result := RegQueryStringValue(HKLM, UninstallRegistryKey, ValueName, Value);
+  if not Result and IsWin64 then
+    Result := RegQueryStringValue(HKLM32, UninstallRegistryKey, ValueName, Value);
+end;
+
+function IsDigits(const Value: String): Boolean;
+var
+  Index: Integer;
+begin
+  Result := (Value <> '');
+  for Index := 1 to Length(Value) do
+    if (Value[Index] < '0') or (Value[Index] > '9') then begin
+      Result := False;
+      Exit;
+    end;
+end;
+
+function ParseReleaseVersion(
+  const Value: String;
+  var Major: Integer;
+  var Minor: Integer;
+  var Patch: Integer;
+  var ChannelRank: Integer): Boolean;
+var
+  Core: String;
+  Channel: String;
+  Part: String;
+  FirstDot: Integer;
+  SecondDot: Integer;
+  Hyphen: Integer;
+begin
+  Result := False;
+  Major := -1;
+  Minor := -1;
+  Patch := -1;
+  ChannelRank := -1;
+
+  Core := Trim(Value);
+  Hyphen := Pos('-', Core);
+  if Hyphen > 0 then begin
+    Channel := Lowercase(Copy(Core, Hyphen + 1, Length(Core)));
+    Core := Copy(Core, 1, Hyphen - 1);
+  end else
+    Channel := 'stable';
+
+  if Channel = 'alpha' then
+    ChannelRank := 1
+  else if Channel = 'beta' then
+    ChannelRank := 2
+  else if Channel = 'stable' then
+    ChannelRank := 3
+  else
+    Exit;
+
+  FirstDot := Pos('.', Core);
+  if FirstDot = 0 then Exit;
+  Part := Copy(Core, 1, FirstDot - 1);
+  if not IsDigits(Part) then Exit;
+  Major := StrToIntDef(Part, -1);
+
+  Core := Copy(Core, FirstDot + 1, Length(Core));
+  SecondDot := Pos('.', Core);
+  if SecondDot = 0 then Exit;
+  Part := Copy(Core, 1, SecondDot - 1);
+  if not IsDigits(Part) then Exit;
+  Minor := StrToIntDef(Part, -1);
+
+  Core := Copy(Core, SecondDot + 1, Length(Core));
+  if Pos('.', Core) > 0 then Exit;
+  if not IsDigits(Core) then Exit;
+  Patch := StrToIntDef(Core, -1);
+  Result := (Major >= 0) and (Minor >= 0) and (Patch >= 0);
+end;
+
+function CompareReleaseVersions(const LeftVersion: String;
+  const RightVersion: String): Integer;
+var
+  LeftMajor: Integer;
+  LeftMinor: Integer;
+  LeftPatch: Integer;
+  LeftChannel: Integer;
+  RightMajor: Integer;
+  RightMinor: Integer;
+  RightPatch: Integer;
+  RightChannel: Integer;
+begin
+  Result := 0;
+  if not ParseReleaseVersion(LeftVersion, LeftMajor, LeftMinor, LeftPatch, LeftChannel) or
+     not ParseReleaseVersion(RightVersion, RightMajor, RightMinor, RightPatch, RightChannel) then
+    Exit;
+  if LeftMajor <> RightMajor then
+    Result := LeftMajor - RightMajor
+  else if LeftMinor <> RightMinor then
+    Result := LeftMinor - RightMinor
+  else if LeftPatch <> RightPatch then
+    Result := LeftPatch - RightPatch
+  else
+    Result := LeftChannel - RightChannel;
+end;
+
+function ReadManifestString(
+  const Contents: String;
+  const Key: String;
+  var Value: String): Boolean;
+var
+  SearchStart: Integer;
+  KeyStart: Integer;
+  ColonPosition: Integer;
+  ValueStart: Integer;
+  ValueEnd: Integer;
+  SearchText: String;
+begin
+  Result := False;
+  Value := '';
+  KeyStart := Pos('"' + Key + '"', Contents);
+  if KeyStart = 0 then Exit;
+  SearchStart := KeyStart + Length(Key) + 2;
+  SearchText := Copy(Contents, SearchStart, Length(Contents));
+  ColonPosition := Pos(':', SearchText);
+  if ColonPosition = 0 then Exit;
+  SearchStart := SearchStart + ColonPosition;
+  while (SearchStart <= Length(Contents)) and
+    ((Contents[SearchStart] = ' ') or (Contents[SearchStart] = #9) or
+     (Contents[SearchStart] = #10) or (Contents[SearchStart] = #13)) do
+    SearchStart := SearchStart + 1;
+  if (SearchStart > Length(Contents)) or (Contents[SearchStart] <> '"') then Exit;
+  ValueStart := SearchStart + 1;
+  SearchText := Copy(Contents, ValueStart, Length(Contents));
+  ValueEnd := Pos('"', SearchText);
+  if ValueEnd = 0 then Exit;
+  Value := Copy(Contents, ValueStart, ValueEnd - 1);
+  Result := (Value <> '');
+end;
+
+function ReadManifestVersion(const InstallDir: String; var Version: String): Boolean;
+var
+  Contents: String;
+  ManifestLines: TArrayOfString;
+  Index: Integer;
+  ManifestProduct: String;
+  ManifestVersion: String;
+  ManifestChannel: String;
+  Major: Integer;
+  Minor: Integer;
+  Patch: Integer;
+  ChannelRank: Integer;
+begin
+  Result := False;
+  Version := '';
+  if not LoadStringsFromFile(InstallDir + '\version.json', ManifestLines) then Exit;
+  for Index := 0 to GetArrayLength(ManifestLines) - 1 do
+    Contents := Contents + ManifestLines[Index] + #10;
+  if not ReadManifestString(Contents, 'product', ManifestProduct) then Exit;
+  if CompareText(ManifestProduct, 'NLSI Exclusive Logbook') <> 0 then Exit;
+  if not ReadManifestString(Contents, 'version', ManifestVersion) then Exit;
+  if not ReadManifestString(Contents, 'channel', ManifestChannel) then Exit;
+  Version := ManifestVersion + '-' + Lowercase(ManifestChannel);
+  if not ParseReleaseVersion(Version, Major, Minor, Patch, ChannelRank) then
+    Exit;
+  Result := True;
+end;
+
+function NormalizeInstallPath(const Value: String): String;
+begin
+  Result := ExpandFileName(Value);
+  if (Length(Result) > 3) and (Result[Length(Result)] = '\') then
+    SetLength(Result, Length(Result) - 1);
+end;
 
 function DetectExistingInstallation: Boolean;
 var
   RegistryInstallDir: String;
+  RegistryInstallVersion: String;
+  ManifestInstallVersion: String;
+  RegistryPathFound: Boolean;
+  RegistryVersionFound: Boolean;
+  ManifestVersionFound: Boolean;
+  Major: Integer;
+  Minor: Integer;
+  Patch: Integer;
+  ChannelRank: Integer;
 begin
-  ExistingInstallDir := ExpandConstant('{#DefaultApplicationDir}');
+  ExistingInstallDir := DefaultInstallPath;
   ExistingInstallVersion := '';
+  ExistingInstallError := '';
 
-  if not RegQueryStringValue(HKLM32, UninstallRegistryKey, 'InstallLocation',
-     RegistryInstallDir) or not DirExists(RegistryInstallDir) then
-    RegQueryStringValue(HKLM32, UninstallRegistryKey, 'Inno Setup: App Path',
-      RegistryInstallDir);
-  if DirExists(RegistryInstallDir) then
-    ExistingInstallDir := RegistryInstallDir;
+  RegistryInstallDir := '';
+  RegistryInstallVersion := '';
+  RegistryPathFound := QueryUninstallValue('InstallLocation', RegistryInstallDir);
+  if (not RegistryPathFound) or (Trim(RegistryInstallDir) = '') then
+    RegistryPathFound := QueryUninstallValue('Inno Setup: App Path', RegistryInstallDir);
 
+  if RegistryPathFound and (Trim(RegistryInstallDir) <> '') then
+    ExistingInstallDir := RemoveBackslashUnlessRoot(Trim(RegistryInstallDir));
   Result := DirExists(ExistingInstallDir);
-  if Result then
-    RegQueryStringValue(HKLM32, UninstallRegistryKey, 'DisplayVersion',
-      ExistingInstallVersion);
-end;
 
-function LegacyContainsUserData(const LegacyPath: String): Boolean;
-begin
-  Result :=
-    DirExists(LegacyPath + '\config') or
-    DirExists(LegacyPath + '\data') or
-    DirExists(LegacyPath + '\logs') or
-    DirExists(LegacyPath + '\app\test\output');
+  if not Result then begin
+    if RegistryPathFound then
+      ExistingInstallError := 'The registered NLSI installation path does not exist: ' +
+        ExistingInstallDir + '. Repair or uninstall that installation before continuing.'
+    else if FileExists(DefaultInstallPath + '\NLSI-Exclusive-Logbook.exe') or
+      FileExists(DefaultInstallPath + '\version.json') then
+      ExistingInstallError := 'Files exist at the default NLSI installation path, but no ' +
+        'valid installation could be identified. Setup will not overwrite an unknown ' +
+        'directory: ' + DefaultInstallPath + '.'
+    else begin
+      ExistingInstallDir := ExpandConstant('{#DefaultApplicationDir}');
+      Exit;
+    end;
+    Exit;
+  end;
+
+  if not FileExists(ExistingInstallDir + '\NLSI-Exclusive-Logbook.exe') then begin
+    ExistingInstallError := 'The detected NLSI installation has no application executable: ' +
+      ExistingInstallDir + '. Setup will not overwrite this directory.';
+    Exit;
+  end;
+
+  RegistryVersionFound := QueryUninstallValue('DisplayVersion', RegistryInstallVersion);
+  RegistryVersionFound := RegistryVersionFound and ParseReleaseVersion(
+    RegistryInstallVersion, Major, Minor, Patch, ChannelRank);
+  ManifestVersionFound := ReadManifestVersion(ExistingInstallDir, ManifestInstallVersion);
+  if not RegistryVersionFound and not ManifestVersionFound then begin
+    ExistingInstallError := 'The installed NLSI version could not be validated at ' +
+      ExistingInstallDir + '. Setup will not replace files without a known version.';
+    Exit;
+  end;
+  if RegistryVersionFound and ManifestVersionFound and
+    (CompareReleaseVersions(RegistryInstallVersion, ManifestInstallVersion) <> 0) then begin
+    ExistingInstallError := 'The installed version metadata does not agree at ' +
+      ExistingInstallDir + '. Repair the installation before continuing.';
+    Exit;
+  end;
+
+  if RegistryVersionFound then
+    ExistingInstallVersion := RegistryInstallVersion
+  else
+    ExistingInstallVersion := ManifestInstallVersion;
+  ExistingInstallDetected := True;
 end;
 
 function InitializeSetup: Boolean;
 begin
   Result := not WizardSilent;
-  if not Result then
+  if not Result then begin
     Log('Silent installation is disabled because Terms and Privacy acceptance are required.');
+    Exit;
+  end;
+
+  ExistingInstallDetected := DetectExistingInstallation;
+  if ExistingInstallError <> '' then begin
+    MsgBox(ExistingInstallError, mbCriticalError, MB_OK);
+    Result := False;
+    Exit;
+  end;
+  if ExistingInstallDetected and
+    (CompareReleaseVersions('{#ReleaseLabel}', ExistingInstallVersion) < 0) then begin
+    MsgBox('The installed version ' + ExistingInstallVersion + ' is newer than this setup ' +
+      '({#ReleaseLabel}). Setup will not downgrade the installation.',
+      mbCriticalError, MB_OK);
+    Result := False;
+  end;
 end;
 
 procedure InitializeWizard;
@@ -158,8 +386,6 @@ var
   Index: Integer;
   InstallationSummary: String;
 begin
-  ExistingInstallDetected := DetectExistingInstallation;
-
   InstallInfoPage := CreateCustomPage(wpWelcome, 'Installation type',
     'Review the installation or update details before continuing.');
   InstallInfoText := TNewStaticText.Create(InstallInfoPage);
@@ -170,8 +396,6 @@ begin
   InstallInfoText.AutoSize := False;
   InstallInfoText.WordWrap := True;
   if ExistingInstallDetected then begin
-    if ExistingInstallVersion = '' then
-      ExistingInstallVersion := 'Not available';
     InstallationSummary :=
       'An existing NLSI Exclusive Logbook installation was detected.' + #13#10#13#10 +
       'This setup will UPDATE the existing installation.' + #13#10 +
@@ -186,10 +410,9 @@ begin
       'This setup will perform a fresh installation of v{#ReleaseLabel} under {#DefaultApplicationDir}.' + #13#10#13#10 +
       'Setup detects supported Steam ETS2/ATS installations and installs the TruckSim GPS plugin and the separate SCS position plugin where supported. Existing different plugin DLLs are preserved, and any existing nlsi.dll is backed up for restoration.';
   end;
-  if DirExists(ExpandConstant('{#LegacyDirectory}')) and
-     LegacyContainsUserData(ExpandConstant('{#LegacyDirectory}')) then
+  if DirExists(ExpandConstant('{#LegacyDirectory}')) then
     InstallationSummary := InstallationSummary + #13#10#13#10 +
-      'The legacy C:\nlsi-tem directory contains known user data and will be left untouched.';
+      'The legacy C:\nlsi-tem directory will be left untouched.';
   InstallInfoText.Caption := InstallationSummary;
 
   ExtractTemporaryFile('PrivacyPolicy.txt');
@@ -222,6 +445,15 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  if (CurPageID = wpSelectDir) and ExistingInstallDetected and
+     (CompareText(NormalizeInstallPath(WizardDirValue),
+       NormalizeInstallPath(ExistingInstallDir)) <> 0) then begin
+    MsgBox('This setup must update the registered installation at ' +
+      ExistingInstallDir + '. Choose that directory to avoid creating a second copy.',
+      mbInformation, MB_OK);
+    Result := False;
+    Exit;
+  end;
   if (PrivacyPage <> nil) and (CurPageID = PrivacyPage.ID) and
      not PrivacyAccepted.Checked then begin
     MsgBox('You must accept the Privacy Policy before continuing.',
@@ -230,29 +462,11 @@ begin
   end;
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  LegacyPath: String;
-begin
-  Result := '';
-  LegacyPath := '{#LegacyDirectory}';
-  if DirExists(LegacyPath) then begin
-    if LegacyContainsUserData(LegacyPath) then begin
-      Log('Preserving the legacy directory because it contains user data: ' + LegacyPath);
-    end else begin
-      Log('Removing the legacy application directory: ' + LegacyPath);
-      if not DelTree(LegacyPath, True, True, True) then
-        Result := 'The legacy directory could not be completely removed: ' + LegacyPath +
-          '. Close programs using files in that directory and try again.';
-      if (Result = '') and DirExists(LegacyPath) then
-        Result := 'The legacy directory still exists and could not be completely removed: ' + LegacyPath;
-    end;
-  end;
-end;
-
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if CurPageID = wpFinished then begin
+  if (CurPageID = wpSelectDir) and ExistingInstallDetected then
+    WizardForm.DirEdit.Text := ExistingInstallDir
+  else if CurPageID = wpFinished then begin
     WizardForm.FinishedHeadingLabel.Caption := 'Installation complete';
     WizardForm.FinishedLabel.Caption :=
       'NLSI Exclusive Logbook v{#ReleaseLabel} has been installed.' + #13#10#13#10 +

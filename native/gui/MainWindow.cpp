@@ -14,6 +14,7 @@
 #include <QSizePolicy>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QStyle>
 #include <QToolButton>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -231,7 +232,7 @@ MainWindow::MainWindow(
     });
     clock_timer_ = new QTimer(this);
     clock_timer_->setTimerType(Qt::PreciseTimer);
-    clock_timer_->setInterval(33);
+    clock_timer_->setInterval(1000);
     connect(clock_timer_, &QTimer::timeout, this, &MainWindow::RefreshClock);
     shutdown_timer_ = new QTimer(this);
     shutdown_timer_->setInterval(200);
@@ -250,6 +251,10 @@ void MainWindow::ActivatePage(const QString& key) {
     }
     page_stack_->setCurrentWidget(page_scroll_areas_.value(key));
     active_page_title_->setText(navigation_buttons_.value(key)->text());
+    active_page_title_->setProperty(
+        "dashboardActive", key == QStringLiteral("dashboard"));
+    active_page_title_->style()->unpolish(active_page_title_);
+    active_page_title_->style()->polish(active_page_title_);
     active_page_subtitle_->setText(page_subtitles_.value(key));
     for (auto it = navigation_buttons_.cbegin(); it != navigation_buttons_.cend(); ++it) {
         const bool selected = it.key() == key;
@@ -307,9 +312,9 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 void MainWindow::RefreshClock() {
     const QDateTime manila_time = nlsi::time::NowLocal();
     const QString text = manila_time.isValid()
-        ? manila_time.toString(QStringLiteral("MM/dd/yy - HH:mm:ss.zzz"))
-            + QStringLiteral(" | Asia/Manila | Ping: N/A ms")
-        : QStringLiteral("Time-zone data unavailable | Asia/Manila");
+        ? manila_time.toString(QStringLiteral("MM/dd/yy - HH:mm:ss"))
+            + QStringLiteral("\nAsia/Manila - Ping: N/A")
+        : QStringLiteral("Time-zone data unavailable\nAsia/Manila - Ping: N/A");
     if (header_clock_->text() != text) {
         header_clock_->setText(text);
     }

@@ -535,9 +535,6 @@ bool BuildSnapshot(
     SetNumber(snapshot.cruise_control_speed,
         FindNormalized(truck, {"cruise_control_speed", "cruise_control"}), timestamp, true);
     SetBoolean(snapshot.cruise_control_active, FindNormalized(truck, {"cruise_control_active"}), timestamp);
-    if (!snapshot.cruise_control_active.available && snapshot.cruise_control_speed.available) {
-        snapshot.cruise_control_active.Set(snapshot.cruise_control_speed.value > 0.0, L"NLSI", timestamp);
-    }
     SetNumber(snapshot.fuel_liters, FindNormalized(truck, {"fuel_liters", "fuel"}), timestamp, true);
     SetNumber(snapshot.fuel_range_km, FindNormalized(truck, {"fuel_range_km", "fuel_range"}), timestamp, true);
     SetNumber(snapshot.odometer_km, FindNormalized(truck, {"odometer_km", "odometer"}), timestamp, true);

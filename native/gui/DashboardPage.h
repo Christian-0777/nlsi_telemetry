@@ -21,16 +21,23 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private:
-    QLabel* AddCard(const QString& key, const QString& title, QGridLayout* grid);
-    void ReflowCards();
+    QGridLayout* AddSection(const QString& key, const QString& title);
+    void AddMetric(
+        QGridLayout* grid,
+        int row,
+        int column,
+        const QString& key,
+        const QString& title,
+        bool cruise_indicator = false);
+    void RegisterResponsiveLabel(QLabel* label, int emphasis = 0);
+    void ApplyResponsiveFontSize();
     void SetValue(const QString& key, const QString& value);
-    void SetCardVisible(const QString& key, bool visible);
 
     QHash<QString, QLabel*> values_;
-    QHash<QString, QFrame*> cards_;
-    QVector<QFrame*> ordered_cards_;
-    QGridLayout* grid_ = nullptr;
-    int grid_columns_ = 0;
+    QHash<QString, QLabel*> cruise_indicators_;
+    QVector<QLabel*> responsive_labels_;
+    QLabel* special_job_indicator_ = nullptr;
+    int responsive_font_size_ = 0;
 };
 
 } // namespace nlsi::gui

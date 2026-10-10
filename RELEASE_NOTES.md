@@ -1,3 +1,33 @@
+# NLSI Exclusive Logbook v1.4.8-beta
+
+This Beta release replaces Dashboard's generic card grid with the specified
+two-column job, driving telemetry, and connection layout. It preserves the
+existing telemetry pipeline and local data formats.
+
+## What's changed
+
+- Displays the current job, supported cargo/route/income/distance/progress/ETA
+  fields, and a special-job badge only while its verified flag is true and fresh.
+- Shows fuel, RPM/gear, throttle, brake, cruise control, and retarder. A matching
+  `A` marker appears beside throttle, brake, and retarder only while fresh
+  telemetry confirms cruise control is active.
+- Limits Dashboard typography to responsive 8–14 px and formats remaining ETA
+  as `HH:MM:SS`; unsupported game version, vehicle, and ping values remain N/A.
+- Detects registered installations by uninstall metadata and validates the
+  installed root/version before upgrading. The default is
+  `C:\Program Files\NLSI Exclusive Logbook`; legacy and per-user data are not
+  deleted by setup.
+- Aligns application and installer metadata to v1.4.8-beta without changing
+  the SCS SDK or shared-memory revision.
+
+ETS2/ATS live gameplay and an in-place upgrade against a real installation were
+not validated during this build.
+
+Expected installer target:
+`build/releases/v1.4.8-beta/NLSI-Exclusive-Logbook-v1.4.8-beta-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.4.7-beta
 
 This Beta release improves ETS2/ATS game-log initialization and monitoring,

@@ -77,6 +77,10 @@ QToolButton#navigationButton:focus {
     font-weight: 600;
 }
 
+#headerTitle[dashboardActive="true"] {
+    font-size: 14px;
+}
+
 #headerSubtitle {
     color: #766A70;
     font-size: 9pt;
@@ -118,6 +122,45 @@ QToolButton#navigationButton:focus {
 
 #dashboardPage #cardValue {
     font-size: 10pt;
+}
+
+#dashboardSection {
+    background-color: #FFF7FA;
+    border: 1px solid #F1DCE5;
+    border-radius: 6px;
+}
+
+#dashboardSectionTitle {
+    border-bottom: 1px solid #F1DCE5;
+    color: #242124;
+    font-weight: 700;
+}
+
+#dashboardFieldLabel {
+    color: #6D6870;
+    font-weight: 600;
+}
+
+#dashboardValue {
+    color: #242124;
+    font-weight: 600;
+}
+
+#cruiseControlActiveIndicator {
+    background-color: #D96F96;
+    border-radius: 3px;
+    color: #FFFFFF;
+    font-weight: 700;
+    padding: 1px 4px;
+}
+
+#specialJobIndicator {
+    background-color: #FFD1E6;
+    border: 1px solid #D96F96;
+    border-radius: 4px;
+    color: #5B2840;
+    font-weight: 700;
+    padding: 2px 8px;
 }
 
 #detailRow {

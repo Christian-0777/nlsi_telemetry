@@ -1,161 +1,88 @@
 #include "DashboardPage.h"
 
 #include <cmath>
-#include <cstdint>
-#include <limits>
 
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
-#include <QIcon>
 #include <QLabel>
 #include <QResizeEvent>
-#include <QStringList>
 #include <QSizePolicy>
 #include <QVBoxLayout>
-
-#include "providers/ScsPositionIpc.h"
 
 namespace nlsi::gui {
 namespace {
 
-QString RouteText(
+QString FieldValue(const telemetry::TelemetryField<std::wstring>& field) {
+    if (!field.available || field.value.empty()) {
+        return QStringLiteral("N/A");
+    }
+    QString value = QString::fromStdWString(field.value).trimmed();
+    if (value.isEmpty()) {
+        return QStringLiteral("N/A");
+    }
+    if (field.stale) {
+        value += QStringLiteral(" · stale");
+    }
+    return value;
+}
+
+QString NumberValue(
+    const telemetry::TelemetryField<double>& field,
+    int precision,
+    const QString& suffix = {}) {
+    if (!field.available || !std::isfinite(field.value)) {
+        return QStringLiteral("N/A");
+    }
+    QString value = FormatNumber(field.value, precision) + suffix;
+    if (field.stale) {
+        value += QStringLiteral(" · stale");
+    }
+    return value;
+}
+
+QString RouteValue(
     const telemetry::TelemetryField<std::wstring>& company,
     const telemetry::TelemetryField<std::wstring>& city) {
-    const QString company_text = FieldText(company);
-    const QString city_text = FieldText(city);
-    if (company_text == QStringLiteral("--")) {
+    const QString company_text = FieldValue(company);
+    const QString city_text = FieldValue(city);
+    if (company_text == QStringLiteral("N/A")) {
         return city_text;
     }
-    if (city_text == QStringLiteral("--") || company_text == city_text) {
+    if (city_text == QStringLiteral("N/A") || company_text == city_text) {
         return company_text;
     }
     return company_text + QStringLiteral(" · ") + city_text;
 }
 
-QString PercentText(const telemetry::TelemetryField<double>& field) {
+QString PercentValue(const telemetry::TelemetryField<double>& field) {
     if (!field.available || !std::isfinite(field.value)) {
-        return QStringLiteral("--");
+        return QStringLiteral("N/A");
     }
-    return FormatNumber(field.value * 100.0, 1) + QLatin1Char('%')
-        + (field.stale ? QStringLiteral(" · stale") : QString());
+    QString value = FormatNumber(field.value * 100.0, 1) + QLatin1Char('%');
+    if (field.stale) {
+        value += QStringLiteral(" · stale");
+    }
+    return value;
 }
 
-QString VehicleControlsText(const telemetry::TelemetrySnapshot& snapshot) {
-    QStringList controls;
-    if (snapshot.connected && snapshot.cruise_control_active.available
-        && !snapshot.cruise_control_active.stale) {
-        QString cruise = QStringLiteral("Cruise: %1")
-            .arg(snapshot.cruise_control_active.value
-                ? QStringLiteral("Enabled") : QStringLiteral("Disabled"));
-        if (snapshot.cruise_control_speed.available
-            && !snapshot.cruise_control_speed.stale
-            && std::isfinite(snapshot.cruise_control_speed.value)) {
-            cruise += QStringLiteral(" · %1")
-                .arg(NumberText(snapshot.cruise_control_speed, 1, QStringLiteral(" km/h")));
-        }
-        controls.push_back(cruise);
+QString GameIdentity(const telemetry::TelemetrySnapshot& snapshot) {
+    const QString name = FieldValue(snapshot.game_name);
+    const QString id = FieldValue(snapshot.game_id);
+    if (name == QStringLiteral("N/A")) {
+        return id;
     }
-    if (snapshot.connected && snapshot.retarder_level.available
-        && !snapshot.retarder_level.stale
-        && std::isfinite(snapshot.retarder_level.value)
-        && snapshot.retarder_level.value >= 0.0
-        && snapshot.retarder_level.value
-            <= static_cast<double>(std::numeric_limits<std::uint32_t>::max())
-        && std::floor(snapshot.retarder_level.value) == snapshot.retarder_level.value) {
-        const auto level = static_cast<std::uint32_t>(snapshot.retarder_level.value);
-        controls.push_back(QStringLiteral("Retarder: %1 · level %2")
-            .arg(level > 0 ? QStringLiteral("Active") : QStringLiteral("Inactive"))
-            .arg(level));
+    if (id == QStringLiteral("N/A")) {
+        return name;
     }
-    return controls.join(QLatin1Char('\n'));
+    return QStringLiteral("%1 (%2)").arg(name, id);
 }
 
-QString NavigationText(const telemetry::TelemetryUiState& state) {
-    QStringList values;
-    if (state.progress.remaining_distance_km
-        && std::isfinite(*state.progress.remaining_distance_km)
-        && *state.progress.remaining_distance_km >= 0.0) {
-        values.push_back(QStringLiteral("Remaining: %1")
-            .arg(OptionalNumberText(
-                state.progress.remaining_distance_km, 2, QStringLiteral(" km"))));
+QString ProgressValue(const std::optional<double>& progress) {
+    if (!progress || !std::isfinite(*progress) || *progress < 0.0 || *progress > 100.0) {
+        return QStringLiteral("N/A");
     }
-    const auto& navigation_time = state.fast.values.navigation_time_s;
-    if (state.fast.values.connected && navigation_time.available
-        && !navigation_time.stale && std::isfinite(navigation_time.value)
-        && navigation_time.value >= 0.0) {
-        values.push_back(QStringLiteral("Navigation time: %1")
-            .arg(DurationText(navigation_time.value)));
-    }
-    if (state.progress.eta_seconds && std::isfinite(*state.progress.eta_seconds)
-        && *state.progress.eta_seconds >= 0.0) {
-        values.push_back(QStringLiteral("ETA: %1")
-            .arg(DurationText(state.progress.eta_seconds)));
-    }
-    return values.isEmpty() ? QStringLiteral("Unavailable") : values.join(QLatin1Char('\n'));
-}
-
-QString CurrentJobText(const telemetry::TelemetryUiState& state) {
-    if (!state.job.available) {
-        return state.job_status == telemetry::JobStatus::NoJob
-            ? QStringLiteral("No active delivery")
-            : QStringLiteral("Unavailable");
-    }
-    QStringList lines;
-    lines.push_back(QStringLiteral("NLSI job ID: %1")
-        .arg(state.job.nlsi_job_id.empty()
-            ? QStringLiteral("Unavailable")
-            : QString::fromStdWString(state.job.nlsi_job_id)));
-    lines.push_back(QStringLiteral("Cargo: %1").arg(FieldText(state.job.cargo)));
-    lines.push_back(QStringLiteral("Source: %1")
-        .arg(RouteText(state.job.source_company, state.job.source_city)));
-    lines.push_back(QStringLiteral("Destination: %1")
-        .arg(RouteText(state.job.destination_company, state.job.destination_city)));
-    lines.push_back(QStringLiteral("Status: %1")
-        .arg(QString::fromStdWString(telemetry::FormatJobStatus(state.job_status))));
-    const auto& special_job = state.fast.values.special_job;
-    if (special_job.available && !special_job.stale) {
-        const QString value = QString::fromStdWString(special_job.value).trimmed().toLower();
-        if (value == QStringLiteral("true") || value == QStringLiteral("false")) {
-            lines.push_back(value == QStringLiteral("true")
-                ? QStringLiteral("Special job: Yes")
-                : QStringLiteral("Special job: No"));
-        }
-    }
-    return lines.join(QLatin1Char('\n'));
-}
-
-bool HasFreshText(const telemetry::TelemetryField<std::wstring>& field) {
-    return field.available && !field.stale && !field.value.empty()
-        && !QString::fromStdWString(field.value).trimmed().isEmpty();
-}
-
-QString CurrentPositionText(const telemetry::TelemetryUiState& state) {
-    QString text = QStringLiteral("Unavailable");
-    const auto& position = state.scs_position;
-    if (position.available) {
-        const QString game = position.game_id == nlsi::providers::kScsPositionGameEts2
-            ? QStringLiteral("ETS2")
-            : position.game_id == nlsi::providers::kScsPositionGameAts
-                ? QStringLiteral("ATS") : QStringLiteral("Game");
-        text = QStringLiteral("%1 · X %2 m · Y %3 m · Z %4 m")
-            .arg(game,
-                FormatNumber(position.x, 2),
-                FormatNumber(position.y, 2),
-                FormatNumber(position.z, 2));
-        if (position.state == nlsi::providers::ScsPositionState::Stale) {
-            text += QStringLiteral(" · stale");
-        }
-    }
-    const auto& has_job = state.fast.values.has_job;
-    if (state.fast.values.connected && state.job.available
-        && has_job.available && !has_job.stale && has_job.value) {
-        const QString destination = HasFreshText(state.job.destination_city)
-            ? QString::fromStdWString(state.job.destination_city.value).trimmed()
-            : QStringLiteral("Unavailable");
-        text += QStringLiteral("\n→ Destination: %1").arg(destination);
-    }
-    return text;
+    return FormatNumber(*progress, 1) + QLatin1Char('%');
 }
 
 } // namespace
@@ -164,148 +91,232 @@ DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
     setObjectName(QStringLiteral("dashboardPage"));
     auto* page_layout = new QVBoxLayout(this);
     page_layout->setContentsMargins(2, 2, 2, 2);
-    page_layout->setSpacing(6);
+    page_layout->setSpacing(8);
 
-    grid_ = new QGridLayout();
-    grid_->setObjectName(QStringLiteral("dashboardCardGrid"));
-    grid_->setSpacing(6);
-    AddCard(QStringLiteral("status"), QStringLiteral("CONNECTION / GAME / PROVIDER"), grid_);
-    AddCard(QStringLiteral("speed"), QStringLiteral("SPEED"), grid_);
-    AddCard(QStringLiteral("engine"), QStringLiteral("RPM / GEAR"), grid_);
-    AddCard(QStringLiteral("fuel"), QStringLiteral("FUEL / RANGE / ODOMETER"), grid_);
-    AddCard(QStringLiteral("throttle"), QStringLiteral("THROTTLE"), grid_);
-    AddCard(QStringLiteral("brake"), QStringLiteral("BRAKE"), grid_);
-    AddCard(QStringLiteral("job"), QStringLiteral("CURRENT JOB"), grid_);
-    AddCard(QStringLiteral("position"), QStringLiteral("CURRENT POSITION"), grid_);
-    AddCard(QStringLiteral("navigation"), QStringLiteral("NAVIGATION"), grid_);
-    AddCard(QStringLiteral("controls"), QStringLiteral("VEHICLE CONTROLS"), grid_);
-    page_layout->addLayout(grid_);
+    QGridLayout* job = AddSection(
+        QStringLiteral("currentJobSection"), QStringLiteral("CURRENT JOB"));
+    AddMetric(job, 0, 0, QStringLiteral("jobId"), QStringLiteral("JOB"));
+    AddMetric(job, 0, 1, QStringLiteral("jobStatus"), QStringLiteral("STATUS"));
+    AddMetric(job, 1, 0, QStringLiteral("cargo"), QStringLiteral("CARGO"));
+    AddMetric(job, 1, 1, QStringLiteral("income"), QStringLiteral("INCOME"));
+    AddMetric(job, 2, 0, QStringLiteral("source"), QStringLiteral("FROM"));
+    AddMetric(job, 2, 1, QStringLiteral("destination"), QStringLiteral("TO"));
+    AddMetric(job, 3, 0, QStringLiteral("plannedDistance"), QStringLiteral("PLANNED DISTANCE"));
+    AddMetric(job, 3, 1, QStringLiteral("remainingDistance"), QStringLiteral("REMAINING DISTANCE"));
+    AddMetric(job, 4, 0, QStringLiteral("progress"), QStringLiteral("PROGRESS"));
+    AddMetric(job, 4, 1, QStringLiteral("eta"), QStringLiteral("ETA"));
+
+    special_job_indicator_ = new QLabel(QStringLiteral("SPECIAL JOB"), this);
+    special_job_indicator_->setObjectName(QStringLiteral("specialJobIndicator"));
+    special_job_indicator_->setAlignment(Qt::AlignCenter);
+    special_job_indicator_->setVisible(false);
+    RegisterResponsiveLabel(special_job_indicator_, 2);
+    job->addWidget(special_job_indicator_, 6, 0, 1, 2, Qt::AlignCenter);
+
+    QGridLayout* driving = AddSection(
+        QStringLiteral("drivingTelemetrySection"), QStringLiteral("DRIVING TELEMETRY"));
+    AddMetric(driving, 0, 0, QStringLiteral("fuel"), QStringLiteral("FUEL"));
+    AddMetric(driving, 0, 1, QStringLiteral("engine"), QStringLiteral("RPM / GEAR"));
+    AddMetric(driving, 1, 0, QStringLiteral("throttle"), QStringLiteral("THROTTLE"), true);
+    AddMetric(driving, 1, 1, QStringLiteral("brake"), QStringLiteral("BRAKE"), true);
+    AddMetric(driving, 2, 0, QStringLiteral("cruiseControl"), QStringLiteral("CC"));
+    AddMetric(driving, 2, 1, QStringLiteral("retarder"), QStringLiteral("RETARDER"), true);
+
+    QGridLayout* connection = AddSection(
+        QStringLiteral("connectionSection"), QStringLiteral("CONNECTION"));
+    AddMetric(connection, 0, 0, QStringLiteral("connection"), QStringLiteral("PROVIDER"));
+    AddMetric(connection, 0, 1, QStringLiteral("game"), QStringLiteral("GAME"));
+    AddMetric(connection, 1, 0, QStringLiteral("gameVersion"), QStringLiteral("VERSION"));
+    AddMetric(connection, 1, 1, QStringLiteral("vehicle"), QStringLiteral("VEHICLE"));
+
     page_layout->addStretch(1);
-    ReflowCards();
+    ApplyResponsiveFontSize();
 }
 
-QLabel* DashboardPage::AddCard(
+QGridLayout* DashboardPage::AddSection(const QString& key, const QString& title) {
+    auto* section = new QFrame(this);
+    section->setObjectName(QStringLiteral("dashboardSection"));
+    section->setProperty("sectionKey", key);
+    section->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto* layout = new QGridLayout(section);
+    layout->setContentsMargins(10, 7, 10, 8);
+    layout->setHorizontalSpacing(16);
+    layout->setVerticalSpacing(5);
+    layout->setColumnStretch(0, 1);
+    layout->setColumnStretch(1, 1);
+
+    auto* heading = new QLabel(title, section);
+    heading->setObjectName(QStringLiteral("dashboardSectionTitle"));
+    heading->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    RegisterResponsiveLabel(heading, 1);
+    layout->addWidget(heading, 0, 0, 1, 2);
+    layout->setRowMinimumHeight(1, 2);
+    static_cast<QVBoxLayout*>(this->layout())->addWidget(section);
+    return layout;
+}
+
+void DashboardPage::AddMetric(
+    QGridLayout* grid,
+    int row,
+    int column,
     const QString& key,
     const QString& title,
-    QGridLayout* grid) {
-    auto* card = new QFrame(this);
-    card->setObjectName(QStringLiteral("telemetryCard"));
-    card->setMinimumHeight(66);
-    card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    card->setMinimumWidth(0);
-    auto* layout = new QVBoxLayout(card);
-    layout->setContentsMargins(10, 6, 10, 6);
-    layout->setSpacing(2);
-    if (key == QStringLiteral("position")) {
-        auto* title_row = new QWidget(card);
-        auto* title_layout = new QHBoxLayout(title_row);
-        title_layout->setContentsMargins(0, 0, 0, 0);
-        title_layout->setSpacing(5);
-        auto* icon = new QLabel(title_row);
-        icon->setObjectName(QStringLiteral("currentPositionIcon"));
-        icon->setPixmap(QIcon(QStringLiteral(":/icons/map-pin.svg"))
-            .pixmap(14, 14));
-        icon->setFixedSize(14, 14);
-        title_layout->addWidget(icon);
-        auto* title_label = new QLabel(title, title_row);
-        title_label->setObjectName(QStringLiteral("cardTitle"));
-        title_label->setWordWrap(true);
-        title_label->setMinimumWidth(0);
-        title_layout->addWidget(title_label, 1);
-        layout->addWidget(title_row);
-    } else {
-        auto* title_label = new QLabel(title, card);
-        title_label->setObjectName(QStringLiteral("cardTitle"));
-        title_label->setWordWrap(true);
-        layout->addWidget(title_label);
+    bool cruise_indicator) {
+    auto* metric = new QWidget(grid->parentWidget());
+    metric->setObjectName(QStringLiteral("dashboardMetric"));
+    metric->setProperty("fieldKey", key);
+    metric->setMinimumWidth(0);
+    metric->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto* metric_layout = new QVBoxLayout(metric);
+    metric_layout->setContentsMargins(0, 0, 0, 0);
+    metric_layout->setSpacing(1);
+
+    auto* field_label = new QLabel(title, metric);
+    field_label->setObjectName(QStringLiteral("dashboardFieldLabel"));
+    field_label->setWordWrap(true);
+    field_label->setMinimumWidth(0);
+    RegisterResponsiveLabel(field_label);
+    metric_layout->addWidget(field_label);
+
+    auto* value_row = new QWidget(metric);
+    auto* value_layout = new QHBoxLayout(value_row);
+    value_layout->setContentsMargins(0, 0, 0, 0);
+    value_layout->setSpacing(4);
+    auto* value = new QLabel(QStringLiteral("N/A"), value_row);
+    value->setObjectName(QStringLiteral("dashboardValue"));
+    value->setProperty("fieldKey", key);
+    value->setWordWrap(true);
+    value->setMinimumWidth(0);
+    value->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    value->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    RegisterResponsiveLabel(value, 2);
+    value_layout->addWidget(value, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    values_.insert(key, value);
+
+    if (cruise_indicator) {
+        auto* indicator = new QLabel(QStringLiteral("A"), value_row);
+        indicator->setObjectName(QStringLiteral("cruiseControlActiveIndicator"));
+        indicator->setProperty("fieldKey", key);
+        indicator->setAccessibleName(QStringLiteral("Cruise control active"));
+        indicator->setAlignment(Qt::AlignCenter);
+        indicator->setMinimumWidth(18);
+        indicator->setVisible(false);
+        RegisterResponsiveLabel(indicator, 2);
+        value_layout->addWidget(indicator, 0, Qt::AlignLeft | Qt::AlignVCenter);
+        cruise_indicators_.insert(key, indicator);
     }
-    auto* value_label = new QLabel(QStringLiteral("--"), card);
-    value_label->setObjectName(QStringLiteral("cardValue"));
-    value_label->setWordWrap(true);
-    value_label->setMinimumWidth(0);
-    value_label->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    value_label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    layout->addWidget(value_label);
-    layout->addStretch(1);
-    grid->addWidget(card, 0, 0);
-    values_.insert(key, value_label);
-    cards_.insert(key, card);
-    ordered_cards_.push_back(card);
-    return value_label;
+
+    value_layout->addStretch(1);
+    metric_layout->addWidget(value_row);
+    grid->addWidget(metric, row + 1, column);
+}
+
+void DashboardPage::RegisterResponsiveLabel(QLabel* label, int emphasis) {
+    label->setProperty("fontEmphasis", emphasis);
+    responsive_labels_.push_back(label);
 }
 
 void DashboardPage::resizeEvent(QResizeEvent* event) {
     StatePage::resizeEvent(event);
-    ReflowCards();
+    ApplyResponsiveFontSize();
 }
 
-void DashboardPage::ReflowCards() {
-    if (!grid_) {
+void DashboardPage::ApplyResponsiveFontSize() {
+    const QWidget* app_window = window();
+    const int window_width = app_window ? app_window->width() : width();
+    const int growth = qBound(0, window_width - 900, 900);
+    const int base_size = qBound(8, 8 + growth * 6 / 900, 14);
+    if (base_size == responsive_font_size_) {
         return;
     }
-    const int available_width = contentsRect().width();
-    const int columns = available_width < 520 ? 1 : available_width < 850 ? 2 : 3;
-    if (columns == grid_columns_) {
-        return;
-    }
-    for (int column = 0; column < 3; ++column) {
-        grid_->setColumnStretch(column, column < columns ? 1 : 0);
-        grid_->setColumnMinimumWidth(column, 0);
-    }
-    while (QLayoutItem* item = grid_->takeAt(0)) {
-        delete item;
-    }
-    grid_columns_ = columns;
-    for (qsizetype index = 0; index < ordered_cards_.size(); ++index) {
-        grid_->addWidget(ordered_cards_[index],
-            static_cast<int>(index / columns),
-            static_cast<int>(index % columns));
+    responsive_font_size_ = base_size;
+    for (QLabel* label : responsive_labels_) {
+        const int emphasis = label->property("fontEmphasis").toInt();
+        const int pixel_size = qMin(14, base_size + emphasis);
+        const QString style = QStringLiteral("font-size: %1px;").arg(pixel_size);
+        if (label->styleSheet() != style) {
+            label->setStyleSheet(style);
+        }
     }
 }
 
 void DashboardPage::SetValue(const QString& key, const QString& value) {
     QLabel* label = values_.value(key, nullptr);
     const QString normalized = value.trimmed().isEmpty()
-        ? QStringLiteral("Unavailable") : value;
+        ? QStringLiteral("N/A") : value;
     if (label && label->text() != normalized) {
         label->setText(normalized);
     }
 }
 
-void DashboardPage::SetCardVisible(const QString& key, bool visible) {
-    if (QFrame* card = cards_.value(key, nullptr)) {
-        card->setVisible(visible);
-    }
-}
-
 void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
     const auto& snapshot = state.fast.values;
-    const QString provider = QString::fromStdWString(
-        telemetry::FormatStatus(state.providers.trucksim)).toUpper();
-    SetValue(QStringLiteral("status"),
-        QStringLiteral("%1 · %2 · %3")
-            .arg(snapshot.connected ? QStringLiteral("CONNECTED")
-                                   : QStringLiteral("NOT CONNECTED"),
-                FieldText(snapshot.game_name), provider));
-    SetValue(QStringLiteral("speed"),
-        NumberText(snapshot.speed_kmh, 2, QStringLiteral(" km/h")));
+    SetValue(QStringLiteral("jobId"),
+        state.fast.values.connected && state.job.available && !state.job.nlsi_job_id.empty()
+            ? QString::fromStdWString(state.job.nlsi_job_id)
+            : QStringLiteral("N/A"));
+
+    QString job_status = QStringLiteral("N/A");
+    if (state.job_status == telemetry::JobStatus::NoJob
+        && snapshot.has_job.available && !snapshot.has_job.stale && !snapshot.has_job.value) {
+        job_status = QString::fromStdWString(telemetry::FormatJobStatus(state.job_status));
+    } else if (snapshot.connected && state.job.available) {
+        job_status = QString::fromStdWString(telemetry::FormatJobStatus(state.job_status));
+    }
+    SetValue(QStringLiteral("jobStatus"), job_status);
+    SetValue(QStringLiteral("cargo"), FieldValue(state.job.cargo));
+    SetValue(QStringLiteral("income"), FieldValue(state.job.income));
+    SetValue(QStringLiteral("source"),
+        RouteValue(state.job.source_company, state.job.source_city));
+    SetValue(QStringLiteral("destination"),
+        RouteValue(state.job.destination_company, state.job.destination_city));
+    SetValue(QStringLiteral("plannedDistance"), FieldValue(state.job.planned_distance));
+    SetValue(QStringLiteral("remainingDistance"),
+        state.progress.remaining_distance_km
+            && std::isfinite(*state.progress.remaining_distance_km)
+            && *state.progress.remaining_distance_km >= 0.0
+            ? FormatNumber(*state.progress.remaining_distance_km, 2) + QStringLiteral(" km")
+            : QStringLiteral("N/A"));
+    SetValue(QStringLiteral("progress"), ProgressValue(state.progress.progress_percent));
+    SetValue(QStringLiteral("eta"), DurationText(state.progress.eta_seconds));
+
+    const auto& special_job = snapshot.special_job;
+    const bool special_job_active = snapshot.connected && special_job.available
+        && !special_job.stale
+        && QString::fromStdWString(special_job.value).trimmed().compare(
+            QStringLiteral("true"), Qt::CaseInsensitive) == 0;
+    special_job_indicator_->setVisible(special_job_active);
+
+    SetValue(QStringLiteral("fuel"), NumberValue(snapshot.fuel_liters, 2, QStringLiteral(" L")));
     SetValue(QStringLiteral("engine"),
-        NumberText(snapshot.rpm, 0) + QStringLiteral(" RPM · Gear ")
-            + NumberText(snapshot.gear, 0));
-    SetValue(QStringLiteral("fuel"),
-        QStringLiteral("%1 · Range: %2\nOdometer: %3")
-            .arg(NumberText(snapshot.fuel_liters, 2, QStringLiteral(" L")),
-                NumberText(snapshot.fuel_range_km, 2, QStringLiteral(" km")),
-                NumberText(snapshot.odometer_km, 2, QStringLiteral(" km"))));
-    SetValue(QStringLiteral("throttle"), PercentText(snapshot.effective_throttle));
-    SetValue(QStringLiteral("brake"), PercentText(snapshot.effective_brake));
-    SetValue(QStringLiteral("job"), CurrentJobText(state));
-    SetValue(QStringLiteral("position"), CurrentPositionText(state));
-    SetValue(QStringLiteral("navigation"), NavigationText(state));
-    const QString controls = VehicleControlsText(snapshot);
-    SetValue(QStringLiteral("controls"),
-        controls.isEmpty() ? QStringLiteral("Unavailable") : controls);
-    SetCardVisible(QStringLiteral("controls"), !controls.isEmpty());
+        NumberValue(snapshot.rpm, 0, QStringLiteral(" RPM"))
+            + QStringLiteral(" / ")
+            + NumberValue(snapshot.gear, 0));
+    SetValue(QStringLiteral("throttle"), PercentValue(snapshot.effective_throttle));
+    SetValue(QStringLiteral("brake"), PercentValue(snapshot.effective_brake));
+    SetValue(QStringLiteral("retarder"), NumberValue(snapshot.retarder_level, 1));
+
+    const auto& cruise_control = snapshot.cruise_control_active;
+    const bool cruise_control_confirmed = snapshot.connected
+        && cruise_control.available && !cruise_control.stale;
+    SetValue(QStringLiteral("cruiseControl"),
+        cruise_control_confirmed
+            ? (cruise_control.value ? QStringLiteral("ACTIVE") : QStringLiteral("INACTIVE"))
+            : QStringLiteral("N/A"));
+    for (auto it = cruise_indicators_.begin(); it != cruise_indicators_.end(); ++it) {
+        it.value()->setVisible(cruise_control_confirmed && cruise_control.value);
+    }
+
+    const QString provider_status = QString::fromStdWString(
+        telemetry::FormatStatus(state.providers.trucksim));
+    SetValue(QStringLiteral("connection"),
+        QStringLiteral("%1 · TruckSim GPS (%2)")
+            .arg(snapshot.connected ? QStringLiteral("CONNECTED")
+                                    : QStringLiteral("NOT CONNECTED"),
+                provider_status));
+    SetValue(QStringLiteral("game"), GameIdentity(snapshot));
+    SetValue(QStringLiteral("gameVersion"), QStringLiteral("N/A"));
+    SetValue(QStringLiteral("vehicle"), QStringLiteral("N/A"));
 }
 
 } // namespace nlsi::gui
