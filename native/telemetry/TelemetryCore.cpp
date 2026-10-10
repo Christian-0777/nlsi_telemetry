@@ -396,15 +396,26 @@ void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
 }
 
 void TelemetryCore::OnTruckSimSample(const providers::RawTelemetrySample& sample) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (IsShuttingDownLocked() || !telemetry_recorder_) {
-        return;
+    logging::TelemetryRecorder* recorder = nullptr;
+    TelemetrySnapshot normalized_snapshot;
+    QString session_id;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (IsShuttingDownLocked() || !telemetry_recorder_) {
+            return;
+        }
+        recorder = telemetry_recorder_.get();
+        normalized_snapshot = trucksim_snapshot_;
+        if (session_manager_.IsActive()) {
+            session_id = QString::fromStdWString(session_manager_.CurrentId());
+        }
     }
+
     const QByteArray compressed_mapping = qCompress(sample.mapping, 9);
     QJsonObject record{
         {QStringLiteral("timestamp_utc"), QString::fromStdWString(sample.timestamp_utc)},
-        {QStringLiteral("session_id"), session_manager_.IsActive()
-            ? QJsonValue(QString::fromStdWString(session_manager_.CurrentId()))
+        {QStringLiteral("session_id"), !session_id.isEmpty()
+            ? QJsonValue(session_id)
             : QJsonValue(QJsonValue::Null)},
         {QStringLiteral("provider"), QStringLiteral("TruckSim GPS")},
         {QStringLiteral("provider_revision"), static_cast<int>(sample.revision)},
@@ -420,10 +431,11 @@ void TelemetryCore::OnTruckSimSample(const providers::RawTelemetrySample& sample
         {QStringLiteral("raw_mapping_uncompressed_bytes"), sample.mapping.size()},
         {QStringLiteral("raw_mapping_base64"),
             QString::fromLatin1(compressed_mapping.toBase64(QByteArray::Base64Encoding))},
-        {QStringLiteral("normalized_fields"), NormalizedFields(trucksim_snapshot_)},
+        {QStringLiteral("normalized_fields"), NormalizedFields(normalized_snapshot)},
     };
     std::wstring error;
-    if (!telemetry_recorder_->Enqueue(record, &error)) {
+    if (!recorder->Enqueue(record, &error)) {
+        std::lock_guard<std::mutex> lock(mutex_);
         status_.storage_error = std::move(error);
     }
 }

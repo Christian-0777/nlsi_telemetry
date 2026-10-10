@@ -12,6 +12,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <thread>
 #include <QByteArray>
 #include <QDir>
 #include <QFile>
@@ -20,6 +21,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QUuid>
 
 #include "logging/Logger.h"
 #include "logging/TelemetryRecorder.h"
@@ -796,6 +798,13 @@ void TestTelemetryRecorderOfflineRecovery() {
         "offline sample was not retained in the pending synchronization queue");
     Check(recorder.QueuedCount() == 0 && recorder.IsRunning(),
         "the writer reported queued work or stopped before its flush completed");
+    const auto one_record_metrics = recorder.GetMetrics();
+    Check(one_record_metrics.accepted_records == 1
+        && one_record_metrics.persisted_records == 1
+        && one_record_metrics.batches_written == 1
+        && one_record_metrics.maximum_batch_size == 1
+        && one_record_metrics.maximum_queue_bytes > 0,
+        "recorder metrics did not report accepted, persisted, and batched writes accurately");
     Check(recorder.StopFor(std::chrono::seconds(5)) && !recorder.IsRunning()
         && recorder.StopFor(std::chrono::milliseconds::zero()),
         "recorder stop was not complete and idempotent");
@@ -842,6 +851,114 @@ void TestTelemetryRecorderOfflineRecovery() {
     Check(recovered.StopFor(std::chrono::seconds(5)),
         "recovered telemetry writer did not stop cleanly");
 
+    QTemporaryDir concurrent_root;
+    Check(concurrent_root.isValid(), "concurrent-writer temporary directory could not be created");
+    nlsi::logging::TelemetryRecorder concurrent_recorder;
+    Check(concurrent_recorder.Start(concurrent_root.path().toStdWString()),
+        "concurrent telemetry recorder could not start");
+    constexpr int producer_count = 4;
+    constexpr int samples_per_producer = 64;
+    std::array<bool, producer_count> producer_results{};
+    std::vector<std::thread> producers;
+    for (int producer = 0; producer < producer_count; ++producer) {
+        producers.emplace_back([&, producer] {
+            producer_results[static_cast<std::size_t>(producer)] = true;
+            for (int index = 0; index < samples_per_producer; ++index) {
+                QJsonObject concurrent_sample = sample;
+                QJsonObject raw_fields = concurrent_sample
+                    .value(QStringLiteral("raw_fields")).toObject();
+                raw_fields.insert(QStringLiteral("producer"), producer);
+                raw_fields.insert(QStringLiteral("producer_index"), index);
+                concurrent_sample.insert(QStringLiteral("raw_fields"), raw_fields);
+                if (!concurrent_recorder.Enqueue(concurrent_sample)) {
+                    producer_results[static_cast<std::size_t>(producer)] = false;
+                    return;
+                }
+            }
+        });
+    }
+    for (std::thread& producer : producers) {
+        producer.join();
+    }
+    Check(std::all_of(producer_results.cbegin(), producer_results.cend(), [](bool accepted) {
+            return accepted;
+        }),
+        "a concurrent telemetry producer was rejected unexpectedly");
+    Check(concurrent_recorder.FlushFor(std::chrono::seconds(30))
+        && concurrent_recorder.StopFor(std::chrono::seconds(5)),
+        "concurrent telemetry writes did not flush and stop cleanly");
+    const auto concurrent_metrics = concurrent_recorder.GetMetrics();
+    Check(concurrent_metrics.accepted_records == producer_count * samples_per_producer
+        && concurrent_metrics.persisted_records == concurrent_metrics.accepted_records
+        && concurrent_metrics.maximum_batch_size <= 128
+        && concurrent_metrics.batches_written < concurrent_metrics.persisted_records
+        && concurrent_metrics.maximum_queue_bytes <= 64ULL * 1024 * 1024,
+        "concurrent queue metrics violated record, batch, or byte bounds");
+    const QString concurrent_file_path = QDir(concurrent_root.path())
+        .filePath(QStringLiteral("telemetry/2026-10-08.nlsi"));
+    QFile concurrent_file(concurrent_file_path);
+    Check(concurrent_file.open(QIODevice::ReadOnly | QIODevice::Text),
+        "concurrent telemetry output could not be opened");
+    QSet<QString> concurrent_ids;
+    std::array<int, producer_count> next_producer_index{};
+    std::uint64_t expected_sequence = 1;
+    bool header_line = true;
+    while (!concurrent_file.atEnd()) {
+        const QByteArray line = concurrent_file.readLine();
+        if (header_line) {
+            header_line = false;
+            continue;
+        }
+        const QJsonObject record = QJsonDocument::fromJson(line.trimmed()).object();
+        const QJsonObject raw_fields = record.value(QStringLiteral("raw_fields")).toObject();
+        const int producer = raw_fields.value(QStringLiteral("producer")).toInt(-1);
+        const int producer_index = raw_fields.value(QStringLiteral("producer_index")).toInt(-1);
+        const QString record_id = record.value(QStringLiteral("record_id")).toString();
+        Check(record.value(QStringLiteral("sequence")).toVariant().toULongLong()
+                == expected_sequence
+            && producer >= 0 && producer < producer_count
+            && producer_index == next_producer_index[static_cast<std::size_t>(producer)]++
+            && !QUuid(record_id).isNull() && !concurrent_ids.contains(record_id),
+            "concurrent writes were reordered, duplicated, or assigned invalid sequences");
+        concurrent_ids.insert(record_id);
+        ++expected_sequence;
+    }
+    Check(expected_sequence == producer_count * samples_per_producer + 1
+        && concurrent_ids.size() == producer_count * samples_per_producer,
+        "concurrent telemetry persisted a different number of unique records");
+
+    QTemporaryDir legacy_pending_root;
+    Check(legacy_pending_root.isValid(),
+        "legacy-pending temporary directory could not be created");
+    const QString legacy_pending_directory = QDir(legacy_pending_root.path())
+        .filePath(QStringLiteral("telemetry/pending"));
+    Check(QDir().mkpath(legacy_pending_directory),
+        "legacy-pending directory could not be created");
+    QJsonObject legacy_sample = sample;
+    legacy_sample.insert(QStringLiteral("record_id"),
+        QStringLiteral("00000000-0000-4000-8000-000000000001"));
+    const QJsonObject legacy_pending_record{
+        {QStringLiteral("format"), QStringLiteral("nlsi-pending-sample")},
+        {QStringLiteral("schema_version"), 1},
+        {QStringLiteral("sample"), legacy_sample},
+    };
+    const QString legacy_pending_path = QDir(legacy_pending_directory)
+        .filePath(QStringLiteral("00000000-0000-4000-8000-000000000001.json"));
+    QFile legacy_pending_file(legacy_pending_path);
+    const QByteArray legacy_pending_bytes =
+        QJsonDocument(legacy_pending_record).toJson(QJsonDocument::Compact) + '\n';
+    Check(legacy_pending_file.open(QIODevice::WriteOnly)
+        && legacy_pending_file.write(legacy_pending_bytes) == legacy_pending_bytes.size(),
+        "legacy pending recovery fixture could not be written");
+    legacy_pending_file.close();
+    nlsi::logging::TelemetryRecorder legacy_pending_recorder;
+    Check(legacy_pending_recorder.Start(legacy_pending_root.path().toStdWString())
+        && legacy_pending_recorder.Flush()
+        && legacy_pending_recorder.PendingCount() == 1
+        && !QFile::exists(legacy_pending_path)
+        && legacy_pending_recorder.StopFor(std::chrono::seconds(5)),
+        "schema-v1 pending telemetry was not recovered compatibly");
+
     QTemporaryDir slow_root;
     Check(slow_root.isValid(), "slow-writer temporary directory could not be created");
     std::mutex gate_mutex;
@@ -862,6 +979,12 @@ void TestTelemetryRecorderOfflineRecovery() {
         Check(gate.wait_for(lock, std::chrono::seconds(5), [&] { return write_started; }),
             "slow writer did not enter its controlled delay");
     }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    const auto slow_metrics = slow_recorder.GetMetrics();
+    Check(slow_metrics.queued_records == 1
+        && slow_metrics.queued_bytes > 0
+        && slow_metrics.oldest_pending_age >= std::chrono::milliseconds(10),
+        "queue depth, memory, or oldest-record-age metrics missed a blocked write");
     Check(!slow_recorder.StopFor(std::chrono::milliseconds(10))
         && slow_recorder.QueuedCount() == 1,
         "a slow in-flight write was reported complete or lost during a bounded stop");
@@ -874,6 +997,49 @@ void TestTelemetryRecorderOfflineRecovery() {
         && !slow_recorder.IsRunning(),
         "the writer did not drain after the slow write completed");
 
+    QTemporaryDir capacity_root;
+    Check(capacity_root.isValid(), "queue-capacity temporary directory could not be created");
+    std::mutex capacity_gate_mutex;
+    std::condition_variable capacity_gate;
+    bool capacity_write_started = false;
+    bool release_capacity_write = false;
+    nlsi::logging::TelemetryRecorder capacity_recorder([&] {
+        std::unique_lock<std::mutex> lock(capacity_gate_mutex);
+        capacity_write_started = true;
+        capacity_gate.notify_all();
+        capacity_gate.wait(lock, [&] { return release_capacity_write; });
+    });
+    Check(capacity_recorder.Start(capacity_root.path().toStdWString())
+        && capacity_recorder.Enqueue(sample),
+        "bounded-queue recorder did not accept its initial sample");
+    {
+        std::unique_lock<std::mutex> lock(capacity_gate_mutex);
+        Check(capacity_gate.wait_for(lock, std::chrono::seconds(5), [&] {
+                return capacity_write_started;
+            }),
+            "bounded-queue writer did not enter its controlled delay");
+    }
+    std::uint64_t capacity_accepted = 1;
+    std::wstring overload_error;
+    while (capacity_accepted < 2050 && capacity_recorder.Enqueue(sample, &overload_error)) {
+        ++capacity_accepted;
+    }
+    Check(capacity_accepted == 2048 && !overload_error.empty()
+        && capacity_recorder.GetMetrics().queued_records == 2048
+        && capacity_recorder.GetMetrics().queued_bytes <= 64ULL * 1024 * 1024,
+        "queue overload was not bounded and explicitly reported");
+    {
+        std::lock_guard<std::mutex> lock(capacity_gate_mutex);
+        release_capacity_write = true;
+    }
+    capacity_gate.notify_all();
+    Check(capacity_recorder.StopFor(std::chrono::seconds(60))
+        && !capacity_recorder.IsRunning()
+        && capacity_recorder.GetMetrics().persisted_records == capacity_accepted
+        && capacity_recorder.GetMetrics().maximum_queue_depth == 2048
+        && !capacity_recorder.LastError().empty(),
+        "queue overload lost accepted records, hid rejection, or falsified drain status");
+
     QTemporaryDir failure_root;
     Check(failure_root.isValid(), "write-failure temporary directory could not be created");
     const QString failure_store = QDir(failure_root.path()).filePath(QStringLiteral("records"));
@@ -883,11 +1049,14 @@ void TestTelemetryRecorderOfflineRecovery() {
     const QString failed_target = QDir(failure_store).filePath(
         QStringLiteral("telemetry/2026-10-08.nlsi"));
     Check(QDir().mkpath(failed_target), "telemetry write-failure fixture could not be created");
-    Check(failing_recorder.Enqueue(sample),
-        "sample was not accepted into the durable recovery queue");
+    Check(failing_recorder.Enqueue(sample)
+        && failing_recorder.Enqueue(sample)
+        && failing_recorder.Enqueue(sample),
+        "samples were not accepted into the durable recovery queue");
     Check(!failing_recorder.StopFor(std::chrono::seconds(5))
         && !failing_recorder.LastError().empty()
-        && failing_recorder.QueuedCount() == 1,
+        && failing_recorder.QueuedCount() == 3
+        && failing_recorder.GetMetrics().write_failures == 1,
         "a disk write failure was not surfaced with its accepted sample retained");
     const QString pending_directory = QDir(failure_store)
         .filePath(QStringLiteral("telemetry/pending"));
@@ -898,7 +1067,8 @@ void TestTelemetryRecorderOfflineRecovery() {
     nlsi::logging::TelemetryRecorder failure_recovery;
     Check(failure_recovery.Start(failure_store.toStdWString())
         && failure_recovery.Flush()
-        && failure_recovery.PendingCount() == 1
+        && failure_recovery.PendingCount() == 3
+        && failure_recovery.GetMetrics().persisted_records == 3
         && QDir(pending_directory).entryList({QStringLiteral("*.json")}).isEmpty(),
         "a retained failed write did not recover exactly once after restart");
     Check(failure_recovery.StopFor(std::chrono::seconds(5)),

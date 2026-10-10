@@ -227,6 +227,26 @@ if(BUILD_TESTING)
         ENVIRONMENT "PATH=${NLSI_QT_ROOT}/bin;NLSI_DISABLE_UPDATE_CHECK=1"
     )
 
+    add_executable(nlsi_telemetry_benchmark
+        tests/telemetry_benchmark.cpp
+        logging/TelemetryRecorder.cpp
+    )
+    set_target_properties(nlsi_telemetry_benchmark PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${NLSI_TEST_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${NLSI_TEST_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${NLSI_TEST_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${NLSI_TEST_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${NLSI_TEST_OUTPUT_DIR}"
+    )
+    target_include_directories(nlsi_telemetry_benchmark PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/logging
+    )
+    target_link_libraries(nlsi_telemetry_benchmark PRIVATE Qt6::Core psapi)
+    if(MSVC)
+        target_compile_options(nlsi_telemetry_benchmark PRIVATE /W4)
+    endif()
+
     add_executable(nlsi_gui_tests
         tests/main_window_tests.cpp
         gui/MainWindow.cpp

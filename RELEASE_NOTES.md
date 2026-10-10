@@ -1,3 +1,41 @@
+# NLSI Exclusive Logbook v1.4.6-beta
+
+This Beta release reduces local telemetry persistence latency while preserving
+the existing telemetry and application-log formats, user-data paths, and
+provider integrations.
+
+## What's changed
+
+- Batches accepted telemetry records for up to 250 ms or 128 records and writes
+  them in order through persistent session append handles.
+- Bounds queued and in-flight telemetry to 2,048 records and 64 MiB; new
+  submissions that exceed capacity are explicitly rejected rather than silently
+  dropped.
+- Recovers accepted batches atomically after interruption, remains compatible
+  with legacy single-record recovery files, and deduplicates records by stable
+  ID.
+- Reduces time spent holding the telemetry state mutex by preparing samples
+  after taking the required state snapshot.
+- Keeps the v2 telemetry JSONL, v1 application `.nlsi`, and UTF-8 TXT formats,
+  timestamp meaning, TruckSim GPS mapping, SCS SDK position integration,
+  application identity, and per-user data location unchanged.
+
+In a synthetic 60-second, 16-record/second workload, both baseline and updated
+builds persisted all 960 accepted records. The updated run reduced peak queued
+records from 403 to 16 and shutdown drain time from 44.27 seconds to 0.158
+seconds. This rate-limited test demonstrates backlog and drain behavior, not
+maximum storage throughput. ETS2/ATS gameplay and hardware/provider integration
+still require manual validation.
+
+A second 60-second run at 32 records/second persisted all 1,920 accepted
+records, with 31.93 records/second end-to-end throughput, a peak queue of 22
+records (about 43 KiB of queued JSON), and a 0.165-second drain.
+
+Expected installer target:
+`build/releases/v1.4.6-beta/NLSI-Exclusive-Logbook-v1.4.6-beta-Setup.exe`.
+
+---
+
 # NLSI Exclusive Logbook v1.4.5-beta
 
 This maintenance release strengthens local telemetry shutdown and recovery,

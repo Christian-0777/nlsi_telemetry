@@ -774,7 +774,7 @@ bool TestSingleInstanceGuard(QApplication& application) {
 
 bool TestOfflineUpdateCheck() {
     nlsi::updater::GitHubUpdater updater(
-        QStringLiteral("1.4.5-beta"),
+        QStringLiteral("1.4.6-beta"),
         nullptr,
         QUrl(QStringLiteral("http://127.0.0.1:1/releases")));
     QEventLoop loop;
@@ -812,7 +812,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.4.5-beta"));
+    application.setApplicationVersion(QStringLiteral("v1.4.6-beta"));
     if (!TestModLogParsingAndSourceLinks()
         || !TestHistoryPagesLoadPersistedRows()) {
         return 1;
@@ -826,7 +826,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.5-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.4.6-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -944,7 +944,7 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.4.5-beta");
+            || label->text() == QStringLiteral("v1.4.6-beta");
         found_beta_channel = found_beta_channel
             || label->text() == QStringLiteral("Beta");
         if (label->text() == QStringLiteral("Product") && label->parentWidget()) {

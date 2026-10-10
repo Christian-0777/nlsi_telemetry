@@ -48,10 +48,16 @@ timestamps, named raw fields and their availability, a compressed Base64 copy
 of the complete 32 KiB mapping, and separately represented normalized fields.
 No authenticated-account identifier or credential is stored.
 
-Samples are queued to a background writer and appended on source timestamp
-changes, polling the shared map every 250 ms. Each complete record is flushed
-before its record ID is appended to `sync\queue.jsonl`. If the process stops
-between those writes, startup scans local records and reconstructs missing
+Samples are queued in capture order to a background writer. The bounded queue
+allows at most 2,048 records and 64 MiB of serialized sample data; a sample
+that exceeds either limit is rejected with an explicit storage error rather
+than silently dropped. The writer batches up to 128 records, waiting no longer
+than 250 ms from the first queued record, and keeps the active daily telemetry
+file and sync queue open while writing. Each batch is atomically copied to the
+local recovery area, appended in order to the daily `.nlsi` file, then added in
+order to `sync\queue.jsonl`; each append stream is flushed once per batch. The
+recovery copy is removed only after both appends succeed. If the process stops
+between those writes, startup reconciles record IDs and reconstructs missing
 pending queue entries. A partial trailing line is copied byte-for-byte to a
 `.recovery` sidecar before the incomplete suffix is removed; preceding complete
 records are retained. A malformed complete record or unknown schema is
@@ -74,12 +80,13 @@ their availability/source/timestamp/stale metadata. The legacy
 not reinterpret v2 telemetry records. TXT logs continue to contain the
 existing human-readable application/history output.
 
-Before a queued sample reaches its daily `.nlsi` file, it is stored atomically
-under `telemetry\pending\<record-id>.json` using the internal
-`nlsi-pending-sample` schema version 1. The writer removes that recovery copy
-only after the v2 record and its pending-sync entry have been flushed. Startup
-reconciles a recovery copy against existing record IDs to avoid duplicating a
-record if interruption happened between those writes. The UTC `timestamp_utc`
-field remains UTC and unchanged; only daily file grouping and local display
-use the IANA `Asia/Manila` zone. OS termination, storage-device failure, and
-power loss can still exceed the guarantees of application-level flushing.
+Before queued samples reach their daily `.nlsi` file, they are stored
+atomically under `telemetry\pending` in an internal
+`nlsi-pending-samples` schema-v1 batch file. The batch sequence in its filename
+preserves order across recovery. Existing `nlsi-pending-sample` schema-v1
+single-record recovery files are still read. Startup reconciles every recovery
+record against existing record IDs to avoid duplicating data if interruption
+happened between append and cleanup. The UTC `timestamp_utc` field remains UTC
+and unchanged; only daily file grouping and local display use the IANA
+`Asia/Manila` zone. OS termination, storage-device failure, and power loss can
+still exceed the guarantees of application-level flushing.
