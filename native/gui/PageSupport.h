@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QDateTime>
 #include <QString>
 #include <QWidget>
 
@@ -20,6 +21,7 @@ QString NumberText(const telemetry::TelemetryField<double>& field, int precision
 QString OptionalNumberText(const std::optional<double>& value, int precision,
     const QString& suffix = {});
 QString DurationText(const std::optional<double>& seconds);
+QString ArrivalText(const std::optional<double>& seconds, const QDateTime& now_utc);
 QString FormatNumber(double value, int precision);
 QString NumericText(const QString& value);
 QString TimestampText(const QString& value);

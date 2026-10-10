@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QVector>
+#include <QDateTime>
 
 #include "PageSupport.h"
 
@@ -31,6 +32,9 @@ private:
 
     QHash<QString, QLabel*> values_;
     QHash<QString, QLabel*> cruise_indicators_;
+    QString game_log_path_;
+    QString game_log_version_;
+    QDateTime game_log_modified_;
     QLabel* special_job_indicator_ = nullptr;
     QPlainTextEdit* travel_expense_summary_ = nullptr;
 };

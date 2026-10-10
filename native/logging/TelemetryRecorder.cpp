@@ -75,17 +75,37 @@ bool IsRawMappingValid(const QJsonObject& sample) {
     return qUncompress(compressed).size() == 32 * 1024;
 }
 
-bool IsRawSampleValid(const QJsonObject& sample, QByteArray* serialized = nullptr) {
+bool IsRecordPayloadValid(const QJsonObject& sample, QByteArray* serialized = nullptr) {
     const QByteArray encoded = QJsonDocument(sample).toJson(QJsonDocument::Compact);
-    const bool valid = !encoded.isEmpty() && encoded.size() <= kMaximumSampleBytes
+    const QString record_type = sample.value(QStringLiteral("record_type")).toString(
+        QStringLiteral("telemetry_sample"));
+    const QString provider = sample.value(QStringLiteral("provider")).toString().trimmed();
+    const bool common_valid = !encoded.isEmpty() && encoded.size() <= kMaximumSampleBytes
         && IsTimestamp(sample.value(QStringLiteral("timestamp_utc")).toString())
-        && sample.value(QStringLiteral("provider")).toString()
-            == QStringLiteral("TruckSim GPS")
-        && sample.value(QStringLiteral("provider_revision")).toInt() == 13
-        && !sample.value(QStringLiteral("raw_fields")).toObject().isEmpty()
-        && sample.value(QStringLiteral("raw_availability")).isObject()
-        && sample.value(QStringLiteral("normalized_fields")).isObject()
-        && IsRawMappingValid(sample);
+        && !provider.isEmpty();
+    bool valid = false;
+    if (record_type == QStringLiteral("telemetry_sample")) {
+        if (provider == QStringLiteral("TruckSim GPS")) {
+            valid = common_valid
+                && sample.value(QStringLiteral("provider_revision")).toInt() == 13
+                && !sample.value(QStringLiteral("raw_fields")).toObject().isEmpty()
+                && sample.value(QStringLiteral("raw_availability")).isObject()
+                && sample.value(QStringLiteral("normalized_fields")).isObject()
+                && IsRawMappingValid(sample);
+        } else if (provider == QStringLiteral("NLSI")) {
+            valid = common_valid
+                && sample.value(QStringLiteral("normalized_fields")).isObject();
+        }
+    } else if (record_type == QStringLiteral("provider_event")) {
+        valid = common_valid
+            && !sample.value(QStringLiteral("event")).toString().trimmed().isEmpty()
+            && sample.value(QStringLiteral("data")).isObject();
+    } else if (record_type == QStringLiteral("provider_configuration")) {
+        valid = common_valid
+            && !sample.value(QStringLiteral("configuration_id")).toString().trimmed().isEmpty()
+            && !sample.value(QStringLiteral("game_id")).toString().trimmed().isEmpty()
+            && sample.value(QStringLiteral("attributes")).isObject();
+    }
     if (valid && serialized) {
         *serialized = encoded;
     }
@@ -94,19 +114,11 @@ bool IsRawSampleValid(const QJsonObject& sample, QByteArray* serialized = nullpt
 
 bool IsStoredSampleValid(const QJsonObject& record) {
     const QString record_id = record.value(QStringLiteral("record_id")).toString();
-    return record.value(QStringLiteral("record_type")).toString()
-            == QStringLiteral("telemetry_sample")
+    return record.value(QStringLiteral("record_type")).toString().size() > 0
         && record.value(QStringLiteral("schema_version")).toInt() == 2
         && !QUuid(record_id).isNull()
         && record.value(QStringLiteral("sequence")).toVariant().toULongLong() > 0
-        && IsTimestamp(record.value(QStringLiteral("timestamp_utc")).toString())
-        && record.value(QStringLiteral("provider")).toString()
-            == QStringLiteral("TruckSim GPS")
-        && record.value(QStringLiteral("provider_revision")).toInt() == 13
-        && !record.value(QStringLiteral("raw_fields")).toObject().isEmpty()
-        && record.value(QStringLiteral("raw_availability")).isObject()
-        && record.value(QStringLiteral("normalized_fields")).isObject()
-        && IsRawMappingValid(record);
+        && IsRecordPayloadValid(record);
 }
 
 } // namespace
@@ -175,9 +187,12 @@ bool TelemetryRecorder::Enqueue(const QJsonObject& sample, std::wstring* error) 
     QJsonObject queued_sample = sample;
     const QString record_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
     queued_sample.insert(QStringLiteral("record_id"), record_id);
+    if (queued_sample.value(QStringLiteral("record_type")).toString().isEmpty()) {
+        queued_sample.insert(QStringLiteral("record_type"), QStringLiteral("telemetry_sample"));
+    }
     QByteArray serialized_sample;
-    if (!IsRawSampleValid(queued_sample, &serialized_sample)) {
-        const QString reason = QStringLiteral("Rejected malformed or oversized raw telemetry sample.");
+    if (!IsRecordPayloadValid(queued_sample, &serialized_sample)) {
+        const QString reason = QStringLiteral("Rejected malformed or oversized telemetry record.");
         if (error) {
             *error = reason.toStdWString();
         }
@@ -443,19 +458,16 @@ bool TelemetryRecorder::Recover() {
                     .arg(file.fileName()));
                 return false;
             }
-            if (record.value(QStringLiteral("record_type")).toString()
-                    == QStringLiteral("telemetry_sample")) {
-                const std::uint64_t sequence = record.value(QStringLiteral("sequence")).toVariant()
-                    .toULongLong();
-                next_sequence_ = std::max(next_sequence_, sequence + 1);
-                const QString record_id = record.value(QStringLiteral("record_id")).toString();
-                if (record_id.isEmpty()) {
-                    SetError(QStringLiteral("A telemetry record has no stable identifier in %1.")
-                        .arg(file.fileName()));
-                    return false;
-                }
-                record_ids.insert(record_id);
+            const std::uint64_t sequence = record.value(QStringLiteral("sequence")).toVariant()
+                .toULongLong();
+            next_sequence_ = std::max(next_sequence_, sequence + 1);
+            const QString record_id = record.value(QStringLiteral("record_id")).toString();
+            if (record_id.isEmpty()) {
+                SetError(QStringLiteral("A telemetry record has no stable identifier in %1.")
+                    .arg(file.fileName()));
+                return false;
             }
+            record_ids.insert(record_id);
         }
     }
     return ReconcileSyncQueue(record_ids) && RecoverPendingSamples(record_ids);
@@ -577,7 +589,7 @@ bool TelemetryRecorder::RecoverPendingSamples(const QSet<QString>& record_ids) {
             QJsonObject sample = sample_value.toObject();
             const QString record_id = sample.value(QStringLiteral("record_id")).toString();
             sample.remove(QStringLiteral("record_id"));
-            if (QUuid(record_id).isNull() || !IsRawSampleValid(sample)) {
+            if (QUuid(record_id).isNull() || !IsRecordPayloadValid(sample)) {
                 SetError(QStringLiteral(
                     "Invalid pending telemetry recovery file %1; it was preserved.")
                     .arg(file_info.absoluteFilePath()));
@@ -852,7 +864,17 @@ bool TelemetryRecorder::WriteBatch(std::vector<QueuedSample>& samples) {
             SetError(QStringLiteral("Local telemetry sequence is exhausted."));
             return false;
         }
-        sample.insert(QStringLiteral("record_type"), QStringLiteral("telemetry_sample"));
+        QString record_type = sample.value(QStringLiteral("record_type")).toString();
+        if (record_type.isEmpty()) {
+            record_type = QStringLiteral("telemetry_sample");
+        }
+        if (record_type != QStringLiteral("telemetry_sample")
+            && record_type != QStringLiteral("provider_event")
+            && record_type != QStringLiteral("provider_configuration")) {
+            SetError(QStringLiteral("Telemetry record has an unsupported record type."));
+            return false;
+        }
+        sample.insert(QStringLiteral("record_type"), record_type);
         sample.insert(QStringLiteral("schema_version"), 2);
         sample.insert(QStringLiteral("sequence"), static_cast<qint64>(next_sequence_++));
         const QByteArray line = QJsonDocument(sample).toJson(QJsonDocument::Compact) + '\n';

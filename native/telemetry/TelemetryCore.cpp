@@ -1,6 +1,7 @@
 #include "TelemetryCore.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -16,6 +17,7 @@
 #include <type_traits>
 
 #include "time/ApplicationTime.h"
+#include "providers/ScsPositionIpc.h"
 
 namespace {
 
@@ -57,6 +59,11 @@ QJsonObject NormalizedFields(const TelemetrySnapshot& snapshot) {
     QJsonObject fields;
     AddNormalizedField(fields, "game_id", snapshot.game_id);
     AddNormalizedField(fields, "game_name", snapshot.game_name);
+    AddNormalizedField(fields, "game_version", snapshot.game_version);
+    AddNormalizedField(fields, "vehicle", snapshot.vehicle);
+    AddNormalizedField(fields, "vehicle_plate", snapshot.vehicle_plate);
+    AddNormalizedField(fields, "trailer", snapshot.trailer);
+    AddNormalizedField(fields, "trailer_plate", snapshot.trailer_plate);
     AddNormalizedField(fields, "paused", snapshot.paused);
     AddNormalizedField(fields, "driving", snapshot.driving);
     AddNormalizedField(fields, "session_active", snapshot.session_active);
@@ -129,6 +136,82 @@ QString EventJobIdentity(const QJsonObject& details) {
     return {};
 }
 
+QString JsonTextValue(const QJsonObject& object, std::initializer_list<QString> keys) {
+    for (const QString& key : keys) {
+        const QJsonValue value = object.value(key);
+        QString text;
+        if (value.isString()) {
+            text = value.toString().trimmed();
+        } else if (value.isDouble() && std::isfinite(value.toDouble())) {
+            text = QString::number(value.toDouble(), 'g', 15);
+        }
+        if (!text.isEmpty()) {
+            return text;
+        }
+    }
+    return {};
+}
+
+QString ConfigurationName(const QJsonObject& attributes, bool include_trailer_type) {
+    const QString brand = JsonTextValue(attributes, {QStringLiteral("brand")});
+    const QString name = JsonTextValue(attributes, {QStringLiteral("name")});
+    QString result = brand.isEmpty() || brand == name
+        ? name : (name.isEmpty() ? brand : brand + QLatin1Char(' ') + name);
+    if (include_trailer_type) {
+        const QString body = JsonTextValue(attributes, {QStringLiteral("body.type")});
+        const QString chain = JsonTextValue(attributes, {QStringLiteral("chain.type")});
+        if (!body.isEmpty()) {
+            result += (result.isEmpty() ? QString() : QStringLiteral(" · ")) + body;
+        }
+        if (!chain.isEmpty()) {
+            result += (result.isEmpty() ? QString() : QStringLiteral(" · ")) + chain;
+        }
+    }
+    return result;
+}
+
+template <typename T>
+void MergeIfUnavailable(
+    TelemetryField<T>& preferred,
+    const TelemetryField<T>& fallback) {
+    if ((!preferred.available || preferred.stale)
+        && fallback.available && !fallback.stale) {
+        preferred = fallback;
+    }
+}
+
+void MergeLiveFields(TelemetrySnapshot& preferred, const TelemetrySnapshot& fallback) {
+#define NLSI_MERGE_FIELD(field) MergeIfUnavailable(preferred.field, fallback.field)
+    NLSI_MERGE_FIELD(paused);
+    NLSI_MERGE_FIELD(driving);
+    NLSI_MERGE_FIELD(session_active);
+    NLSI_MERGE_FIELD(has_job);
+    NLSI_MERGE_FIELD(speed_kmh);
+    NLSI_MERGE_FIELD(rpm);
+    NLSI_MERGE_FIELD(gear);
+    NLSI_MERGE_FIELD(input_throttle);
+    NLSI_MERGE_FIELD(effective_throttle);
+    NLSI_MERGE_FIELD(input_brake);
+    NLSI_MERGE_FIELD(effective_brake);
+    NLSI_MERGE_FIELD(retarder_level);
+    NLSI_MERGE_FIELD(retarder_active);
+    NLSI_MERGE_FIELD(cruise_control_speed);
+    NLSI_MERGE_FIELD(cruise_control_active);
+    NLSI_MERGE_FIELD(fuel_liters);
+    NLSI_MERGE_FIELD(fuel_range_km);
+    NLSI_MERGE_FIELD(odometer_km);
+    NLSI_MERGE_FIELD(navigation_distance_m);
+    NLSI_MERGE_FIELD(navigation_distance_km);
+    NLSI_MERGE_FIELD(navigation_time_s);
+    NLSI_MERGE_FIELD(eta_seconds);
+    NLSI_MERGE_FIELD(game_version);
+    NLSI_MERGE_FIELD(vehicle);
+    NLSI_MERGE_FIELD(vehicle_plate);
+    NLSI_MERGE_FIELD(trailer);
+    NLSI_MERGE_FIELD(trailer_plate);
+#undef NLSI_MERGE_FIELD
+}
+
 } // namespace
 
 namespace nlsi::telemetry {
@@ -150,12 +233,16 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
         status_.trucksim_layout = L"Not detected";
         snapshot_ = {};
         trucksim_snapshot_ = {};
+        nlsi_snapshot_ = {};
+        scs_configuration_snapshot_ = {};
         ui_state_ = {};
         previous_job_identity_.clear();
         newly_completed_job_notifications_.clear();
         shutdown_started_ = false;
         shutdown_error_.clear();
         trucksim_state_ = ProviderState::Connecting;
+        nlsi_state_ = ProviderState::Connecting;
+        scs_configuration_game_id_ = 0;
         logged_trucksim_message_.clear();
         job_fuel_tracker_ = {};
         if (!user_data_directory.empty()) {
@@ -193,6 +280,13 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
         [this](const providers::RawTelemetrySample& sample) {
             OnTruckSimSample(sample);
         });
+    const bool nlsi_started = nlsi_provider_.Start(
+        [this](const TelemetrySnapshot& snapshot, ProviderState state, const std::wstring& error) {
+            OnNLSIUpdate(snapshot, state, error);
+        },
+        [this](const std::string& packet) {
+            OnProviderEvent(packet);
+        });
     const bool scs_position_started = scs_position_provider_.Start(
         [this](const providers::ScsPositionSnapshot& snapshot) {
             OnScsPositionUpdate(snapshot);
@@ -212,7 +306,7 @@ bool TelemetryCore::Initialize(const std::wstring& user_data_directory) {
         status_.trucksim_error = L"Unable to start TruckSim GPS shared-memory reader thread.";
         RebuildStateLocked();
     }
-    return trucksim_started;
+    return trucksim_started || nlsi_started;
 }
 
 void TelemetryCore::Shutdown() {
@@ -231,6 +325,7 @@ void TelemetryCore::BeginShutdown() {
         shutdown_started_ = true;
     }
     trucksim_provider_.Stop();
+    nlsi_provider_.Stop();
     scs_position_provider_.Stop();
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -244,7 +339,9 @@ void TelemetryCore::BeginShutdown() {
             }
         }
         trucksim_state_ = ProviderState::Disconnected;
+        nlsi_state_ = ProviderState::Disconnected;
         status_.trucksim = trucksim_state_;
+        status_.nlsi = nlsi_state_;
         scs_position_snapshot_ = {};
         ui_state_.scs_position = scs_position_snapshot_;
         const std::uint64_t pending_records =
@@ -267,6 +364,7 @@ void TelemetryCore::BeginShutdown() {
             status_.last_error = shutdown_error_;
         }
         trucksim_snapshot_.connected = false;
+        nlsi_snapshot_.connected = false;
         RebuildStateLocked();
         if (telemetry_recorder_) {
             telemetry_recorder_->RequestStop();
@@ -412,9 +510,45 @@ void TelemetryCore::OnTruckSimUpdate(
     UpdateSessionLifecycleLocked();
 }
 
+void TelemetryCore::OnNLSIUpdate(
+    const TelemetrySnapshot& snapshot,
+    ProviderState state,
+    const std::wstring& error) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (IsShuttingDownLocked()) {
+        return;
+    }
+    nlsi_snapshot_ = snapshot;
+    nlsi_state_ = state;
+    if (state != ProviderState::Connected) {
+        MarkSnapshotStale(nlsi_snapshot_);
+    }
+    status_.nlsi = state;
+    status_.nlsi_error = error;
+    if (!error.empty() && status_.last_error.empty()) {
+        status_.last_error = error;
+    }
+    if (state == ProviderState::Connected && telemetry_recorder_) {
+        const QByteArray encoded_timestamp =
+            QString::fromStdWString(snapshot.timestamp).toUtf8();
+        QJsonObject record{
+            {QStringLiteral("timestamp_utc"), QString::fromUtf8(encoded_timestamp)},
+            {QStringLiteral("provider"), QStringLiteral("NLSI")},
+            {QStringLiteral("record_type"), QStringLiteral("telemetry_sample")},
+            {QStringLiteral("normalized_fields"), NormalizedFields(snapshot)},
+        };
+        std::wstring storage_error;
+        if (!telemetry_recorder_->Enqueue(record, &storage_error)) {
+            status_.storage_error = std::move(storage_error);
+        }
+    }
+    RebuildStateLocked();
+    UpdateSessionLifecycleLocked();
+}
+
 void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (IsShuttingDownLocked() || !history_store_) {
+    if (IsShuttingDownLocked()) {
         return;
     }
     const QByteArray raw_packet(packet_bytes.data(), static_cast<qsizetype>(packet_bytes.size()));
@@ -426,8 +560,115 @@ void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
     }
     QJsonObject packet = document.object();
     const QString event_type = packet.value(QStringLiteral("event")).toString();
+    const QString packet_type = packet.value(QStringLiteral("type")).toString();
     const QString timestamp = packet.value(QStringLiteral("timestamp")).toString();
     QJsonObject details = packet.value(QStringLiteral("data")).toObject();
+    if (packet_type == QStringLiteral("configuration")
+        && packet.value(QStringLiteral("provider")).toString() == QStringLiteral("SCS SDK")) {
+        const QDateTime parsed_timestamp =
+            nlsi::time::ParseInstant(timestamp);
+        const int game_id = packet.value(QStringLiteral("game_id")).toInt();
+        if (!parsed_timestamp.isValid() || parsed_timestamp > QDateTime::currentDateTimeUtc().addSecs(60)
+            || (game_id != providers::kScsPositionGameEts2
+                && game_id != providers::kScsPositionGameAts)) {
+            status_.last_error = L"Rejected an invalid or uncorrelated SCS configuration update.";
+            return;
+        }
+        const QString game_key = game_id == providers::kScsPositionGameEts2
+            ? QStringLiteral("ets2") : QStringLiteral("ats");
+        const std::wstring configuration_timestamp = timestamp.toStdWString();
+        const QString configuration_id = packet.value(QStringLiteral("id")).toString();
+        const QJsonObject attributes = packet.value(QStringLiteral("attributes")).toObject();
+        if (scs_configuration_game_id_ != 0
+            && scs_configuration_game_id_ != static_cast<std::uint32_t>(game_id)) {
+            scs_configuration_snapshot_ = {};
+        }
+        if (configuration_id == QStringLiteral("game")) {
+            scs_configuration_snapshot_.game_version = {};
+            const QString version = JsonTextValue(attributes, {
+                QStringLiteral("version"), QStringLiteral("game.version"),
+                QStringLiteral("game_version")});
+            if (!version.isEmpty()) {
+                scs_configuration_snapshot_.game_version.Set(
+                    version.toStdWString(), L"SCS SDK configuration", configuration_timestamp);
+            }
+            const QString game_name = JsonTextValue(attributes, {
+                QStringLiteral("name"), QStringLiteral("game.name"),
+                QStringLiteral("game_name")});
+            if (!game_name.isEmpty()) {
+                scs_configuration_snapshot_.game_name.Set(
+                    game_name.toStdWString(), L"SCS SDK configuration", configuration_timestamp);
+            }
+        } else if (configuration_id == QStringLiteral("truck")) {
+            scs_configuration_snapshot_.vehicle = {};
+            scs_configuration_snapshot_.vehicle_plate = {};
+            const QString vehicle = ConfigurationName(attributes, false);
+            const QString plate = JsonTextValue(attributes, {
+                QStringLiteral("license.plate"), QStringLiteral("license_plate")});
+            if (!vehicle.isEmpty()) {
+                scs_configuration_snapshot_.vehicle.Set(
+                    vehicle.toStdWString(), L"SCS SDK configuration", configuration_timestamp);
+            }
+            if (!plate.isEmpty()) {
+                scs_configuration_snapshot_.vehicle_plate.Set(
+                    plate.toStdWString(), L"SCS SDK configuration", configuration_timestamp);
+            }
+        } else if (configuration_id == QStringLiteral("trailer")
+            || configuration_id == QStringLiteral("trailer.0")) {
+            scs_configuration_snapshot_.trailer = {};
+            scs_configuration_snapshot_.trailer_plate = {};
+            const QString trailer = ConfigurationName(attributes, true);
+            const QString plate = JsonTextValue(attributes, {
+                QStringLiteral("license.plate"), QStringLiteral("license_plate")});
+            if (!trailer.isEmpty()) {
+                scs_configuration_snapshot_.trailer.Set(
+                    trailer.toStdWString(), L"SCS SDK configuration", configuration_timestamp);
+            }
+            if (!plate.isEmpty()) {
+                scs_configuration_snapshot_.trailer_plate.Set(
+                    plate.toStdWString(), L"SCS SDK configuration", configuration_timestamp);
+            }
+        } else {
+            return;
+        }
+        scs_configuration_game_id_ = static_cast<std::uint32_t>(game_id);
+        scs_configuration_snapshot_.game_id.Set(
+            game_key.toStdWString(), L"SCS SDK configuration", configuration_timestamp);
+        if (!scs_configuration_snapshot_.game_name.available) {
+            scs_configuration_snapshot_.game_name.Set(
+                game_id == providers::kScsPositionGameEts2
+                    ? L"Euro Truck Simulator 2" : L"American Truck Simulator",
+                L"SCS SDK configuration", configuration_timestamp);
+        }
+        RebuildStateLocked();
+        const QJsonObject configuration_record{
+            {QStringLiteral("timestamp_utc"), timestamp},
+            {QStringLiteral("provider"), QStringLiteral("SCS SDK")},
+            {QStringLiteral("record_type"), QStringLiteral("provider_configuration")},
+            {QStringLiteral("configuration_id"), configuration_id},
+            {QStringLiteral("game_id"), game_key},
+            {QStringLiteral("attributes"), attributes},
+        };
+        if (telemetry_recorder_) {
+            std::wstring error;
+            if (!telemetry_recorder_->Enqueue(configuration_record, &error)) {
+                status_.storage_error = std::move(error);
+            }
+        }
+        if (logger_) {
+            const QString serialized = QString::fromUtf8(
+                QJsonDocument(attributes).toJson(QJsonDocument::Compact));
+            std::wstring error;
+            if (!logger_->Log(
+                    QStringLiteral("[configuration] %1 SCS SDK %2 %3")
+                        .arg(timestamp, configuration_id, serialized).toStdWString(),
+                    &error)) {
+                status_.storage_error = std::move(error);
+            }
+        }
+        return;
+    }
+
     if (event_type == QStringLiteral("job.delivered")) {
         const auto fuel_result = job_fuel_tracker_.Finish(
             EventJobIdentity(details).toStdWString(),
@@ -459,26 +700,49 @@ void TelemetryCore::OnProviderEvent(const std::string& packet_bytes) {
         packet.insert(QStringLiteral("data"), details);
     }
     const QByteArray persisted_packet = QJsonDocument(packet).toJson(QJsonDocument::Compact);
-    bool persisted = history_store_->RecordProviderEvent(persisted_packet);
+    bool newly_recorded = false;
+    bool persisted = !history_store_
+        || history_store_->RecordProviderEvent(persisted_packet, &newly_recorded);
+    if (history_store_ && !persisted) {
+        status_.storage_error = history_store_->Snapshot().error.toStdWString();
+    }
+    if (newly_recorded && telemetry_recorder_) {
+        QJsonObject event_record{
+            {QStringLiteral("timestamp_utc"), timestamp},
+            {QStringLiteral("provider"), packet.value(QStringLiteral("provider"))
+                .toString(QStringLiteral("NLSI"))},
+            {QStringLiteral("record_type"), QStringLiteral("provider_event")},
+            {QStringLiteral("event"), event_type},
+            {QStringLiteral("provider_event_id"), packet.value(QStringLiteral("provider_event_id"))},
+            {QStringLiteral("data"), details},
+        };
+        std::wstring error;
+        if (!telemetry_recorder_->Enqueue(event_record, &error)) {
+            status_.storage_error = std::move(error);
+            persisted = false;
+        }
+    }
     if (!persisted) {
         status_.storage_error = history_store_->Snapshot().error.toStdWString();
     }
     if (event_type == QStringLiteral("job.delivered")
         || event_type == QStringLiteral("job.cancelled")) {
-        const std::uint64_t previous_revision = history_store_->Snapshot().revision;
-        persisted = history_store_->RecordJob(ui_state_.job, event_type, timestamp, details)
-            && persisted;
-        const session::HistorySnapshot updated_history = history_store_->Snapshot();
-        if (persisted && updated_history.revision != previous_revision) {
-            const QString identity = !details.value(QStringLiteral("job_id")).toString().isEmpty()
-                ? details.value(QStringLiteral("job_id")).toString()
-                : QString::fromStdWString(ui_state_.job.identity);
-            newly_completed_job_notifications_.push_back(
-                (identity + QLatin1Char('|') + event_type + QLatin1Char('|') + timestamp)
-                    .toStdWString());
-        }
-        if (!persisted) {
-            status_.storage_error = history_store_->Snapshot().error.toStdWString();
+        if (history_store_) {
+            const std::uint64_t previous_revision = history_store_->Snapshot().revision;
+            persisted = history_store_->RecordJob(ui_state_.job, event_type, timestamp, details)
+                && persisted;
+            const session::HistorySnapshot updated_history = history_store_->Snapshot();
+            if (persisted && updated_history.revision != previous_revision) {
+                const QString identity = !details.value(QStringLiteral("job_id")).toString().isEmpty()
+                    ? details.value(QStringLiteral("job_id")).toString()
+                    : QString::fromStdWString(ui_state_.job.identity);
+                newly_completed_job_notifications_.push_back(
+                    (identity + QLatin1Char('|') + event_type + QLatin1Char('|') + timestamp)
+                        .toStdWString());
+            }
+            if (!persisted) {
+                status_.storage_error = history_store_->Snapshot().error.toStdWString();
+            }
         }
     }
     if (persisted) {
@@ -496,7 +760,7 @@ void TelemetryCore::OnTruckSimSample(const providers::RawTelemetrySample& sample
             return;
         }
         recorder = telemetry_recorder_.get();
-        normalized_snapshot = trucksim_snapshot_;
+        normalized_snapshot = snapshot_;
         if (session_manager_.IsActive()) {
             session_id = QString::fromStdWString(session_manager_.CurrentId());
         }
@@ -537,8 +801,13 @@ void TelemetryCore::OnScsPositionUpdate(
     if (IsShuttingDownLocked()) {
         return;
     }
+    if (snapshot.state == providers::ScsPositionState::Disconnected
+        && scs_position_snapshot_.state != providers::ScsPositionState::Disconnected) {
+        scs_configuration_snapshot_ = {};
+        scs_configuration_game_id_ = 0;
+    }
     scs_position_snapshot_ = snapshot;
-    ui_state_.scs_position = snapshot;
+    RebuildStateLocked();
 }
 
 void TelemetryCore::RebuildStateLocked() {
@@ -548,8 +817,22 @@ void TelemetryCore::RebuildStateLocked() {
             status_.storage_error = recorder_error;
         }
     }
-    snapshot_ = trucksim_snapshot_;
-    snapshot_.connected = trucksim_state_ == ProviderState::Connected;
+    const bool trucksim_connected = trucksim_state_ == ProviderState::Connected;
+    const bool nlsi_connected = nlsi_state_ == ProviderState::Connected;
+    snapshot_ = trucksim_connected || !nlsi_connected
+        ? trucksim_snapshot_ : nlsi_snapshot_;
+    snapshot_.connected = trucksim_connected || nlsi_connected;
+    if (trucksim_connected && nlsi_connected) {
+        const bool same_game = trucksim_snapshot_.game_id.available
+            && nlsi_snapshot_.game_id.available
+            && trucksim_snapshot_.game_id.value == nlsi_snapshot_.game_id.value;
+        if (same_game) {
+            MergeLiveFields(snapshot_, nlsi_snapshot_);
+        } else {
+            status_.nlsi_error =
+                L"Connected NLSI telemetry identifies a different or unknown game; provider values were not merged.";
+        }
+    }
     if (!snapshot_.connected) {
         MarkSnapshotStale(snapshot_);
     }
@@ -565,12 +848,46 @@ void TelemetryCore::RebuildStateLocked() {
     }
     if (trucksim_state_ == ProviderState::Connected && !trucksim_snapshot_.timestamp.empty()) {
         snapshot_.timestamp = trucksim_snapshot_.timestamp;
+    } else if (nlsi_connected && !nlsi_snapshot_.timestamp.empty()) {
+        snapshot_.timestamp = nlsi_snapshot_.timestamp;
+    }
+    const QString current_game_id = snapshot_.game_id.available
+        ? QString::fromStdWString(snapshot_.game_id.value) : QString();
+    const QString scs_game_id = scs_configuration_game_id_ == providers::kScsPositionGameEts2
+        ? QStringLiteral("ets2")
+        : (scs_configuration_game_id_ == providers::kScsPositionGameAts
+            ? QStringLiteral("ats") : QString());
+    const bool scs_position_matches_configuration =
+        scs_position_snapshot_.state == providers::ScsPositionState::Connected
+        && scs_position_snapshot_.available
+        && scs_position_snapshot_.game_id == scs_configuration_game_id_;
+    if (!scs_game_id.isEmpty() && scs_position_matches_configuration
+        && (current_game_id.isEmpty() || current_game_id == scs_game_id)) {
+        if (!scs_configuration_snapshot_.game_id.available) {
+            scs_configuration_snapshot_.game_id.Set(
+                scs_game_id.toStdWString(), L"SCS SDK configuration", {});
+        }
+#define NLSI_APPLY_SCS_CONFIG(field) \
+        if (scs_configuration_snapshot_.field.available \
+            && !scs_configuration_snapshot_.field.stale) { \
+            snapshot_.field = scs_configuration_snapshot_.field; \
+        }
+        NLSI_APPLY_SCS_CONFIG(game_id);
+        NLSI_APPLY_SCS_CONFIG(game_name);
+        NLSI_APPLY_SCS_CONFIG(game_version);
+        NLSI_APPLY_SCS_CONFIG(vehicle);
+        NLSI_APPLY_SCS_CONFIG(vehicle_plate);
+        NLSI_APPLY_SCS_CONFIG(trailer);
+        NLSI_APPLY_SCS_CONFIG(trailer_plate);
+#undef NLSI_APPLY_SCS_CONFIG
     }
 
     status_.trucksim = trucksim_state_;
+    status_.nlsi = nlsi_state_;
     status_.combined = snapshot_.connected
         ? CombinedProviderState::Connected
-        : CombinedProviderState::Disconnected;
+        : (nlsi_connected ? CombinedProviderState::Partial
+                          : CombinedProviderState::Disconnected);
     status_.telemetry_freshness = snapshot_.timestamp.empty()
         ? L"No telemetry sample received"
         : snapshot_.timestamp;

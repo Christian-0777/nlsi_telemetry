@@ -200,6 +200,8 @@ void TelemetryPage::UpdateState(const telemetry::TelemetryUiState& state) {
 ProvidersPage::ProvidersPage(QWidget* parent)
     : DetailPage(parent) {
     AddField(QStringLiteral("trucksim"), QStringLiteral("TruckSim GPS"));
+    AddField(QStringLiteral("nlsi"), QStringLiteral("NLSI SCS telemetry"));
+    AddField(QStringLiteral("nlsiError"), QStringLiteral("NLSI provider message"));
     AddField(QStringLiteral("scsPosition"), QStringLiteral("SCS position provider"));
     AddField(QStringLiteral("scsPositionMapping"), QStringLiteral("Position interface"));
     AddField(QStringLiteral("scsPositionAge"), QStringLiteral("Position sample age"));
@@ -223,6 +225,11 @@ ProvidersPage::ProvidersPage(QWidget* parent)
 
 void ProvidersPage::UpdateState(const telemetry::TelemetryUiState& state) {
     SetValue(QStringLiteral("trucksim"), StatusText(state.providers.trucksim));
+    SetValue(QStringLiteral("nlsi"), StatusText(state.providers.nlsi));
+    SetValue(QStringLiteral("nlsiError"),
+        state.providers.nlsi_error.empty()
+            ? QStringLiteral("None")
+            : QString::fromStdWString(state.providers.nlsi_error));
     const auto& position = state.scs_position;
     const QString position_status = position.state == providers::ScsPositionState::Connected
         ? QStringLiteral("Connected")

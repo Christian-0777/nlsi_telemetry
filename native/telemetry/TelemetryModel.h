@@ -49,6 +49,11 @@ struct TelemetrySnapshot {
     std::wstring timestamp;
     TelemetryField<std::wstring> game_id;
     TelemetryField<std::wstring> game_name;
+    TelemetryField<std::wstring> game_version;
+    TelemetryField<std::wstring> vehicle;
+    TelemetryField<std::wstring> vehicle_plate;
+    TelemetryField<std::wstring> trailer;
+    TelemetryField<std::wstring> trailer_plate;
 
     TelemetryField<bool> paused;
     TelemetryField<bool> driving;
@@ -90,6 +95,7 @@ struct TelemetrySnapshot {
 
 struct ProviderStatus {
     ProviderState trucksim = ProviderState::Disconnected;
+    ProviderState nlsi = ProviderState::Disconnected;
     CombinedProviderState combined = CombinedProviderState::Disconnected;
     std::wstring telemetry_freshness;
     std::wstring last_error;
@@ -102,6 +108,7 @@ struct ProviderStatus {
     std::wstring trucksim_data_age = L"Unknown";
     std::wstring trucksim_source_timestamp;
     std::wstring trucksim_error;
+    std::wstring nlsi_error;
     std::uint32_t trucksim_revision = 0;
     std::uint32_t trucksim_win32_error = 0;
     bool trucksim_mapping_open = false;

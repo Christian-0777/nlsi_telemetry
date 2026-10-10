@@ -14,10 +14,10 @@ SPEC.loader.exec_module(BUILDER)
 
 class NativeReleasePackagingTests(unittest.TestCase):
     def test_version_and_automatic_plugin_installation_policy(self) -> None:
-        self.assertEqual("1.5.1", BUILDER.VERSION)
+        self.assertEqual("1.5.2", BUILDER.VERSION)
         self.assertEqual("beta", BUILDER.CHANNEL)
         self.assertEqual("beta", BUILDER.INSTALL_CHANNEL)
-        self.assertEqual("v1.5.1-beta", BUILDER.RELEASE_TAG)
+        self.assertEqual("v1.5.2-beta", BUILDER.RELEASE_TAG)
         self.assertIn("Qt6Concurrent.dll", BUILDER.REQUIRED_RUNTIME_FILES)
         self.assertEqual(
             r"C:\Program Files\NLSI Exclusive Logbook",
@@ -64,8 +64,8 @@ class NativeReleasePackagingTests(unittest.TestCase):
         self.assertEqual(2, len(BUILDER.SCS_POSITION_PLUGIN_FILES))
         self.assertEqual(
             [
-                ROOT / "build" / "plugins" / "v1.5.1-beta" / "win_x64" / "nlsi.dll",
-                ROOT / "build" / "plugins" / "v1.5.1-beta" / "win_x86" / "nlsi.dll",
+                ROOT / "build" / "plugins" / "v1.5.2-beta" / "win_x64" / "nlsi.dll",
+                ROOT / "build" / "plugins" / "v1.5.2-beta" / "win_x86" / "nlsi.dll",
             ],
             [source for source, _, _ in BUILDER.SCS_POSITION_PLUGIN_FILES],
         )
@@ -77,11 +77,44 @@ class NativeReleasePackagingTests(unittest.TestCase):
             destination.name == "nlsi.dll"
             for _, destination, _ in BUILDER.SCS_POSITION_PLUGIN_FILES
         ))
+        self.assertEqual(
+            {"win_x64", "win_x86"},
+            {destination.parts[2] for _, destination, _ in BUILDER.SCS_POSITION_PLUGIN_FILES},
+        )
+        self.assertEqual(
+            {"win_x64", "win_x86"},
+            {destination.parts[2] for _, _, destination in BUILDER.TRUCKSIM_PLUGIN_FILES},
+        )
+        self.assertTrue(all(
+            destination.name == "trucksim-gps-telemetry.dll"
+            for _, _, destination in BUILDER.TRUCKSIM_PLUGIN_FILES
+        ))
         installer_text = (ROOT / "installer" / "NLSI-Exclusive-Logbook.iss").read_text(
             encoding="utf-8"
         )
         self.assertIn("InstallScsPositionPlugin.ps1", installer_text)
         self.assertIn("-RestoreManagedPlugin", installer_text)
+
+    def test_scs_configuration_callbacks_are_forwarded_as_timestamped_provider_records(self) -> None:
+        plugin_source = (ROOT / "scs_position_plugin" / "nlsi.cpp").read_text(
+            encoding="utf-8"
+        )
+        provider_source = (ROOT / "native" / "telemetry" / "TelemetryCore.cpp").read_text(
+            encoding="utf-8"
+        )
+        recorder_source = (ROOT / "native" / "logging" / "TelemetryRecorder.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("PublishConfiguration(id, fields)", plugin_source)
+        self.assertIn(r'\"provider\":\"SCS SDK\"', plugin_source)
+        self.assertIn(r'\"provider_event_id\":18446744073709551615', plugin_source)
+        self.assertIn("SCS_TELEMETRY_CONFIG_truck", plugin_source)
+        self.assertIn("SCS_TELEMETRY_CONFIG_trailer", plugin_source)
+        self.assertIn(r'\"game_id\":', plugin_source)
+        self.assertIn('QStringLiteral("provider_configuration")', provider_source)
+        self.assertIn('QStringLiteral("timestamp_utc")', provider_source)
+        self.assertIn('QStringLiteral("provider_event")', recorder_source)
+        self.assertIn('QStringLiteral("provider_configuration")', recorder_source)
 
     def test_upgrade_paths_and_per_user_data_are_preserved(self) -> None:
         installer_text = (ROOT / "installer" / "NLSI-Exclusive-Logbook.iss").read_text(

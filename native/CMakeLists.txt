@@ -97,6 +97,7 @@ qt_add_executable(NLSI-Exclusive-Logbook MANUAL_FINALIZATION
     telemetry/TelemetryModel.cpp
     telemetry/TelemetryUiState.cpp
     providers/TruckSimGpsProvider.cpp
+    providers/NLSIProvider.cpp
     providers/ScsPositionProvider.cpp
     session/SessionManager.cpp
     session/JobManager.cpp
@@ -261,6 +262,7 @@ if(BUILD_TESTING)
         telemetry/TelemetryModel.cpp
         telemetry/TelemetryUiState.cpp
         providers/TruckSimGpsProvider.cpp
+        providers/NLSIProvider.cpp
         providers/ScsPositionProvider.cpp
         session/SessionManager.cpp
         session/JobManager.cpp

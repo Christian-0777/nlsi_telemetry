@@ -508,6 +508,11 @@ bool BuildSnapshot(
         if (game_name && game_name->type == JsonValue::Type::String && !game_name->string.empty()) {
             snapshot.game_name.Set(Utf8ToWide(game_name->string), L"NLSI", timestamp);
         }
+        const JsonValue* game_version = FindNormalized(game, {
+            "version", "game_version"});
+        if (game_version) {
+            snapshot.game_version.Set(JsonText(game_version), L"NLSI", timestamp);
+        }
     }
     const bool paused = state_value->string == "paused";
     snapshot.paused.Set(paused, L"NLSI", timestamp);
@@ -562,6 +567,55 @@ bool BuildSnapshot(
         configurations = packet.Find("configurations");
     }
     const JsonValue* job = ChooseJob(configurations);
+    const JsonValue* game_config = configurations
+        ? configurations->Find("game") : nullptr;
+    const JsonValue* truck_config = configurations
+        ? configurations->Find("truck") : nullptr;
+    const JsonValue* trailer_config = configurations
+        ? configurations->Find("trailer") : nullptr;
+    const auto combined_configuration_name = [](
+            const JsonValue* configuration,
+            std::initializer_list<std::string_view> suffixes,
+            bool include_trailer_details) {
+        const std::wstring brand = JsonText(FindNormalized(configuration, {"brand"}));
+        const std::wstring name = JsonText(FindNormalized(configuration, suffixes));
+        std::wstring result;
+        if (brand.empty()) {
+            result = name;
+        } else if (name.empty() || name == brand) {
+            result = brand;
+        } else {
+            result = brand + L" " + name;
+        }
+        if (include_trailer_details) {
+            for (const std::string_view key : {"body.type", "chain.type"}) {
+                const std::wstring value = JsonText(FindNormalized(configuration, {key}));
+                if (!value.empty()) {
+                    if (!result.empty()) {
+                        result += L" · ";
+                    }
+                    result += value;
+                }
+            }
+        }
+        return result;
+    };
+    SetText(snapshot.game_version,
+        FindNormalized(game_config, {"version", "game_version"}), timestamp);
+    snapshot.vehicle.Set(
+        combined_configuration_name(truck_config, {"name"}, false), L"NLSI", timestamp);
+    if (snapshot.vehicle.value.empty()) {
+        snapshot.vehicle = {};
+    }
+    SetText(snapshot.vehicle_plate,
+        FindNormalized(truck_config, {"license_plate", "license.plate"}), timestamp);
+    snapshot.trailer.Set(
+        combined_configuration_name(trailer_config, {"name"}, true), L"NLSI", timestamp);
+    if (snapshot.trailer.value.empty()) {
+        snapshot.trailer = {};
+    }
+    SetText(snapshot.trailer_plate,
+        FindNormalized(trailer_config, {"license_plate", "license.plate"}), timestamp);
     snapshot.has_job.Set(job != nullptr, L"NLSI", timestamp);
     if (job) {
         SetJobText(snapshot.cargo_id, job, {"cargo_id", "cargo.id", "job_id", "id"}, timestamp);

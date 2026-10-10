@@ -2,6 +2,14 @@
 
 Release history is based on the repository's tagged v0.1.0 source and the confirmed v0.2.0/v0.3.0 release changes.
 
+## v1.5.2-beta
+
+- Merges fresh, matching-game NLSI and TruckSim telemetry without replacing valid preferred-provider values with stale or conflicting data.
+- Persists timestamped provider configuration and gameplay events, protects event/job history from duplicates, and loads completed jobs from existing `.nlsi` records.
+- Populates the Dashboard Game Config from SCS configuration callbacks and available telemetry; long dashboard values stay on one line with accessible elision.
+- Shows cruise-control set speed/state, hides brake and retarder numbers while active, formats navigation arrival in Asia/Manila time, and displays provider-supplied fuel range with fuel quantity.
+- Aligns application, plugin, and installer outputs to v1.5.2-beta while retaining per-user history and architecture-specific x86/x64 plugin deployment.
+
 ## v1.5.1-beta
 
 - Aligns the application and installer metadata to the 1.5.1-beta release while preserving the existing SCS SDK plugin, historical job data model, and user-data paths.

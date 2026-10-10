@@ -1,21 +1,24 @@
-# NLSI Exclusive Logbook v1.5.1-beta
+# NLSI Exclusive Logbook v1.5.2-beta
 
-This beta release keeps the completed-job capture, fuel, route, and installer
-validation work aligned with the 1.5.1 release metadata while preserving the
-existing application, plugin, and user-data paths. It maintains the historical
-job-only source rules and N/A handling introduced in the prior beta builds.
+This beta release combines NLSI SCS configuration/gameplay events with
+TruckSim GPS telemetry, preserves existing application, plugin, and user-data
+paths, and continues to keep telemetry and history local/offline-first.
 
-Job values are sourced only from persisted terminal-event details and
-non-stale final `JobSnapshot` fields. Uncaptured historical values remain N/A;
-the full field-by-field source and limitation audit is in [layout.md](./layout.md).
-Completed-job IDs and records, persisted events, settings, telemetry logs, and
-the existing user-data directory are preserved. Dashboard current-job behavior
-and the default installation root remain unchanged.
+Dashboard configuration fields use SCS configuration callbacks and available
+provider values; stale, missing, or mismatched data is not substituted.
+Dashboard values are single-line and elided when space is limited. Arrival uses
+valid navigation duration with Asia/Manila local time, fuel range is shown only
+when supplied by a provider, and cruise-control display uses its set speed.
+Completed-job records are retained and can be reconstructed from compatible
+existing `.nlsi` provider-event records.
 
-ETS2/ATS live telemetry and an in-place installer upgrade were not validated.
+Installer payloads include matching x86/x64 `nlsi.dll` and
+`trucksim-gps-telemetry.dll` builds while preserving user data during updates.
+ETS2/ATS live telemetry and an in-place installer upgrade still require
+validation on a machine with the games installed.
 
 Expected installer target:
-`build/releases/v1.5.1-beta/NLSI-Exclusive-Logbook-v1.5.1-beta-Setup.exe`.
+`build/releases/v1.5.2-beta/NLSI-Exclusive-Logbook-v1.5.2-beta-Setup.exe`.
 
 ---
 

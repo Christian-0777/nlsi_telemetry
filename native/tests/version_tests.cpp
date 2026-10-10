@@ -70,6 +70,18 @@ const std::string kValidPacket = R"json({
     "navigation_time_s":3661
   },
   "configurations":{
+    "game":{"version":"1.58.1.2s"},
+    "truck":{
+      "brand":"Volvo",
+      "name":"FH16",
+      "license.plate":"NLSI 1"
+    },
+    "trailer":{
+      "brand":"Schmitz",
+      "name":"Refrigerated",
+      "license.plate":"TR 2",
+      "body.type":"reefer"
+    },
     "job":{
       "job_id":"job-17",
       "cargo":"Furniture",
@@ -98,6 +110,13 @@ void TestValidTelemetryAndUnits() {
     Check(snapshot.game_id.available && snapshot.game_id.value == L"ets2"
         && snapshot.game_name.available && snapshot.game_name.value == L"Euro Truck Simulator 2",
         "game identity was not normalized from the telemetry packet");
+    Check(snapshot.game_version.available && snapshot.game_version.value == L"1.58.1.2s"
+        && snapshot.vehicle.available && snapshot.vehicle.value == L"Volvo FH16"
+        && snapshot.vehicle_plate.available && snapshot.vehicle_plate.value == L"NLSI 1"
+        && snapshot.trailer.available
+        && snapshot.trailer.value == L"Schmitz Refrigerated · reefer"
+        && snapshot.trailer_plate.available && snapshot.trailer_plate.value == L"TR 2",
+        "stationary game, truck, or trailer configuration was not normalized");
     Check(snapshot.speed_kmh.available && snapshot.speed_kmh.value == 36.0,
         "speed_kmh did not parse");
     Check(snapshot.rpm.available && snapshot.gear.available, "RPM or gear was unavailable");
@@ -114,7 +133,11 @@ void TestMissingAndInvalidFields() {
     const std::string packet = R"json({
       "type":"telemetry","timestamp":"2026-10-07T08:36:46.000Z",
       "state":"paused","truck":{"speed_mps":2.0,"rpm":null,"navigation_distance_m":null},
-      "configurations":{}
+      "configurations":{
+        "game":{"version":"1.58.1.2s"},
+        "truck":{"brand":"Volvo","name":"FH16","license.plate":"NLSI 1"},
+        "trailer":{"brand":"Schmitz","name":"Refrigerated","license.plate":"TR 2"}
+      }
     })json";
     nlsi::telemetry::TelemetrySnapshot snapshot;
     Check(nlsi::providers::NLSIProvider::ParseTelemetryPacket(packet, snapshot),
@@ -125,6 +148,11 @@ void TestMissingAndInvalidFields() {
         "null fields were incorrectly marked available");
     Check(!snapshot.fuel_liters.available && !snapshot.has_job.value,
         "missing fuel or job data was fabricated");
+    Check(snapshot.game_version.available && snapshot.vehicle.available
+        && snapshot.vehicle.value == L"Volvo FH16"
+        && snapshot.vehicle_plate.value == L"NLSI 1"
+        && snapshot.trailer.available && snapshot.trailer_plate.value == L"TR 2",
+        "stationary configuration values were not populated from available provider data");
 
     std::wstring error;
     Check(!nlsi::providers::NLSIProvider::ParseTelemetryPacket(
@@ -199,6 +227,9 @@ void TestTruckSimGpsRevision13LayoutAndUnits() {
         && snapshot.cruise_control_speed.available
         && snapshot.cruise_control_speed.value == 72.0,
         "TruckSim GPS speed fields were not converted from m/s to km/h");
+    Check(snapshot.fuel_liters.available && snapshot.fuel_liters.value == 500.0
+        && snapshot.fuel_range_km.available && snapshot.fuel_range_km.value == 800.0,
+        "TruckSim GPS fuel quantity or remaining range was not decoded");
     Check(snapshot.navigation_distance_km.available
         && snapshot.navigation_distance_km.value == 60.0
         && snapshot.planned_distance.value == L"1200",
@@ -1273,6 +1304,93 @@ void TestAsiaManilaTimeZone() {
         "missing-zone or invalid timestamps were silently reinterpreted");
 }
 
+void TestCompletedJobsLoadFromTelemetryHistory() {
+    QTemporaryDir root;
+    Check(root.isValid(), "completed-job telemetry fixture directory could not be created");
+    const QString telemetry_path = QDir(root.path()).filePath(
+        QStringLiteral("logs/telemetry/2026-10-07.nlsi"));
+    Check(QDir().mkpath(QFileInfo(telemetry_path).absolutePath()),
+        "completed-job telemetry directory could not be created");
+    const QByteArray event =
+        R"json({"timestamp_utc":"2026-10-07T08:29:00.000Z","provider":"SCS SDK","record_type":"provider_event","event":"job.delivered","provider_event_id":7,"data":{"job_id":"historic-job-1","cargo":"Furniture","source":{"city":"Berlin"},"destination":{"city":"Paris"}}})json";
+    QFile telemetry_file(telemetry_path);
+    Check(telemetry_file.open(QIODevice::WriteOnly | QIODevice::Text)
+        && telemetry_file.write(event + '\n' + event) == event.size() * 2 + 1,
+        "historical completed-job telemetry could not be written");
+    telemetry_file.close();
+
+    nlsi::logging::Logger logger(
+        QDir(root.path()).filePath(QStringLiteral("logs/application.txt")).toStdWString());
+    nlsi::session::HistoryStore history(logger);
+    Check(history.Initialize(root.path()), "historical telemetry could not be loaded");
+    const auto jobs = history.Snapshot().jobs;
+    Check(jobs.size() == 1
+        && jobs.front().identity == QStringLiteral("historic-job-1")
+        && jobs.front().status == QStringLiteral("Delivered")
+        && jobs.front().cargo == QStringLiteral("Furniture")
+        && jobs.front().source == QStringLiteral("Berlin")
+        && jobs.front().destination == QStringLiteral("Paris"),
+        "completed-job history was not reconstructed or duplicate telemetry was not suppressed");
+}
+
+void TestTelemetryRecorderPersistsProviderEventsAndConfiguration() {
+    QTemporaryDir root;
+    Check(root.isValid(), "provider telemetry fixture directory could not be created");
+    const QJsonObject event{
+        {QStringLiteral("timestamp_utc"), QStringLiteral("2026-10-07T08:29:00.000Z")},
+        {QStringLiteral("provider"), QStringLiteral("SCS SDK")},
+        {QStringLiteral("record_type"), QStringLiteral("provider_event")},
+        {QStringLiteral("event"), QStringLiteral("job.delivered")},
+        {QStringLiteral("provider_event_id"), 7},
+        {QStringLiteral("data"), QJsonObject{
+            {QStringLiteral("job_id"), QStringLiteral("provider-job-1")},
+            {QStringLiteral("cargo"), QStringLiteral("Furniture")},
+        }},
+    };
+    const QJsonObject configuration{
+        {QStringLiteral("timestamp_utc"), QStringLiteral("2026-10-07T08:29:01.000Z")},
+        {QStringLiteral("provider"), QStringLiteral("SCS SDK")},
+        {QStringLiteral("record_type"), QStringLiteral("provider_configuration")},
+        {QStringLiteral("configuration_id"), QStringLiteral("truck")},
+        {QStringLiteral("game_id"), QStringLiteral("ets2")},
+        {QStringLiteral("attributes"), QJsonObject{
+            {QStringLiteral("brand"), QStringLiteral("Volvo")},
+            {QStringLiteral("name"), QStringLiteral("FH16")},
+        }},
+    };
+    const QJsonObject nlsi_sample{
+        {QStringLiteral("timestamp_utc"), QStringLiteral("2026-10-07T08:29:02.000Z")},
+        {QStringLiteral("provider"), QStringLiteral("NLSI")},
+        {QStringLiteral("record_type"), QStringLiteral("telemetry_sample")},
+        {QStringLiteral("normalized_fields"), QJsonObject{
+            {QStringLiteral("speed_kmh"), QJsonObject{
+                {QStringLiteral("available"), true},
+                {QStringLiteral("value"), 36.0},
+            }},
+        }},
+    };
+    nlsi::logging::TelemetryRecorder recorder;
+    Check(recorder.Start(root.path().toStdWString())
+        && recorder.Enqueue(event)
+        && recorder.Enqueue(configuration)
+        && recorder.Enqueue(nlsi_sample)
+        && recorder.Flush()
+        && recorder.PendingCount() == 3
+        && recorder.StopFor(std::chrono::seconds(5)),
+        "NLSI and SCS provider records were not durably recorded offline");
+
+    nlsi::logging::TelemetryRecorder recovery;
+    const bool recovery_started = recovery.Start(root.path().toStdWString())
+        && recovery.Flush();
+    const std::wstring recovery_error = recovery.LastError();
+    const bool recovery_succeeded = recovery_started
+        && recovery.PendingCount() == 3
+        && recovery_error.empty()
+        && recovery.StopFor(std::chrono::seconds(5));
+    Check(recovery_succeeded,
+        "provider records were rejected while reopening existing telemetry history");
+}
+
 } // namespace
 
 int main() {
@@ -1291,6 +1409,9 @@ int main() {
         {"stable NLSI job IDs and collision handling", TestStableNlsiJobIdsAndCollisionHandling},
         {"offline telemetry queue and interrupted-write recovery", TestTelemetryRecorderOfflineRecovery},
         {"Asia/Manila timestamp conversion", TestAsiaManilaTimeZone},
+        {"completed jobs load from telemetry history", TestCompletedJobsLoadFromTelemetryHistory},
+        {"provider event and configuration telemetry persistence",
+            TestTelemetryRecorderPersistsProviderEventsAndConfiguration},
         {"version comparison", TestVersionComparison},
     };
     try {

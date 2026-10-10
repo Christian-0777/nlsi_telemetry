@@ -99,7 +99,12 @@ TelemetryUiState MakeTelemetryUiState(
                     100.0);
             }
         }
-        if (snapshot.eta_seconds.available && !snapshot.eta_seconds.stale
+        if (snapshot.navigation_time_s.available && !snapshot.navigation_time_s.stale
+            && std::isfinite(snapshot.navigation_time_s.value)
+            && snapshot.navigation_time_s.value >= 0.0) {
+            state.progress.eta_seconds = snapshot.navigation_time_s.value;
+        } else if (snapshot.eta_seconds.available && !snapshot.eta_seconds.stale
+            && std::isfinite(snapshot.eta_seconds.value)
             && snapshot.eta_seconds.value >= 0.0) {
             state.progress.eta_seconds = snapshot.eta_seconds.value;
         }

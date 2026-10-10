@@ -40,6 +40,11 @@ void MarkSnapshotStale(TelemetrySnapshot& snapshot) {
 #define NLSI_MARK_STALE(field) snapshot.field.MarkStale()
     NLSI_MARK_STALE(game_id);
     NLSI_MARK_STALE(game_name);
+    NLSI_MARK_STALE(game_version);
+    NLSI_MARK_STALE(vehicle);
+    NLSI_MARK_STALE(vehicle_plate);
+    NLSI_MARK_STALE(trailer);
+    NLSI_MARK_STALE(trailer_plate);
     NLSI_MARK_STALE(speed_kmh);
     NLSI_MARK_STALE(rpm);
     NLSI_MARK_STALE(gear);

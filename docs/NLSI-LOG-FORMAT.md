@@ -1,7 +1,7 @@
 # NLSI native log formats
 
 The native application keeps the existing UTF-8 `.txt` and v1 `.nlsi`
-application log, and writes revision-13 telemetry into separate v2 `.nlsi`
+application log, and writes mixed-provider telemetry into separate v2 `.nlsi`
 files. Both live below
 `%LOCALAPPDATA%\NLSI\Exclusive Logbook`; existing logs and history are never
 overwritten by telemetry capture or removed during upgrade/uninstall.
@@ -43,10 +43,13 @@ rotates at 128 MiB to `YYYY-MM-DD-NNN.nlsi`; rotation creates another file and
 does not remove earlier data. The header declares `format=nlsi-telemetry` and
 `schema_version=2`. Each subsequent JSON Lines record contains a generated
 stable record ID, monotonically increasing local sequence, driving-session ID
-or `null`, capture UTC timestamp, provider/revision/mapping identity, source
-timestamps, named raw fields and their availability, a compressed Base64 copy
-of the complete 32 KiB mapping, and separately represented normalized fields.
-No authenticated-account identifier or credential is stored.
+or `null`, and a capture UTC timestamp. TruckSim revision-13 samples retain
+provider/revision/mapping identity, source timestamps, named raw fields and
+their availability, a compressed Base64 copy of the complete 32 KiB mapping,
+and separately represented normalized fields. NLSI samples retain normalized
+fields; SCS gameplay and configuration callbacks are stored as timestamped
+`provider_event` and `provider_configuration` records. Every record names its
+provider. No authenticated-account identifier or credential is stored.
 
 Samples are queued in capture order to a background writer. The bounded queue
 allows at most 2,048 records and 64 MiB of serialized sample data; a sample
@@ -71,11 +74,13 @@ crash the shared-memory reader. Users should keep sufficient free disk space
 and archive old files themselves only after making their own backup. There is
 no automatic deletion or retention policy.
 
-Files can be inspected with any UTF-8 text editor or JSON Lines viewer. The
-v2 record’s `raw_mapping_base64` decodes to `qCompress` data containing the
-exact 32 KiB mapping; `raw_fields` is the named revision-13 subset NLSI
+Files can be inspected with any UTF-8 text editor or JSON Lines viewer. For
+TruckSim samples, `raw_mapping_base64` decodes to `qCompress` data containing
+the exact 32 KiB mapping; `raw_fields` is the named revision-13 subset NLSI
 currently decodes, while `normalized_fields` carries application values and
-their availability/source/timestamp/stale metadata. The legacy
+their availability/source/timestamp/stale metadata. Provider-event and
+configuration records retain their event data or configuration attributes
+instead of fabricating TruckSim raw fields. The legacy
 `Logger::ReadNlsiLog` reader reads v1 application logs; it intentionally does
 not reinterpret v2 telemetry records. TXT logs continue to contain the
 existing human-readable application/history output.

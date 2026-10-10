@@ -29,7 +29,7 @@ set "INSTALLER_PATH=%RELEASE_DIR%\NLSI-Exclusive-Logbook-%RELEASE_TAG%-Setup.exe
 if not exist "%BUILD_DIR%\CMakeCache.txt" (
     echo [ERROR] Native CMake build directory is not configured:
     echo         "%BUILD_DIR%"
-    echo Configure the version-specific VS 2022 x64 CMake build without reusing v1.4.1 outputs.
+    echo Configure the version-specific VS 2022 x64 CMake build without reusing prior release outputs.
     exit /b 2
 )
 

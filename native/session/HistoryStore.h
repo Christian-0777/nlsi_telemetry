@@ -65,7 +65,7 @@ public:
         const QString& user_data_directory,
         const QString& legacy_application_directory = {},
         const QString& legacy_user_data_directory = {});
-    bool RecordProviderEvent(const QByteArray& raw_packet);
+    bool RecordProviderEvent(const QByteArray& raw_packet, bool* newly_recorded = nullptr);
     bool StartSession(
         const std::wstring& id,
         const std::wstring& game,
@@ -89,6 +89,7 @@ private:
     bool LoadEvents();
     bool LoadSessions();
     bool LoadJobs();
+    bool LoadTelemetryJobs();
     bool LoadJobIds();
     bool SaveJobIds();
     QString AllocateNlsiJobId();

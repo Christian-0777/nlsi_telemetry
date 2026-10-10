@@ -894,6 +894,18 @@ bool TestNumberAndTimeFormatting() {
         || nlsi::gui::DurationText(3661.25) != QStringLiteral("01:01:01")
         || nlsi::gui::DurationText(-1.0) != QStringLiteral("N/A")
         || nlsi::gui::DurationText(std::numeric_limits<double>::infinity())
+            != QStringLiteral("N/A")
+        || nlsi::gui::ArrivalText(
+            240.0, QDateTime::fromString(
+                QStringLiteral("2026-10-10T13:01:39Z"), Qt::ISODate))
+            != QStringLiteral("4 MIN LEFT - 21:05:39 ASIA/MANILA")
+        || nlsi::gui::ArrivalText(
+            4800.0, QDateTime::fromString(
+                QStringLiteral("2026-10-10T13:01:39Z"), Qt::ISODate))
+            != QStringLiteral("1 HR 20 MIN LEFT - 22:21:39 ASIA/MANILA")
+        || nlsi::gui::ArrivalText(-1.0, QDateTime::currentDateTimeUtc())
+            != QStringLiteral("N/A")
+        || nlsi::gui::ArrivalText(1.0, {})
             != QStringLiteral("N/A")) {
         std::cerr << "Locale-independent number, date, or time formatting is incorrect.\n";
         return false;
@@ -1256,6 +1268,9 @@ bool TestDashboardContainsTransferredJobAndNavigationDetails() {
 
 bool TestDashboardCruiseControlIndicators() {
     nlsi::gui::DashboardPage page;
+    page.resize(1600, 1000);
+    page.show();
+    QApplication::processEvents();
     nlsi::telemetry::TelemetryUiState state;
     auto& snapshot = state.fast.values;
     snapshot.connected = true;
@@ -1277,7 +1292,9 @@ bool TestDashboardCruiseControlIndicators() {
     }
 
     snapshot.cruise_control_active.Set(true, L"TruckSim GPS", L"sample");
+    snapshot.cruise_control_speed.Set(94.0, L"TruckSim GPS", L"sample");
     page.UpdateState(state);
+    QApplication::processEvents();
     for (const QString& key : keys) {
         const QLabel* indicator = FindDashboardCruiseIndicator(page, key);
         if (!indicator || indicator->isHidden() || indicator->text() != QStringLiteral("A")) {
@@ -1287,11 +1304,11 @@ bool TestDashboardCruiseControlIndicators() {
     }
     if (FindDashboardField(page, QStringLiteral("throttle"))->text()
             != QStringLiteral("25.0%")
-        || FindDashboardField(page, QStringLiteral("brake"))->text()
-            != QStringLiteral("5.0%")
-        || FindDashboardField(page, QStringLiteral("retarder"))->text()
-            != QStringLiteral("2.0")) {
-        std::cerr << "Cruise markers changed the underlying dashboard telemetry values.\n";
+        || !FindDashboardField(page, QStringLiteral("brake"))->isHidden()
+        || !FindDashboardField(page, QStringLiteral("retarder"))->isHidden()
+        || FindDashboardField(page, QStringLiteral("cruiseControl"))->text()
+            != QStringLiteral("94 KM/H - ACTIVE")) {
+        std::cerr << "Active cruise control did not hide brake/retarder values or show its set speed.\n";
         return false;
     }
 
@@ -1302,6 +1319,15 @@ bool TestDashboardCruiseControlIndicators() {
             std::cerr << "A cruise marker remained after cruise control became inactive.\n";
             return false;
         }
+    }
+    if (FindDashboardField(page, QStringLiteral("brake"))->isHidden()
+        || FindDashboardField(page, QStringLiteral("retarder"))->isHidden()
+        || FindDashboardField(page, QStringLiteral("brake"))->text()
+            != QStringLiteral("5.0%")
+        || FindDashboardField(page, QStringLiteral("retarder"))->text()
+            != QStringLiteral("2.0")) {
+        std::cerr << "Inactive cruise control did not restore the numeric brake and retarder values.\n";
+        return false;
     }
 
     snapshot.cruise_control_active.Set(true, L"TruckSim GPS", L"sample");
@@ -1366,12 +1392,19 @@ bool TestDashboardLayoutAndResponsiveText() {
     state.providers.trucksim = nlsi::telemetry::ProviderState::Connected;
     snapshot.game_name.Set(L"Euro Truck Simulator 2", L"TruckSim GPS", L"sample");
     snapshot.game_id.Set(L"ets2", L"TruckSim GPS", L"sample");
+    snapshot.game_version.Set(L"1.58.1.2s", L"SCS SDK configuration", L"sample");
+    snapshot.vehicle.Set(L"Volvo FH16", L"SCS SDK configuration", L"sample");
+    snapshot.vehicle_plate.Set(L"NLSI 1", L"SCS SDK configuration", L"sample");
+    snapshot.trailer.Set(L"Schmitz Refrigerated", L"SCS SDK configuration", L"sample");
+    snapshot.trailer_plate.Set(L"TR 2", L"SCS SDK configuration", L"sample");
     snapshot.fuel_liters.Set(500.0, L"TruckSim GPS", L"sample");
+    snapshot.fuel_range_km.Set(180.0, L"TruckSim GPS", L"sample");
     snapshot.rpm.Set(1500.0, L"TruckSim GPS", L"sample");
     snapshot.gear.Set(6.0, L"TruckSim GPS", L"sample");
     snapshot.effective_throttle.Set(0.25, L"TruckSim GPS", L"sample");
     snapshot.effective_brake.Set(0.05, L"TruckSim GPS", L"sample");
     snapshot.cruise_control_active.Set(true, L"TruckSim GPS", L"sample");
+    snapshot.cruise_control_speed.Set(94.0, L"TruckSim GPS", L"sample");
     snapshot.retarder_level.Set(2.0, L"TruckSim GPS", L"sample");
     snapshot.special_job.Set(L"true", L"TruckSim GPS", L"sample");
     state.job.available = true;
@@ -1397,17 +1430,21 @@ bool TestDashboardLayoutAndResponsiveText() {
         {QStringLiteral("plannedDistance"), QStringLiteral("1,200 km")},
         {QStringLiteral("remainingDistance"), QStringLiteral("100.00 km")},
         {QStringLiteral("progress"), QStringLiteral("25.0%")},
-        {QStringLiteral("eta"), QStringLiteral("01:01:01")},
+        {QStringLiteral("eta"), QStringLiteral("1 HR 2 MIN LEFT")},
+        {QStringLiteral("fuel"), QStringLiteral("180 KM - 500.00 L")},
         {QStringLiteral("game"), QStringLiteral("Euro Truck Simulator 2")},
-        {QStringLiteral("gameVersion"), QStringLiteral("N/A")},
-        {QStringLiteral("vehicle"), QStringLiteral("N/A")},
-        {QStringLiteral("vehiclePlate"), QStringLiteral("N/A")},
-        {QStringLiteral("trailer"), QStringLiteral("N/A")},
-        {QStringLiteral("trailerPlate"), QStringLiteral("N/A")},
+        {QStringLiteral("gameVersion"), QStringLiteral("1.58.1.2s")},
+        {QStringLiteral("vehicle"), QStringLiteral("Volvo FH16")},
+        {QStringLiteral("vehiclePlate"), QStringLiteral("NLSI 1")},
+        {QStringLiteral("trailer"), QStringLiteral("Schmitz Refrigerated")},
+        {QStringLiteral("trailerPlate"), QStringLiteral("TR 2")},
     };
     for (auto it = expected.cbegin(); it != expected.cend(); ++it) {
         const QLabel* field = FindDashboardField(page, it.key());
-        if (!field || field->text() != it.value()) {
+        if (!field
+            || (it.key() == QStringLiteral("eta")
+                ? !field->accessibleName().startsWith(it.value())
+                : field->accessibleName() != it.value())) {
             std::cerr << "Dashboard field did not match its telemetry source: "
                       << it.key().toStdString() << '\n';
             return false;
@@ -1476,8 +1513,8 @@ bool TestDashboardLayoutAndResponsiveText() {
             }
             if (label->objectName() == QStringLiteral("dashboardValue")) {
                 value_size = pixel_size;
-                if (!label->wordWrap() || label->minimumWidth() != 0) {
-                    std::cerr << "A dashboard value cannot wrap or shrink to its cell width.\n";
+                if (label->wordWrap() || label->minimumWidth() != 0) {
+                    std::cerr << "A dashboard value cannot wrap and shrink to its cell width.\n";
                     return false;
                 }
             }
@@ -1495,6 +1532,17 @@ bool TestDashboardLayoutAndResponsiveText() {
     if (FindDashboardField(page, QStringLiteral("eta"))->text()
         != QStringLiteral("N/A")) {
         std::cerr << "An invalid ETA was not presented as unavailable.\n";
+        return false;
+    }
+    state.job.cargo.Set(std::wstring(300, L'W'), L"TruckSim GPS", L"sample");
+    page.UpdateState(state);
+    page.resize(900, 600);
+    QApplication::processEvents();
+    const QLabel* long_value = FindDashboardField(page, QStringLiteral("cargo"));
+    if (!long_value || long_value->wordWrap()
+        || long_value->toolTip().size() < 300
+        || long_value->text().size() > 300) {
+        std::cerr << "A long dashboard value wrapped or lost its complete accessible text.\n";
         return false;
     }
     return true;
@@ -1640,7 +1688,7 @@ bool TestSingleInstanceGuard(QApplication& application) {
 
 bool TestOfflineUpdateCheck() {
     nlsi::updater::GitHubUpdater updater(
-        QStringLiteral("1.5.1-beta"),
+        QStringLiteral("1.5.2-beta"),
         nullptr,
         QUrl(QStringLiteral("http://127.0.0.1:1/releases")));
     QEventLoop loop;
@@ -1678,7 +1726,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     application.setStyleSheet(QString::fromUtf8(stylesheet.readAll()));
-    application.setApplicationVersion(QStringLiteral("v1.5.1-beta"));
+    application.setApplicationVersion(QStringLiteral("v1.5.2-beta"));
     if (!TestModLogParsingAndSourceLinks()
         || !TestIncrementalGameLogMonitoring()
         || !TestMonitorStartsBeforeGame()
@@ -1695,7 +1743,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     nlsi::telemetry::TelemetryCore telemetry_core;
-    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.5.1-beta",
+    nlsi::gui::MainWindow window(L"NLSI Exclusive Logbook", L"v1.5.2-beta",
         telemetry_core);
 
     if (window.size() != QSize(900, 600) ||
@@ -1828,7 +1876,7 @@ int main(int argc, char** argv) {
         found_company = found_company
             || label->text() == QStringLiteral("Nabski Logistics and Solutions Inc.");
         found_version = found_version
-            || label->text() == QStringLiteral("v1.5.1-beta");
+            || label->text() == QStringLiteral("v1.5.2-beta");
         found_beta_channel = found_beta_channel
             || label->text() == QStringLiteral("Beta");
         if (label->text() == QStringLiteral("PRODUCT") && label->parentWidget()) {

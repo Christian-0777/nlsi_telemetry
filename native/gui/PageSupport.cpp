@@ -80,6 +80,36 @@ QString DurationText(const std::optional<double>& seconds) {
         .arg(static_cast<qulonglong>(remainder_seconds), 2, 10, QLatin1Char('0'));
 }
 
+QString ArrivalText(const std::optional<double>& seconds, const QDateTime& now_utc) {
+    if (!seconds || !std::isfinite(*seconds) || *seconds < 0.0 || !now_utc.isValid()) {
+        return QStringLiteral("N/A");
+    }
+    const QTimeZone zone = nlsi::time::Zone();
+    const double milliseconds = std::round(*seconds * 1000.0);
+    if (!zone.isValid() || !std::isfinite(milliseconds)
+        || milliseconds > static_cast<double>(std::numeric_limits<qint64>::max())) {
+        return QStringLiteral("N/A");
+    }
+    const QDateTime arrival = now_utc.toUTC()
+        .addMSecs(static_cast<qint64>(milliseconds)).toTimeZone(zone);
+    if (!arrival.isValid()) {
+        return QStringLiteral("N/A");
+    }
+    const quint64 whole_seconds = static_cast<quint64>(
+        std::ceil(*seconds));
+    const quint64 minutes_left = (whole_seconds + 59) / 60;
+    const quint64 hours = minutes_left / 60;
+    const quint64 minutes = minutes_left % 60;
+    const QString remaining = hours > 0
+        ? QStringLiteral("%1 HR %2 MIN LEFT")
+            .arg(static_cast<qulonglong>(hours))
+            .arg(static_cast<qulonglong>(minutes))
+        : QStringLiteral("%1 MIN LEFT").arg(static_cast<qulonglong>(minutes));
+    return remaining + QStringLiteral(" - ")
+        + arrival.toString(QStringLiteral("HH:mm:ss"))
+        + QStringLiteral(" ASIA/MANILA");
+}
+
 QString FormatNumber(double value, int precision) {
     return QLocale(QLocale::English, QLocale::UnitedStates).toString(value, 'f', precision);
 }

@@ -4,6 +4,10 @@
 #include <algorithm>
 
 #include <QFrame>
+#include <QFile>
+#include <QFileInfo>
+#include <QDateTime>
+#include <QDir>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QJsonDocument>
@@ -12,7 +16,9 @@
 #include <QJsonParseError>
 #include <QPlainTextEdit>
 #include <QResizeEvent>
+#include <QRegularExpression>
 #include <QSizePolicy>
+#include <QStandardPaths>
 #include <QVBoxLayout>
 
 namespace nlsi::gui {
@@ -78,6 +84,44 @@ QString ProgressValue(const std::optional<double>& progress) {
     return FormatNumber(*progress, 1) + QLatin1Char('%');
 }
 
+class DashboardValueLabel final : public QLabel {
+public:
+    explicit DashboardValueLabel(QWidget* parent) : QLabel(parent) {
+        setWordWrap(false);
+        setMinimumWidth(0);
+        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+        setTextInteractionFlags(Qt::TextSelectableByMouse);
+    }
+
+    void SetFullText(const QString& text) {
+        if (full_text_ == text) {
+            return;
+        }
+        full_text_ = text;
+        setToolTip(text);
+        setAccessibleName(text);
+        UpdateElision();
+    }
+
+protected:
+    void resizeEvent(QResizeEvent* event) override {
+        QLabel::resizeEvent(event);
+        UpdateElision();
+    }
+
+private:
+    void UpdateElision() {
+        if (contentsRect().width() <= 0) {
+            QLabel::setText(full_text_);
+            return;
+        }
+        QLabel::setText(fontMetrics().elidedText(
+            full_text_, Qt::ElideRight, contentsRect().width()));
+    }
+
+    QString full_text_;
+};
+
 } // namespace
 
 DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
@@ -97,7 +141,7 @@ DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
     AddMetric(job, 3, 0, QStringLiteral("plannedDistance"), QStringLiteral("PLANNED DISTANCE"));
     AddMetric(job, 3, 1, QStringLiteral("remainingDistance"), QStringLiteral("REMAINING DISTANCE"));
     AddMetric(job, 4, 0, QStringLiteral("progress"), QStringLiteral("PROGRESS"));
-    AddMetric(job, 4, 1, QStringLiteral("eta"), QStringLiteral("ETA"));
+    AddMetric(job, 4, 1, QStringLiteral("eta"), QStringLiteral("ARRIVAL"));
 
     special_job_indicator_ = new QLabel(QStringLiteral("SPECIAL JOB"), this);
     special_job_indicator_->setObjectName(QStringLiteral("specialJobIndicator"));
@@ -111,7 +155,7 @@ DashboardPage::DashboardPage(QWidget* parent) : StatePage(parent) {
     AddMetric(driving, 0, 1, QStringLiteral("engine"), QStringLiteral("RPM / GEAR"));
     AddMetric(driving, 1, 0, QStringLiteral("throttle"), QStringLiteral("THROTTLE"), true);
     AddMetric(driving, 1, 1, QStringLiteral("brake"), QStringLiteral("BRAKE"), true);
-    AddMetric(driving, 2, 0, QStringLiteral("cruiseControl"), QStringLiteral("CC"));
+    AddMetric(driving, 2, 0, QStringLiteral("cruiseControl"), QStringLiteral("CRUISE CONTROL"));
     AddMetric(driving, 2, 1, QStringLiteral("retarder"), QStringLiteral("RETARDER"), true);
 
     QGridLayout* game_config = AddSection(
@@ -186,14 +230,11 @@ void DashboardPage::AddMetric(
     auto* value_layout = new QHBoxLayout(value_row);
     value_layout->setContentsMargins(0, 0, 0, 0);
     value_layout->setSpacing(4);
-    auto* value = new QLabel(QStringLiteral("N/A"), value_row);
+    auto* value = new DashboardValueLabel(value_row);
+    value->SetFullText(QStringLiteral("N/A"));
     value->setObjectName(QStringLiteral("dashboardValue"));
     value->setProperty("fieldKey", key);
-    value->setWordWrap(true);
-    value->setMinimumWidth(0);
-    value->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    value->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    value_layout->addWidget(value, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    value_layout->addWidget(value, 1, Qt::AlignVCenter);
     values_.insert(key, value);
 
     if (cruise_indicator) {
@@ -217,8 +258,8 @@ void DashboardPage::SetValue(const QString& key, const QString& value) {
     QLabel* label = values_.value(key, nullptr);
     const QString normalized = value.trimmed().isEmpty()
         ? QStringLiteral("N/A") : value;
-    if (label && label->text() != normalized) {
-        label->setText(normalized);
+    if (label) {
+        static_cast<DashboardValueLabel*>(label)->SetFullText(normalized);
     }
 }
 
@@ -251,7 +292,8 @@ void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
             ? FormatNumber(*state.progress.remaining_distance_km, 2) + QStringLiteral(" km")
             : QStringLiteral("N/A"));
     SetValue(QStringLiteral("progress"), ProgressValue(state.progress.progress_percent));
-    SetValue(QStringLiteral("eta"), DurationText(state.progress.eta_seconds));
+    SetValue(QStringLiteral("eta"), ArrivalText(
+        state.progress.eta_seconds, QDateTime::currentDateTimeUtc()));
 
     const auto& special_job = snapshot.special_job;
     const bool special_job_active = snapshot.connected && special_job.available
@@ -260,32 +302,87 @@ void DashboardPage::UpdateState(const telemetry::TelemetryUiState& state) {
             QStringLiteral("true"), Qt::CaseInsensitive) == 0;
     special_job_indicator_->setVisible(special_job_active);
 
-    SetValue(QStringLiteral("fuel"), NumberValue(snapshot.fuel_liters, 2, QStringLiteral(" L")));
+    const QString fuel_range = snapshot.fuel_range_km.available
+            && !snapshot.fuel_range_km.stale
+            && std::isfinite(snapshot.fuel_range_km.value)
+            && snapshot.fuel_range_km.value >= 0.0
+        ? FormatNumber(snapshot.fuel_range_km.value, 0) + QStringLiteral(" KM")
+        : QStringLiteral("N/A");
+    const QString fuel_quantity = snapshot.fuel_liters.available
+            && !snapshot.fuel_liters.stale
+            && std::isfinite(snapshot.fuel_liters.value)
+            && snapshot.fuel_liters.value >= 0.0
+        ? FormatNumber(snapshot.fuel_liters.value, 2) + QStringLiteral(" L")
+        : QStringLiteral("N/A");
+    SetValue(QStringLiteral("fuel"),
+        fuel_range + QStringLiteral(" - ") + fuel_quantity);
     SetValue(QStringLiteral("engine"),
         NumberValue(snapshot.rpm, 0, QStringLiteral(" RPM"))
             + QStringLiteral(" / ")
             + NumberValue(snapshot.gear, 0));
     SetValue(QStringLiteral("throttle"), PercentValue(snapshot.effective_throttle));
-    SetValue(QStringLiteral("brake"), PercentValue(snapshot.effective_brake));
-    SetValue(QStringLiteral("retarder"), NumberValue(snapshot.retarder_level, 1));
-
     const auto& cruise_control = snapshot.cruise_control_active;
     const bool cruise_control_confirmed = snapshot.connected
         && cruise_control.available && !cruise_control.stale;
+    const bool cruise_control_active = cruise_control_confirmed && cruise_control.value;
+    SetValue(QStringLiteral("brake"), PercentValue(snapshot.effective_brake));
+    SetValue(QStringLiteral("retarder"), NumberValue(snapshot.retarder_level, 1));
+    values_.value(QStringLiteral("brake"))->setVisible(!cruise_control_active);
+    values_.value(QStringLiteral("retarder"))->setVisible(!cruise_control_active);
     SetValue(QStringLiteral("cruiseControl"),
         cruise_control_confirmed
-            ? (cruise_control.value ? QStringLiteral("ACTIVE") : QStringLiteral("INACTIVE"))
+            ? NumberValue(snapshot.cruise_control_speed, 0, QStringLiteral(" KM/H"))
+                + (cruise_control.value
+                    ? QStringLiteral(" - ACTIVE") : QStringLiteral(" - INACTIVE"))
             : QStringLiteral("N/A"));
     for (auto it = cruise_indicators_.begin(); it != cruise_indicators_.end(); ++it) {
         it.value()->setVisible(cruise_control_confirmed && cruise_control.value);
     }
 
     SetValue(QStringLiteral("game"), FieldValue(snapshot.game_name));
-    SetValue(QStringLiteral("gameVersion"), QStringLiteral("N/A"));
-    SetValue(QStringLiteral("vehicle"), QStringLiteral("N/A"));
-    SetValue(QStringLiteral("vehiclePlate"), QStringLiteral("N/A"));
-    SetValue(QStringLiteral("trailer"), QStringLiteral("N/A"));
-    SetValue(QStringLiteral("trailerPlate"), QStringLiteral("N/A"));
+    QString game_version = FieldValue(snapshot.game_version);
+    if (game_version == QStringLiteral("N/A")
+        && snapshot.game_id.available && !snapshot.game_id.stale) {
+        const QString game_id = QString::fromStdWString(snapshot.game_id.value);
+        const QString game_directory = game_id == QStringLiteral("ets2")
+            ? QStringLiteral("Euro Truck Simulator 2")
+            : (game_id == QStringLiteral("ats")
+                ? QStringLiteral("American Truck Simulator") : QString());
+        if (!game_directory.isEmpty()) {
+            const QString documents = QStandardPaths::writableLocation(
+                QStandardPaths::DocumentsLocation);
+            const QString path = QDir(documents).filePath(
+                game_directory + QStringLiteral("/game.log.txt"));
+            const QFileInfo info(path);
+            if (path != game_log_path_ || info.lastModified() != game_log_modified_) {
+                game_log_path_ = path;
+                game_log_modified_ = info.lastModified();
+                game_log_version_.clear();
+                QFile log(path);
+                if (log.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    static const QRegularExpression version_pattern(
+                        QStringLiteral("\\[sys\\].*Game version:\\s*([^\\s,]+)"),
+                        QRegularExpression::CaseInsensitiveOption);
+                    const QString contents = QString::fromUtf8(log.read(256 * 1024));
+                    for (const QString& line : contents.split(QLatin1Char('\n'))) {
+                        const auto match = version_pattern.match(line);
+                        if (match.hasMatch()) {
+                            game_log_version_ = match.captured(1).trimmed();
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!game_log_version_.isEmpty()) {
+                game_version = game_log_version_;
+            }
+        }
+    }
+    SetValue(QStringLiteral("gameVersion"), game_version);
+    SetValue(QStringLiteral("vehicle"), FieldValue(snapshot.vehicle));
+    SetValue(QStringLiteral("vehiclePlate"), FieldValue(snapshot.vehicle_plate));
+    SetValue(QStringLiteral("trailer"), FieldValue(snapshot.trailer));
+    SetValue(QStringLiteral("trailerPlate"), FieldValue(snapshot.trailer_plate));
 }
 
 void DashboardPage::UpdateHistory(const session::HistorySnapshot& history) {

@@ -29,6 +29,7 @@ std::mutex configuration_mutex;
 std::map<std::string, std::string> job_configuration;
 std::map<std::string, std::string> truck_configuration;
 std::map<std::string, std::string> trailer_configuration;
+std::uint32_t active_game_id = 0;
 
 using JsonFields = std::map<std::string, std::string>;
 
@@ -134,32 +135,26 @@ std::string UtcTimestamp() {
     return buffer;
 }
 
-void PublishGameplayEvent(const char* event_name, JsonFields fields) {
-    if (!shared_events || !event_name) {
+void PublishEventPacket(std::string packet) {
+    if (!shared_events || packet.empty()) {
         return;
     }
-
-    std::string packet = "{\"type\":\"gameplay_event\",\"provider\":\"SCS SDK\",\"event\":";
-    packet += JsonString(event_name);
-    packet += ",\"provider_event_id\":18446744073709551615";
-    packet += ",\"timestamp\":";
-    packet += JsonString(UtcTimestamp());
-    packet += ",\"data\":";
-    packet += JsonObject(fields);
-    packet.push_back('}');
     if (packet.size() >= nlsi::providers::kScsTelemetryEventPayloadSize) {
         if (game_log) {
-            game_log(SCS_LOG_TYPE_warning,
-                "SCS GAMEPLAY EVENT WAS TOO LARGE FOR THE NLSI EVENT INTERFACE.");
+            game_log(SCS_LOG_TYPE_warning, "SCS PROVIDER PACKET EXCEEDED THE NLSI EVENT INTERFACE SIZE.");
         }
         return;
     }
 
     const auto event_id = static_cast<std::uint64_t>(InterlockedIncrement64(
         reinterpret_cast<volatile LONG64*>(&shared_events->latest_event_id)));
-    constexpr char event_id_marker[] = "18446744073709551615";
+    constexpr char event_id_marker[] = "\"provider_event_id\":18446744073709551615";
     const std::size_t marker = packet.find(event_id_marker);
-    packet.replace(marker, sizeof(event_id_marker) - 1, std::to_string(event_id));
+    if (marker != std::string::npos) {
+        const std::string replacement =
+            "\"provider_event_id\":" + std::to_string(event_id);
+        packet.replace(marker, sizeof(event_id_marker) - 1, replacement);
+    }
     auto& slot = shared_events->entries[
         (event_id - 1) % nlsi::providers::kScsTelemetryEventCapacity];
     InterlockedIncrement(reinterpret_cast<volatile LONG*>(&slot.sequence));
@@ -169,6 +164,43 @@ void PublishGameplayEvent(const char* event_name, JsonFields fields) {
     slot.payload[packet.size()] = '\0';
     MemoryBarrier();
     InterlockedIncrement(reinterpret_cast<volatile LONG*>(&slot.sequence));
+}
+
+void PublishGameplayEvent(const char* event_name, JsonFields fields) {
+    if (!event_name) {
+        return;
+    }
+    std::string packet = "{\"type\":\"gameplay_event\",\"provider\":\"SCS SDK\",\"event\":";
+    packet += JsonString(event_name);
+    packet += ",\"provider_event_id\":18446744073709551615,\"timestamp\":";
+    packet += JsonString(UtcTimestamp());
+    packet += ",\"data\":";
+    packet += JsonObject(fields);
+    packet.push_back('}');
+    PublishEventPacket(std::move(packet));
+}
+
+void PublishConfiguration(const std::string& id, const JsonFields& attributes) {
+    JsonFields relevant;
+    for (const char* key : {
+             "brand", "name", "license.plate", "license_plate",
+             "body.type", "chain.type", "version", "game.version",
+             "game_version", "game.name", "game_name"}) {
+        const auto value = attributes.find(key);
+        if (value != attributes.end()) {
+            relevant.emplace(value->first, value->second);
+        }
+    }
+    std::string packet = "{\"type\":\"configuration\",\"provider\":\"SCS SDK\",\"id\":";
+    packet += JsonString(id);
+    packet += ",\"provider_event_id\":18446744073709551615,\"timestamp\":";
+    packet += JsonString(UtcTimestamp());
+    packet += ",\"game_id\":";
+    packet += std::to_string(active_game_id);
+    packet += ",\"attributes\":";
+    packet += JsonObject(relevant);
+    packet.push_back('}');
+    PublishEventPacket(std::move(packet));
 }
 
 void CloseEventMapping() {
@@ -246,16 +278,23 @@ SCSAPI_VOID StoreConfiguration(
 
     const std::string id(configuration->id);
     JsonFields fields = CaptureAttributes(configuration->attributes);
-    std::lock_guard<std::mutex> lock(configuration_mutex);
-    if (id == SCS_TELEMETRY_CONFIG_job) {
-        job_configuration = std::move(fields);
-    } else if (id == SCS_TELEMETRY_CONFIG_truck) {
-        truck_configuration = std::move(fields);
-    } else if (id == SCS_TELEMETRY_CONFIG_trailer
-        || id.rfind("trailer.", 0) == 0) {
-        if (id == SCS_TELEMETRY_CONFIG_trailer || id == "trailer.0") {
-            trailer_configuration = std::move(fields);
+    {
+        std::lock_guard<std::mutex> lock(configuration_mutex);
+        if (id == SCS_TELEMETRY_CONFIG_job) {
+            job_configuration = fields;
+        } else if (id == SCS_TELEMETRY_CONFIG_truck) {
+            truck_configuration = fields;
+        } else if (id == SCS_TELEMETRY_CONFIG_trailer
+            || id.rfind("trailer.", 0) == 0) {
+            if (id == SCS_TELEMETRY_CONFIG_trailer || id == "trailer.0") {
+                trailer_configuration = fields;
+            }
         }
+    }
+    if (id == SCS_TELEMETRY_CONFIG_truck
+        || id == SCS_TELEMETRY_CONFIG_trailer || id == "trailer.0"
+        || id == "game") {
+        PublishConfiguration(id, fields);
     }
 }
 
@@ -436,6 +475,7 @@ SCSAPI_RESULT scs_telemetry_init(
         init->common.log(SCS_LOG_TYPE_warning, "NLSI SUPPORTS ETS2 AND ATS ONLY.");
         return SCS_RESULT_unsupported;
     }
+    active_game_id = game_id;
 
     SetLastError(ERROR_SUCCESS);
     mapping_handle = CreateFileMappingW(

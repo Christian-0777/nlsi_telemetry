@@ -200,11 +200,13 @@ bool HistoryStore::Load() {
     const bool events_loaded = LoadEvents();
     const bool sessions_loaded = LoadSessions();
     const bool jobs_loaded = LoadJobs();
+    const bool telemetry_jobs_loaded = LoadTelemetryJobs();
     const bool job_ids_loaded = LoadJobIds();
     SortNewestFirst(snapshot_.events);
     SortNewestFirst(snapshot_.sessions);
     SortNewestFirst(snapshot_.jobs);
-    return events_loaded && sessions_loaded && jobs_loaded && job_ids_loaded;
+    return events_loaded && sessions_loaded && jobs_loaded
+        && telemetry_jobs_loaded && job_ids_loaded;
 }
 
 bool HistoryStore::LoadEvents() {
@@ -347,6 +349,96 @@ bool HistoryStore::LoadJobs() {
     return true;
 }
 
+bool HistoryStore::LoadTelemetryJobs() {
+    const QString telemetry_directory =
+        QDir(root_).filePath(QStringLiteral("logs/telemetry"));
+    if (!QFileInfo::exists(telemetry_directory)) {
+        return true;
+    }
+    QDirIterator files(
+        telemetry_directory,
+        {QStringLiteral("*.nlsi")},
+        QDir::Files,
+        QDirIterator::Subdirectories);
+    while (files.hasNext()) {
+        const QString path = files.next();
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            SetError(QStringLiteral("Could not read completed-job telemetry in %1: %2")
+                .arg(path, file.errorString()));
+            return false;
+        }
+        int line_number = 0;
+        while (!file.atEnd()) {
+            ++line_number;
+            QJsonObject object;
+            QString error;
+            if (!ParseRecord(file.readLine(), path, line_number, object, error)) {
+                SetError(error);
+                continue;
+            }
+            if (object.value(QStringLiteral("record_type")).toString()
+                    != QStringLiteral("provider_event")) {
+                continue;
+            }
+            const QString event_type = object.value(QStringLiteral("event")).toString();
+            const bool delivered = event_type == QStringLiteral("job.delivered");
+            const bool cancelled = event_type == QStringLiteral("job.cancelled");
+            if (!delivered && !cancelled) {
+                continue;
+            }
+            QJsonObject details = object.value(QStringLiteral("data")).toObject();
+            const QString game_job_id = EventText(details, {
+                QStringLiteral("job_id"), QStringLiteral("job.id"),
+                QStringLiteral("cargo_id"), QStringLiteral("cargo.id")});
+            const QString status = delivered
+                ? QStringLiteral("Delivered") : QStringLiteral("Cancelled");
+            const QString timestamp = object.value(QStringLiteral("timestamp_utc")).toString();
+            const QString event_key = !game_job_id.isEmpty()
+                ? QStringLiteral("job_id:%1").arg(game_job_id)
+                : QStringLiteral("telemetry:%1|%2|%3")
+                    .arg(EventText(details, {QStringLiteral("provider_event_id")}),
+                        status, timestamp);
+            if (recorded_job_events_.contains(event_key)) {
+                continue;
+            }
+            const QString identity = game_job_id.isEmpty()
+                ? event_key : game_job_id;
+            const QString cargo = EventText(details, {
+                QStringLiteral("cargo"), QStringLiteral("cargo_name"),
+                QStringLiteral("cargo.name"), QStringLiteral("cargo.id")});
+            const QString source_company = EventText(details, {
+                QStringLiteral("source_company"), QStringLiteral("source.company")});
+            const QString source_city = EventText(details, {
+                QStringLiteral("source_city"), QStringLiteral("source.city")});
+            const QString destination_company = EventText(details, {
+                QStringLiteral("destination_company"),
+                QStringLiteral("destination.company")});
+            const QString destination_city = EventText(details, {
+                QStringLiteral("destination_city"), QStringLiteral("destination.city")});
+            const auto route = [](const QString& company, const QString& city) {
+                if (company.isEmpty()) return city;
+                if (city.isEmpty() || company == city) return company;
+                return company + QStringLiteral(" · ") + city;
+            };
+            const QString source = route(source_company, source_city);
+            const QString destination = route(destination_company, destination_city);
+            snapshot_.jobs.push_back({
+                identity,
+                cargo,
+                source,
+                destination,
+                status,
+                timestamp,
+                details,
+                details.value(QStringLiteral("nlsi_job_id")).toString(),
+            });
+            recorded_job_events_.insert(event_key);
+        }
+    }
+    return true;
+}
+
 bool HistoryStore::LoadJobIds() {
     QFile file(job_ids_path_);
     if (!file.exists()) {
@@ -435,7 +527,12 @@ QString HistoryStore::EnsureNlsiJobId(const QString& game_job_identity) {
     return nlsi_job_id;
 }
 
-bool HistoryStore::RecordProviderEvent(const QByteArray& raw_packet) {
+bool HistoryStore::RecordProviderEvent(
+    const QByteArray& raw_packet,
+    bool* newly_recorded) {
+    if (newly_recorded) {
+        *newly_recorded = false;
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     QJsonParseError parse_error;
     const QJsonDocument document = QJsonDocument::fromJson(raw_packet, &parse_error);
@@ -478,6 +575,9 @@ bool HistoryStore::RecordProviderEvent(const QByteArray& raw_packet) {
     }
 
     recorded_provider_events_.insert(event_key);
+    if (newly_recorded) {
+        *newly_recorded = true;
+    }
     snapshot_.events.prepend({
         timestamp,
         source,
@@ -487,9 +587,15 @@ bool HistoryStore::RecordProviderEvent(const QByteArray& raw_packet) {
     ++snapshot_.revision;
     snapshot_.error.clear();
     std::wstring log_error;
+    const QString data_text = QString::fromUtf8(
+        QJsonDocument(details.value(QStringLiteral("data")).toObject())
+            .toJson(QJsonDocument::Compact));
     if (!logger_.Log(
             (QStringLiteral("[event] %1 %2 %3")
-                .arg(timestamp, source, type)).toStdWString(),
+                .arg(timestamp, source, type)
+                + (data_text == QStringLiteral("{}")
+                    ? QString() : QStringLiteral(" | data=%1").arg(data_text)))
+                .toStdWString(),
             &log_error)) {
         snapshot_.error = QString::fromStdWString(log_error);
     }
